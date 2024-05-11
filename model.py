@@ -39,29 +39,23 @@ class Discriminator(nn.Module):
         img_input = torch.cat((img_A, img_B), 1)
         return self.model(img_input)
 
-
 class Conv2d_WS(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride,
-                 padding, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
     def forward(self, x):
         weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
-                                  keepdim=True).mean(dim=3, keepdim=True)
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
         weight = weight - weight_mean
         std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
         weight = weight / std.expand_as(weight)
-        return F.conv2d(x, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
+        return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+    
+
 
 class Conv3D_WS(nn.Conv3d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True):
-        super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride,
-                                        padding, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
     def forward(self, x):
         weight = self.weight
@@ -119,7 +113,7 @@ class Eapp(nn.Module):
         super().__init__()
         
         # First part: producing volumetric features vs
-        self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
+        self.conv = Conv2d_WS(3, 64, 7, stride=1, padding=3)
         self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
         self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
         self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
@@ -347,6 +341,8 @@ def compute_rotation_matrix(rotation):
 class WarpingGenerator(nn.Module):
     def __init__(self, input_channels):
         super(WarpingGenerator, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
+       
         self.emotion_net = nn.Sequential(
             ResBlock3D_Adaptive(input_channels, 256),
             ResBlock3D_Adaptive(256, 128),
@@ -354,7 +350,13 @@ class WarpingGenerator(nn.Module):
             nn.Conv3d(64, 3, kernel_size=3, padding=1)
         )
 
-    def forward(self, rotation, translation, emotion, appearance):
+    def forward(self, rotation, translation, expression, appearance):
+         # Concatenate the input parameters along the channel dimension
+        x = torch.cat([rotation, translation, expression, appearance], dim=1)
+        
+        # Pass the concatenated input through the warping generator
+        out = self.conv1(x)
+       
         # Compute rotation and translation warp
         rt_warp = compute_rt_warp(rotation, translation)
         
@@ -446,6 +448,16 @@ class ResBlock3D_Adaptive(nn.Module):
         out = F.relu(out)
         return out
 
+
+'''
+In the updated Emtn class, we use two separate networks (head_pose_net and expression_net) to predict the head pose and expression parameters, respectively.
+
+The head_pose_net is a ResNet-18 model pretrained on ImageNet, with the last fully connected layer replaced to output 6 values (3 for rotation and 3 for translation).
+The expression_net is another ResNet-18 model with the last fully connected layer adjusted to output the desired dimensions of the expression vector (e.g., 50).
+
+In the forward method, we pass the input x through both networks to obtain the head pose and expression predictions. We then split the head pose output into rotation and translation parameters.
+The Emtn module now returns the rotation parameters (Rs, Rd), translation parameters (ts, td), and expression vectors (zs, zd) for both the source and driving images.
+Note: Make sure to adjust the dimensions of the rotation, translation, and expression parameters according to your specific requirements and the details provided in the MegaPortraits paper.'''
 class Emtn(nn.Module):
     def __init__(self):
         super().__init__()
@@ -457,7 +469,12 @@ class Emtn(nn.Module):
     def forward(self, x):
         head_pose = self.head_pose_net(x)
         expression = self.expression_net(x)
-        return head_pose, expression
+        
+        # Split head pose into rotation and translation parameters
+        rotation = head_pose[:, :3]
+        translation = head_pose[:, 3:]
+        
+        return rotation, translation, expression
 
 '''
 The main changes made to align the code with the training stages are:
