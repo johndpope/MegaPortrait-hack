@@ -823,11 +823,17 @@ The final output is obtained by applying adaptive average pooling and a 1x1 conv
 
 The GazeLoss can be used in the PerceptualLoss class to compute the gaze loss component. The Encoder model can be used in the contrastive_loss function to encode the frames into lower-dimensional representations for computing the cosine similarity.
 '''
-# Gaze Loss
+# Gaze Lossimport torch
+import torch.nn as nn
+import torchvision.models as models
+from rt_gene.model import RTGENE # TODO FIX THIS
+
 class GazeLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained_model_path):
         super(GazeLoss, self).__init__()
-        self.gaze_model = GazeModel()
+        self.gaze_model = RTGENE()
+        self.gaze_model.load_state_dict(torch.load(pretrained_model_path))
+        self.gaze_model.eval()
         self.loss_fn = nn.MSELoss()
     
     def forward(self, output_frame, target_frame):
@@ -835,19 +841,6 @@ class GazeLoss(nn.Module):
         target_gaze = self.gaze_model(target_frame)
         loss = self.loss_fn(output_gaze, target_gaze)
         return loss
-
-# Gaze Model
-class GazeModel(nn.Module):
-    def __init__(self):
-        super(GazeModel, self).__init__()
-        self.base_model = models.vgg16(pretrained=True)
-        self.base_model.classifier = nn.Sequential(*list(self.base_model.classifier.children())[:-1])
-        self.gaze_fc = nn.Linear(4096, 2)
-    
-    def forward(self, x):
-        features = self.base_model(x)
-        gaze = self.gaze_fc(features)
-        return gaze
 
 # Encoder Model
 class Encoder(nn.Module):
