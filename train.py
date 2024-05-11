@@ -97,6 +97,24 @@ def cycle_consistency_loss(output_frame, source_frame, driving_frame, generator)
     return loss
 
 
+def cosine_loss(emtn, source_frames, driving_frames, output_frames):
+    Rs, ts, zs = emtn(source_frames)
+    Rd, td, zd = emtn(driving_frames)
+    
+    # Calculate positive pairs
+    pos_pairs = [(zs, zd), (zd, zs)]
+    
+    # Calculate negative pairs
+    z_rand = torch.randn_like(zs)
+    neg_pairs = [(zs, z_rand), (zd, z_rand)]
+    
+    loss = 0
+    for pos_pair in pos_pairs:
+        loss += torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) / 
+                          (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) + neg_pair_loss(pos_pair, neg_pairs, margin=1.0)))
+    
+    return loss
+
 # Create an instance of the PerceptualLoss class
 perceptual_loss_fn = PerceptualLoss().to(device)
 
@@ -107,21 +125,22 @@ def contrastive_loss(output_frame, source_frame, driving_frame, margin=1.0, enco
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
+    z_rand = torch.randn_like(z_out)  # Define z_rand
     
     pos_pairs = [(z_out, z_src), (z_out, z_drv)]
-    neg_pairs = [(z_out, z_rand), (z_src, z_rand)]
+    neg_pairs = [(z_out, z_rand), (z_src, z_rand)]  # Update neg_pairs
     
     loss = 0
     for pos_pair in pos_pairs:
         loss += torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) / 
-                          (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) + neg_pair_loss(pos_pair, neg_pairs)))
+                          (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) + neg_pair_loss(pos_pair, neg_pairs, margin)))  # Pass margin to neg_pair_loss
     
     return loss
 
-def neg_pair_loss(pos_pair, neg_pairs):
+def neg_pair_loss(pos_pair, neg_pairs, margin):
     loss = 0
     for neg_pair in neg_pairs:
-        loss += torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)
+        loss += torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)  # Update margin
     return loss
 
 # Discriminator Loss
@@ -155,7 +174,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             # Compute losses
             loss_perceptual = perceptual_loss_fn(output_frames, driving_frames)
             loss_adversarial = adversarial_loss(output_frames, Dbase)
-            loss_cosine = cosine_loss(Gbase.Emtn)
+            loss_cosine = cosine_loss(Gbase.Emtn, source_frames, driving_frames, output_frames)
             
             loss_G = cfg.training.lambda_perceptual * loss_perceptual + cfg.training.lambda_adversarial * loss_adversarial + cfg.training.lambda_cosine * loss_cosine
             
