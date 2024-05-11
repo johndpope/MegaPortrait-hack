@@ -561,29 +561,52 @@ class ResBlock2D(nn.Module):
         return self.final_activation(x + out)
 
 
+
+'''
+The high-resolution model (Genh) 
+The encoder consists of a series of convolutional layers, residual blocks, and average pooling operations to downsample the input image.
+The res_blocks section contains multiple residual blocks operating at the same resolution.
+The decoder consists of upsampling operations, residual blocks, and a final convolutional layer to generate the high-resolution output.
+'''
 class Genh(nn.Module):
     def __init__(self):
         super(Genh, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
-            ResBlock2D(64, 128),
-            ResBlock2D(128, 256),
-            ResBlock2D(256, 512),
+            nn.Conv2d(3, 64, kernel_size=7, padding=3),
+            ResBlock2D(64),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            ResBlock2D(64),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            ResBlock2D(64),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            ResBlock2D(64),
+        )
+        self.res_blocks = nn.Sequential(
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
+            ResBlock2D(64),
         )
         self.decoder = nn.Sequential(
-            ResBlock2D(512, 256),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(256, 128),
+            ResBlock2D(64),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(128, 64),
-            nn.Conv2d(64, 3, kernel_size=3, padding=1),
+            ResBlock2D(64),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ResBlock2D(64),
+            nn.Conv2d(64, 3, kernel_size=7, padding=3),
             nn.Tanh(),
         )
 
     def forward(self, x):
-        encoded = self.encoder(x)
-        decoded = self.decoder(encoded)
-        return decoded
+        x = self.encoder(x)
+        x = self.res_blocks(x)
+        x = self.decoder(x)
+        return x
 
     def unsupervised_loss(self, x, x_hat):
         # Cycle consistency loss
@@ -602,8 +625,33 @@ class Genh(nn.Module):
         return l1_loss + perceptual_loss
 
     def perceptual_loss(self, x, y):
-        # Implement perceptual loss using a pre-trained VGG network
-        pass
+        # Load pre-trained VGG network
+        vgg = models.vgg19(pretrained=True).features.eval().to(x.device)
+        
+        # Define VGG normalization parameters
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(x.device)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(x.device)
+        
+        # Normalize input images
+        x = (x - mean) / std
+        y = (y - mean) / std
+        
+        # Define perceptual loss layers
+        perceptual_layers = [1, 6, 11, 20, 29]
+        
+        # Initialize perceptual loss
+        perceptual_loss = 0.0
+        
+        # Extract features from VGG network
+        for i, layer in enumerate(vgg):
+            x = layer(x)
+            y = layer(y)
+            
+            if i in perceptual_layers:
+                # Compute perceptual loss for current layer
+                perceptual_loss += nn.functional.l1_loss(x, y)
+        
+        return perceptual_loss
 
 class GHR(nn.Module):
     def __init__(self):
@@ -616,34 +664,47 @@ class GHR(nn.Module):
         xhat_hr = self.Genh(xhat_base)
         return xhat_hr
 
+
+'''
+The encoder consists of convolutional layers, custom residual blocks, and average pooling operations to downsample the input image.
+The SPADE (Spatially-Adaptive Normalization) blocks are applied after the encoder, conditioned on the avatar index.
+The decoder consists of custom residual blocks, upsampling operations, and a final convolutional layer to generate the output image.
+
+'''
 class Student(nn.Module):
     def __init__(self, num_avatars):
         super(Student, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3),
             ResBlock_Custom(dimension=2, input_channels=64, output_channels=128),
+            nn.AvgPool2d(kernel_size=2, stride=2),
             ResBlock_Custom(dimension=2, input_channels=128, output_channels=256),
+            nn.AvgPool2d(kernel_size=2, stride=2),
             ResBlock_Custom(dimension=2, input_channels=256, output_channels=512),
-            ResBlock_Custom(dimension=2, input_channels=512, output_channels=1024)
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            ResBlock_Custom(dimension=2, input_channels=512, output_channels=1024),
         )
         self.decoder = nn.Sequential(
             ResBlock_Custom(dimension=2, input_channels=1024, output_channels=512),
-            nn.Upsample(scale_factor=(2, 2)),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock_Custom(dimension=2, input_channels=512, output_channels=256),
-            nn.Upsample(scale_factor=(2, 2)),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock_Custom(dimension=2, input_channels=256, output_channels=128),
-            nn.Conv2d(in_channels=128, out_channels=3, kernel_size=3, padding=1)
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ResBlock_Custom(dimension=2, input_channels=128, output_channels=64),
+            nn.Conv2d(in_channels=64, out_channels=3, kernel_size=7, padding=3),
+            nn.Tanh(),
         )
         self.spade_blocks = nn.ModuleList([
             SPADEResBlock(1024, 1024, num_avatars) for _ in range(4)
         ])
 
     def forward(self, xd, avatar_index):
-        encoded = self.encoder(xd)
+        x = self.encoder(xd)
         for spade_block in self.spade_blocks:
-            encoded = spade_block(encoded, avatar_index)
-        xhat = self.decoder(encoded)
-        return xhat
+            x = spade_block(x, avatar_index)
+        x = self.decoder(x)
+        return x
 
 
 '''
