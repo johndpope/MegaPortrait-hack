@@ -624,6 +624,16 @@ class Genh(nn.Module):
 
         return l1_loss + perceptual_loss
 
+
+# We load a pre-trained VGG19 network using models.vgg19(pretrained=True) and extract its feature layers using .features. We set the VGG network to evaluation mode and move it to the same device as the input images.
+# We define the normalization parameters for the VGG network. The mean and standard deviation values are based on the ImageNet dataset, which was used to train the VGG network. We create tensors for the mean and standard deviation values and move them to the same device as the input images.
+# We normalize the input images x and y using the defined mean and standard deviation values. This normalization is necessary to match the expected input format of the VGG network.
+# We define the layers of the VGG network to be used for computing the perceptual loss. In this example, we use layers 1, 6, 11, 20, and 29, which correspond to different levels of feature extraction in the VGG network.
+# We initialize a variable perceptual_loss to accumulate the perceptual loss values.
+# We iterate over the layers of the VGG network using enumerate(vgg). For each layer, we pass the input images x and y through the layer and update their values.
+# If the current layer index is in the perceptual_layers list, we compute the perceptual loss for that layer using the L1 loss between the features of x and y. We accumulate the perceptual loss values by adding them to the perceptual_loss variable.
+# Finally, we return the computed perceptual loss.
+
     def perceptual_loss(self, x, y):
         # Load pre-trained VGG network
         vgg = models.vgg19(pretrained=True).features.eval().to(x.device)

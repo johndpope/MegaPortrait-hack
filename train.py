@@ -143,30 +143,21 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     
     for epoch in range(cfg.training.base_epochs):
         for batch in dataloader:
-            video_frames = batch['images']
-            video_id = batch['video_id']
-            
-            # Sample source and driving frames
-            source_frame = video_frames[torch.randint(0, len(video_frames), (1,))]
-            driving_frame = video_frames[torch.randint(0, len(video_frames), (1,))]
-            
-            # Prepare data
-            source_frame = source_frame.to(device)
-            driving_frame = driving_frame.to(device)
+            source_frames = batch['source_frames'].to(device)
+            driving_frames = batch['driving_frames'].to(device)
             
             # Train generator
             optimizer_G.zero_grad()
             
-            # Generate output frame
-            output_frame = Gbase(source_frame, driving_frame)
+            # Generate output frames
+            output_frames = Gbase(source_frames, driving_frames)
             
             # Compute losses
-            loss_perceptual = perceptual_loss_fn(output_frame, driving_frame)
-            loss_adversarial = adversarial_loss(output_frame, Dbase)
-            loss_cycle_consistency = cycle_consistency_loss(output_frame, source_frame, driving_frame, Gbase)
-            loss_contrastive = contrastive_loss(output_frame, source_frame, driving_frame)
+            loss_perceptual = perceptual_loss_fn(output_frames, driving_frames)
+            loss_adversarial = adversarial_loss(output_frames, Dbase)
+            loss_cosine = cosine_loss(Gbase.Emtn)
             
-            loss_G = loss_perceptual + loss_adversarial + loss_cycle_consistency + loss_contrastive
+            loss_G = cfg.training.lambda_perceptual * loss_perceptual + cfg.training.lambda_adversarial * loss_adversarial + cfg.training.lambda_cosine * loss_cosine
             
             # Backpropagate and update generator
             loss_G.backward()
@@ -176,8 +167,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             optimizer_D.zero_grad()
             
             # Compute discriminator loss
-            real_pred = Dbase(driving_frame)
-            fake_pred = Dbase(output_frame.detach())
+            real_pred = Dbase(driving_frames)
+            fake_pred = Dbase(output_frames.detach())
             loss_D = discriminator_loss(real_pred, fake_pred)
             
             # Backpropagate and update discriminator
@@ -197,32 +188,89 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
 
-def train_hr(cfg, GHR, Dhr, dataloader_hr):
+def train_hr(cfg, GHR, Genh, dataloader_hr):
     GHR.train()
-    Dhr.train()
+    Genh.train()
+    
+    optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+    
+    scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.hr_epochs, eta_min=1e-6)
     
     for epoch in range(cfg.training.hr_epochs):
         for batch in dataloader_hr:
-            video_frames = batch['images']
-            video_id = batch['video_id']
+            source_frames = batch['source_frames'].to(device)
+            driving_frames = batch['driving_frames'].to(device)
             
-            # Load pre-trained base model Gbase
-            # Freeze Gbase
-            # Training loop for high-resolution model
-            # ...
+            # Generate output frames using pre-trained base model
+            with torch.no_grad():
+                xhat_base = GHR.Gbase(source_frames, driving_frames)
+            
+            # Train high-resolution model
+            optimizer_G.zero_grad()
+            
+            # Generate high-resolution output frames
+            xhat_hr = Genh(xhat_base)
+            
+            # Compute losses
+            loss_supervised = Genh.supervised_loss(xhat_hr, driving_frames)
+            loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
+            
+            loss_G = cfg.training.lambda_supervised * loss_supervised + cfg.training.lambda_unsupervised * loss_unsupervised
+            
+            # Backpropagate and update high-resolution model
+            loss_G.backward()
+            optimizer_G.step()
+        
+        # Update learning rate
+        scheduler_G.step()
+        
+        # Log and save checkpoints
+        if (epoch + 1) % cfg.training.log_interval == 0:
+            print(f"Epoch [{epoch+1}/{cfg.training.hr_epochs}], "
+                  f"Loss_G: {loss_G.item():.4f}")
+        
+        if (epoch + 1) % cfg.training.save_interval == 0:
+            torch.save(Genh.state_dict(), f"Genh_epoch{epoch+1}.pth")
 
 def train_student(cfg, Student, GHR, dataloader_avatars):
     Student.train()
     
+    optimizer_S = torch.optim.AdamW(Student.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+    
+    scheduler_S = CosineAnnealingLR(optimizer_S, T_max=cfg.training.student_epochs, eta_min=1e-6)
+    
     for epoch in range(cfg.training.student_epochs):
         for batch in dataloader_avatars:
-            video_frames = batch['images']
-            video_id = batch['video_id']
+            avatar_indices = batch['avatar_indices'].to(device)
+            driving_frames = batch['driving_frames'].to(device)
             
-            # Load pre-trained high-resolution model GHR
-            # Freeze GHR
-            # Training loop for student model
-            # ...
+            # Generate high-resolution output frames using pre-trained HR model
+            with torch.no_grad():
+                xhat_hr = GHR(driving_frames)
+            
+            # Train student model
+            optimizer_S.zero_grad()
+            
+            # Generate output frames using student model
+            xhat_student = Student(driving_frames, avatar_indices)
+            
+            # Compute loss
+            loss_S = F.mse_loss(xhat_student, xhat_hr)
+            
+            # Backpropagate and update student model
+            loss_S.backward()
+            optimizer_S.step()
+        
+        # Update learning rate
+        scheduler_S.step()
+        
+        # Log and save checkpoints
+        if (epoch + 1) % cfg.training.log_interval == 0:
+            print(f"Epoch [{epoch+1}/{cfg.training.student_epochs}], "
+                  f"Loss_S: {loss_S.item():.4f}")
+        
+        if (epoch + 1) % cfg.training.save_interval == 0:
+            torch.save(Student.state_dict(), f"Student_epoch{epoch+1}.pth")
 
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
