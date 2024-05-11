@@ -17,6 +17,8 @@ import decord
 from omegaconf import OmegaConf
 from torchvision import models
 from model import GazeLoss,Encoder
+from rome_losses import PerceptualLoss, GazeLoss
+
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -57,32 +59,7 @@ The discriminator_loss function computes the loss for the discriminator.
 It calculates the MSE loss between the predicted values for real samples and a tensor of ones, and the MSE loss between the predicted values for fake samples and a tensor of zeros.
 The total discriminator loss is the sum of the real and fake losses.
 '''
-# Perceptual Loss
-class PerceptualLoss(nn.Module):
-    def __init__(self, weights=[1.0, 1.0, 1.0]):
-        super(PerceptualLoss, self).__init__()
-        self.weights = weights
-        self.vgg = models.vgg19(pretrained=True).features
-        self.vgg_face = models.vgg_face(pretrained=True).features
-        self.gaze_loss = GazeLoss()
-    
-    def forward(self, output_frame, target_frame):
-        loss_vgg = self.vgg_loss(output_frame, target_frame)
-        loss_vgg_face = self.vgg_face_loss(output_frame, target_frame)
-        loss_gaze = self.gaze_loss(output_frame, target_frame)
-        
-        total_loss = self.weights[0] * loss_vgg + self.weights[1] * loss_vgg_face + self.weights[2] * loss_gaze
-        return total_loss
-    
-    def vgg_loss(self, output_frame, target_frame):
-        output_features = self.vgg(output_frame)
-        target_features = self.vgg(target_frame)
-        return F.mse_loss(output_features, target_features)
-    
-    def vgg_face_loss(self, output_frame, target_frame):
-        output_features = self.vgg_face(output_frame)
-        target_features = self.vgg_face(target_frame)
-        return F.mse_loss(output_features, target_features)
+
 
 # Adversarial Loss
 def adversarial_loss(output_frame, discriminator):
@@ -117,6 +94,7 @@ def cosine_loss(emtn, source_frames, driving_frames, output_frames):
 
 # Create an instance of the PerceptualLoss class
 perceptual_loss_fn = PerceptualLoss().to(device)
+gaze_loss_fn = GazeLoss(device=device).to(device)
 
 # Create an instance of the Encoder class
 encoder = Encoder(input_nc=3, output_nc=256).to(device)
@@ -175,8 +153,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             loss_perceptual = perceptual_loss_fn(output_frames, driving_frames)
             loss_adversarial = adversarial_loss(output_frames, Dbase)
             loss_cosine = cosine_loss(Gbase.Emtn, source_frames, driving_frames, output_frames)
-            
-            loss_G = cfg.training.lambda_perceptual * loss_perceptual + cfg.training.lambda_adversarial * loss_adversarial + cfg.training.lambda_cosine * loss_cosine
+            loss_gaze = gaze_loss_fn(output_frames, driving_frames, keypoints)
+
+            loss_G = cfg.training.lambda_perceptual * loss_perceptual + \
+                    cfg.training.lambda_adversarial * loss_adversarial + \
+                    cfg.training.lambda_cosine * loss_cosine + \
+                    cfg.training.lambda_gaze * loss_gaze
+                        
             
             # Backpropagate and update generator
             loss_G.backward()
@@ -230,11 +213,22 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
             # Generate high-resolution output frames
             xhat_hr = Genh(xhat_base)
             
+           
             # Compute losses
             loss_supervised = Genh.supervised_loss(xhat_hr, driving_frames)
             loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
+            loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frames)
+            loss_gaze = gaze_loss_fn(xhat_hr, driving_frames, keypoints)
+
+            loss_G = cfg.training.lambda_supervised * loss_supervised + \
+                    cfg.training.lambda_unsupervised * loss_unsupervised + \
+                    cfg.training.lambda_perceptual * loss_perceptual + \
+                    cfg.training.lambda_gaze * loss_gaze
+
+            # loss_supervised = Genh.supervised_loss(xhat_hr, driving_frames)
+            # loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
             
-            loss_G = cfg.training.lambda_supervised * loss_supervised + cfg.training.lambda_unsupervised * loss_unsupervised
+            # loss_G = cfg.training.lambda_supervised * loss_supervised + cfg.training.lambda_unsupervised * loss_unsupervised
             
             # Backpropagate and update high-resolution model
             loss_G.backward()
