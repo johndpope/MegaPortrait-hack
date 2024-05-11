@@ -502,7 +502,6 @@ Finally, the projected features (vc2d_projected) are passed through the 2D convo
 
 
 class Gbase(nn.Module):
-
     def __init__(self):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
@@ -511,7 +510,6 @@ class Gbase(nn.Module):
         self.Wc2d = WarpingGenerator(input_channels=512)
         self.G3d = G3d(input_channels=96)
         self.G2d = G2d(input_channels=96)
-
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
@@ -530,7 +528,7 @@ class Gbase(nn.Module):
         vc2d = torch.nn.functional.grid_sample(vc2d, wc2d)
         
         # Perform orthographic projection (denoted as P in the paper)
-        vc2d_projected = torch.nn.functional.avg_pool3d(vc2d, kernel_size=(1, 1, vc2d.size(4))).squeeze(4)
+        vc2d_projected = torch.mean(vc2d, dim=2)  # Average along the depth dimension
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
