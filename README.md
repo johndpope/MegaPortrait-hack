@@ -9,6 +9,11 @@ All models / code is in model.py
 ![Image](diagram.jpeg)
 
 
+
+rome/losses - cherry picked from 
+https://github.com/SamsungLabs/rome
+
+
 # RT-GENE (Real-Time Gaze Estimation)
 ```python
 git clone https://github.com/Tobias-Fischer/rt_gene.git
