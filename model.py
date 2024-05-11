@@ -1,13 +1,8 @@
-import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from resnet import ResNet,Bottleneck, resnet18
 from unet3d import ResBlock3D
-
-
-import torch
-import torch.nn as nn
 import torchvision.models as models
 
 
@@ -824,21 +819,28 @@ The final output is obtained by applying adaptive average pooling and a 1x1 conv
 The GazeLoss can be used in the PerceptualLoss class to compute the gaze loss component. The Encoder model can be used in the contrastive_loss function to encode the frames into lower-dimensional representations for computing the cosine similarity.
 '''
 # Gaze Lossimport torch
-import torch.nn as nn
-import torchvision.models as models
-from rt_gene.model import RTGENE # TODO FIX THIS
-
+from rt_gene.estimate_gaze_pytorch import GazeEstimator
+import os
 class GazeLoss(nn.Module):
-    def __init__(self, pretrained_model_path):
+    def __init__(self, model_path='./models/gaze_model_pytorch_vgg16_prl_mpii_allsubjects1.model'):
         super(GazeLoss, self).__init__()
-        self.gaze_model = RTGENE()
-        self.gaze_model.load_state_dict(torch.load(pretrained_model_path))
+        self.gaze_model = GazeEstimator("cuda:0", [os.path.expanduser(model_path)])
         self.gaze_model.eval()
         self.loss_fn = nn.MSELoss()
-    
+
     def forward(self, output_frame, target_frame):
-        output_gaze = self.gaze_model(output_frame)
-        target_gaze = self.gaze_model(target_frame)
+        output_gaze = self.gaze_model.estimate_gaze_twoeyes(
+            inference_input_left_list=[self.gaze_model.input_from_image(output_frame[0])],
+            inference_input_right_list=[self.gaze_model.input_from_image(output_frame[1])],
+            inference_headpose_list=[[0, 0]]  # Placeholder headpose
+        )
+
+        target_gaze = self.gaze_model.estimate_gaze_twoeyes(
+            inference_input_left_list=[self.gaze_model.input_from_image(target_frame[0])],
+            inference_input_right_list=[self.gaze_model.input_from_image(target_frame[1])],
+            inference_headpose_list=[[0, 0]]  # Placeholder headpose
+        )
+
         loss = self.loss_fn(output_gaze, target_gaze)
         return loss
 
