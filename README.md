@@ -12,6 +12,6 @@ All models / code is in model.py
 # RT-GENE (Real-Time Gaze Estimation)
 ```python
 git clone https://github.com/Tobias-Fischer/rt_gene.git
-cd rt_gene
-pip install -r requirements.txt
+cd rt_gene/rt_gene
+pip install .
 ```
