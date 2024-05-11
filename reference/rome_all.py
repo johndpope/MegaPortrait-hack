@@ -1900,7 +1900,8 @@ class HeadPoseMatchingLoss(nn.Module):
             elif self.loss_type == 'l2':
                 loss += ((pred_theta - target_theta)**2).mean()
 
-        return lossimport torch
+        return loss
+import torch
 from torch import nn
 import torch
 import torch.nn.functional as F
@@ -1911,7 +1912,7 @@ import numpy as np
 
 from typing import Union
 from typing import Tuple, List
-from rt_gene import RtGeneEstimator
+from rt_gene.estimate_gaze_pytorch import GazeEstimator
 from rt_gene import FaceBox
 
 
@@ -1935,7 +1936,7 @@ class GazeLoss(object):
         checkpoints_paths_dict = {'vgg16': '/group-volume/orc_srr/multimodal/t.khakhulin/pretrained/gaze_net.pt',
                                 'resnet18': '/group-volume/orc_srr/multimodal/t.khakhulin/pretrained/gaze_net.pt'}
             
-        self.gaze_estimator = RtGeneEstimator(device=device,
+        self.gaze_estimator = GazeEstimator(device=device,
                                               model_nets_path=[checkpoints_paths_dict[m] for m in gaze_model_types],
                                               gaze_model_types=gaze_model_types,
                                               interpolate = interpolate,
