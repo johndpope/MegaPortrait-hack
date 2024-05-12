@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from resnet import ResNet,Bottleneck, resnet18,ResBlock2D
+from resnet import ResNet,Bottleneck, resnet18,ResBlock2D,ResNet18
 from unet3d import ResBlock3D
 import torchvision.models as models
 
@@ -656,37 +656,25 @@ class Student(nn.Module):
     def __init__(self, num_avatars):
         super(Student, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, padding=3),
-            ResBlock_Custom(dimension=2, input_channels=64, output_channels=128),
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            ResBlock_Custom(dimension=2, input_channels=128, output_channels=256),
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            ResBlock_Custom(dimension=2, input_channels=256, output_channels=512),
-            nn.AvgPool2d(kernel_size=2, stride=2),
-            ResBlock_Custom(dimension=2, input_channels=512, output_channels=1024),
+            ResNet18(),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 96),
+            ResBlock(96, 48),
+            ResBlock(48, 24),
         )
-        self.decoder = nn.Sequential(
-            ResBlock_Custom(dimension=2, input_channels=1024, output_channels=512),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock_Custom(dimension=2, input_channels=512, output_channels=256),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock_Custom(dimension=2, input_channels=256, output_channels=128),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock_Custom(dimension=2, input_channels=128, output_channels=64),
-            nn.Conv2d(in_channels=64, out_channels=3, kernel_size=7, padding=3),
-            nn.Tanh(),
+        self.final_layer = nn.Sequential(
+            nn.InstanceNorm2d(24),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(24, 3, kernel_size=1),
         )
-        self.spade_blocks = nn.ModuleList([
-            SPADEResBlock(1024, 1024, num_avatars) for _ in range(4)
-        ])
 
-    def forward(self, xd, avatar_index):
-        x = self.encoder(xd)
-        for spade_block in self.spade_blocks:
-            x = spade_block(x, avatar_index)
-        x = self.decoder(x)
-        return x
-
+    def forward(self, xd):
+        features = self.encoder(xd)
+        output = self.final_layer(features)
+        return output
 
 '''
 In this expanded code, we have the SPADEResBlock class which represents a residual block with SPADE (Spatially-Adaptive Normalization) layers. The block consists of two convolutional layers (conv_0 and conv_1) with normalization layers (norm_0 and norm_1) and a learnable shortcut connection (conv_s and norm_s) if the input and output channels differ.
