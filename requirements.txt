@@ -1,1 +1,5 @@
+# conda install pytorch3d -c pytorch3d
+
 pytorch-msssim
+chardet
+lpips

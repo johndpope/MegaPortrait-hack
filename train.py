@@ -60,46 +60,17 @@ It calculates the MSE loss between the predicted values for real samples and a t
 The total discriminator loss is the sum of the real and fake losses.
 '''
 
-
-# Adversarial Loss
 def adversarial_loss(output_frame, discriminator):
     fake_pred = discriminator(output_frame)
     loss = F.mse_loss(fake_pred, torch.ones_like(fake_pred))
     return loss
 
-# Cycle Consistency Loss
 def cycle_consistency_loss(output_frame, source_frame, driving_frame, generator):
     reconstructed_source = generator(output_frame, source_frame)
     loss = F.l1_loss(reconstructed_source, source_frame)
     return loss
 
-
-def cosine_loss(emtn, source_frames, driving_frames, output_frames):
-    Rs, ts, zs = emtn(source_frames)
-    Rd, td, zd = emtn(driving_frames)
-    
-    # Calculate positive pairs
-    pos_pairs = [(zs, zd), (zd, zs)]
-    
-    # Calculate negative pairs
-    z_rand = torch.randn_like(zs)
-    neg_pairs = [(zs, z_rand), (zd, z_rand)]
-    
-    loss = 0
-    for pos_pair in pos_pairs:
-        loss += torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) / 
-                          (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) + neg_pair_loss(pos_pair, neg_pairs, margin=1.0)))
-    
-    return loss
-
-# Create an instance of the PerceptualLoss class
-perceptual_loss_fn = PerceptualLoss().to(device)
-gaze_loss_fn = GazeLoss(device=device).to(device)
-
-# Create an instance of the Encoder class
-encoder = Encoder(input_nc=3, output_nc=256).to(device)
-
-def contrastive_loss(output_frame, source_frame, driving_frame, margin=1.0, encoder=encoder):
+def contrastive_loss(output_frame, source_frame, driving_frame, encoder,margin=1.0):
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
@@ -121,12 +92,10 @@ def neg_pair_loss(pos_pair, neg_pairs, margin):
         loss += torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)  # Update margin
     return loss
 
-# Discriminator Loss
 def discriminator_loss(real_pred, fake_pred):
     real_loss = F.mse_loss(real_pred, torch.ones_like(real_pred))
     fake_loss = F.mse_loss(fake_pred, torch.zeros_like(fake_pred))
     return real_loss + fake_loss
-
 
 def train_base(cfg, Gbase, Dbase, dataloader):
     Gbase.train()
@@ -138,6 +107,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.base_epochs, eta_min=1e-6)
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
     
+
+    # Create an instance of the PerceptualLoss class
+    perceptual_loss_fn = PerceptualLoss().to(device)
+    gaze_loss_fn = GazeLoss(device=device).to(device)
+
+    # Create an instance of the Encoder class
+    encoder = Encoder(input_nc=3, output_nc=256).to(device)
+
     for epoch in range(cfg.training.base_epochs):
         for batch in dataloader:
             source_frames = batch['source_frames'].to(device)
@@ -154,7 +131,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             # Compute losses
             loss_perceptual = perceptual_loss_fn(output_frames, driving_frames)
             loss_adversarial = adversarial_loss(output_frames, Dbase)
-            loss_cosine = cosine_loss(Gbase.Emtn, source_frames, driving_frames, output_frames)
+            loss_cosine = contrastive_loss(output_frames, source_frames, driving_frames, encoder)
             loss_gaze = gaze_loss_fn(output_frames, driving_frames, keypoints)
 
             loss_G = cfg.training.lambda_perceptual * loss_perceptual + \
