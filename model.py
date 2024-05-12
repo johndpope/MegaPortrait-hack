@@ -102,7 +102,34 @@ class ResBlock_Custom(nn.Module):
         return output
 
 
+'''
+Eapp Class:
 
+The Eapp class represents the appearance encoder (Eapp) in the diagram.
+It consists of two parts: producing volumetric features (vs) and producing a global descriptor (es).
+
+Producing Volumetric Features (vs):
+
+The conv layer corresponds to the 7x7-Conv-64 block in the diagram.
+The resblock_128, resblock_256, resblock_512 layers correspond to the ResBlock2D-128, ResBlock2D-256, ResBlock2D-512 blocks respectively, with average pooling (self.avgpool) in between.
+The conv_1 layer corresponds to the GN, ReLU, 1x1-Conv2D-1536 block in the diagram.
+The output of conv_1 is reshaped to (batch_size, 96, 16, height, width) and passed through resblock3D_96 and resblock3D_96_2, which correspond to the two ResBlock3D-96 blocks in the diagram.
+The final output of this part is the volumetric features (vs).
+
+Producing Global Descriptor (es):
+
+The resnet50 layer corresponds to the ResNet50 block in the diagram.
+It takes the input image (x) and produces the global descriptor (es).
+
+Forward Pass:
+
+During the forward pass, the input image (x) is passed through both parts of the Eapp network.
+The first part produces the volumetric features (vs) by passing the input through the convolutional layers, residual blocks, and reshaping operations.
+The second part produces the global descriptor (es) by passing the input through the ResNet50 network.
+The Eapp network returns both vs and es as output.
+
+In summary, the Eapp class in the code aligns well with the appearance encoder (Eapp) shown in the diagram. The network architecture follows the same structure, with the corresponding layers and blocks mapped accurately. The conv, resblock_128, resblock_256, resblock_512, conv_1, resblock3D_96, and resblock3D_96_2 layers in the code correspond to the respective blocks in the diagram for producing volumetric features. The resnet50 layer in the code corresponds to the ResNet50 block in the diagram for producing the global descriptor.
+'''
 class Eapp(nn.Module):
     def __init__(self):
         super().__init__()
@@ -168,7 +195,53 @@ class ResBlock(nn.Module):
         return nn.ReLU()(input)
 
 
+# W→d |Ws→
+'''
 
+WarpGenerator Class:
+
+The WarpGenerator class represents the warping generator (Ws2c or Wc2d) in the diagram.
+It takes rotation, translation, expression, and appearance features as input and generates the warping field.
+
+Input Processing:
+
+The forward method takes rotation, translation, expression, and appearance features as separate inputs.
+These inputs are concatenated along the channel dimension using torch.cat to obtain the combined input x.
+
+1x1 Convolution:
+
+The conv1 layer corresponds to the 1x1-Conv-2048 block in the diagram.
+It takes the concatenated input x and applies a 1x1 convolution to reduce the number of channels to 2048.
+
+Reshaping:
+
+The output of conv1 is reshaped to (batch_size, 512, 4, 16, 16) using out.view(...).
+This reshaping operation corresponds to the Reshape C2048 → C512xD4 block in the diagram.
+
+Hidden Layers:
+
+The hidden_layer consists of a series of ResBlock3D_Adaptive and upsampling operations.
+The architecture of the hidden layer follows the structure shown in the diagram:
+
+ResBlock3D_Adaptive(512, 256) corresponds to the ResBlock3D*-256, Upsample(2,2,2) block.
+ResBlock3D_Adaptive(256, 128) corresponds to the ResBlock3D*-128, Upsample(2,2,2) block.
+ResBlock3D_Adaptive(128, 64) corresponds to the ResBlock3D*-64, Upsample(1,2,2) block.
+ResBlock3D_Adaptive(64, 32) corresponds to the ResBlock3D*-32, Upsample(1,2,2) block.
+
+
+
+Output Convolution:
+
+The conv3D layer corresponds to the Conv3D-3 block in the diagram.
+It takes the output of the hidden layers and applies a 3D convolution with a kernel size of 3 and padding of 1 to produce the final warping field.
+
+Activation Functions:
+
+The output of the hidden layers is passed through group normalization (F.group_norm) and ReLU activation (F.relu).
+The final output of the WarpGenerator is passed through a tanh activation function (torch.tanh) to obtain the warping field in the range [-1, 1].
+
+In summary, the WarpGenerator class in the code aligns well with the warping generator (Ws2c or Wc2d) shown in the diagram. The input processing, 1x1 convolution, reshaping, hidden layers, and output convolution in the code correspond to the respective blocks in the diagram. The activation functions and upsampling operations are also consistent with the diagram.
+'''
 class WarpGenerator(nn.Module):
     def __init__(self, input_channels):
         super(WarpGenerator, self).__init__()
@@ -199,7 +272,44 @@ class WarpGenerator(nn.Module):
 
         return out
 
+'''
+G3d Class:
+- The G3d class represents the 3D convolutional network (G3D) in the diagram.
+- It consists of a downsampling path and an upsampling path.
 
+Downsampling Path:
+- The downsampling block in the code corresponds to the downsampling path in the diagram.
+- It consists of a series of ResBlock3D and 3D average pooling (nn.AvgPool3d) operations.
+- The architecture of the downsampling path follows the structure shown in the diagram:
+  - ResBlock3D(input_channels, 96) corresponds to the ResBlock3D-96 block.
+  - nn.AvgPool3d(kernel_size=2, stride=2) corresponds to the downsampling operation after ResBlock3D-96.
+  - ResBlock3D(96, 192) corresponds to the ResBlock3D-192 block.
+  - nn.AvgPool3d(kernel_size=2, stride=2) corresponds to the downsampling operation after ResBlock3D-192.
+  - ResBlock3D(192, 384) corresponds to the ResBlock3D-384 block.
+  - nn.AvgPool3d(kernel_size=2, stride=2) corresponds to the downsampling operation after ResBlock3D-384.
+  - ResBlock3D(384, 768) corresponds to the ResBlock3D-768 block.
+
+Upsampling Path:
+- The upsampling block in the code corresponds to the upsampling path in the diagram.
+- It consists of a series of ResBlock3D and 3D upsampling (nn.Upsample) operations.
+- The architecture of the upsampling path follows the structure shown in the diagram:
+  - ResBlock3D(768, 384) corresponds to the ResBlock3D-384 block.
+  - nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True) corresponds to the upsampling operation after ResBlock3D-384.
+  - ResBlock3D(384, 192) corresponds to the ResBlock3D-192 block.
+  - nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True) corresponds to the upsampling operation after ResBlock3D-192.
+  - ResBlock3D(192, 96) corresponds to the ResBlock3D-96 block.
+  - nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True) corresponds to the upsampling operation after ResBlock3D-96.
+
+Final Convolution:
+- The final_conv layer in the code corresponds to the GN, ReLU, 3x3x3-Conv3D-96 block in the diagram.
+- It takes the output of the upsampling path and applies a 3D convolution with a kernel size of 3 and padding of 1 to produce the final output.
+
+Forward Pass:
+- During the forward pass, the input tensor x is passed through the downsampling path, then through the upsampling path, and finally through the final convolution layer.
+- The output of the G3d network is a tensor of the same spatial dimensions as the input, but with 96 channels.
+
+In summary, the G3d class in the code aligns well with the 3D convolutional network (G3D) shown in the diagram. The downsampling path, upsampling path, and final convolution layer in the code correspond to the respective blocks in the diagram. The ResBlock3D and pooling/upsampling operations are consistent with the diagram, and the forward pass follows the expected flow of data through the network.
+'''
 
 
 class G3d(nn.Module):
