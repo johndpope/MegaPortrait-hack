@@ -732,6 +732,7 @@ The encoder consists of convolutional layers, custom residual blocks, and averag
 The SPADE (Spatially-Adaptive Normalization) blocks are applied after the encoder, conditioned on the avatar index.
 The decoder consists of custom residual blocks, upsampling operations, and a final convolutional layer to generate the output image.
 
+GDT
 '''
 class Student(nn.Module):
     def __init__(self, num_avatars):

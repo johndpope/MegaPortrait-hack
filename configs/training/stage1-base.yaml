@@ -1,0 +1,20 @@
+data:
+  train_width: 256 
+  train_height: 256 
+  sample_rate: 25 
+  n_sample_frames: 1
+  n_motion_frames: 2
+training:
+
+  batch_size: 24
+  num_workers: 0
+  lr: 1.0e-5
+  base_epochs: 200000
+  hr_epochs: 50
+  student_epochs: 100
+  use_gpu_video_tensor: True
+  prev_frames: 2  # Add this line to specify the number of previous frames to consider
+  video_dir:  '/media/oem/12TB/Downloads/CelebV-HQ/celebvhq/35666'
+  sample_rate: 25  
+  n_sample_frames: 100
+  json_file: './data/overfit.json'

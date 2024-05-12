@@ -330,5 +330,5 @@ def main(cfg: OmegaConf) -> None:
     torch.save(Student.state_dict(), 'Student.pth')
 
 if __name__ == "__main__":
-    config = OmegaConf.load("./configs/training/stage1.yaml")
+    config = OmegaConf.load("./configs/training/stage1-base.yaml")
     main(config)
