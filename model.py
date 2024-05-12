@@ -437,35 +437,6 @@ def compute_rotation_matrix(rotation):
 
     return rotation_matrix
 
-class WarpingGenerator(nn.Module):
-    def __init__(self, input_channels):
-        super(WarpingGenerator, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
-       
-        self.emotion_net = nn.Sequential(
-            ResBlock3D_Adaptive(input_channels, 256),
-            ResBlock3D_Adaptive(256, 128),
-            ResBlock3D_Adaptive(128, 64),
-            nn.Conv3d(64, 3, kernel_size=3, padding=1)
-        )
-
-    def forward(self, rotation, translation, expression, appearance):
-         # Concatenate the input parameters along the channel dimension
-        x = torch.cat([rotation, translation, expression, appearance], dim=1)
-        
-        # Pass the concatenated input through the warping generator
-        out = self.conv1(x)
-       
-        # Compute rotation and translation warp
-        rt_warp = compute_rt_warp(rotation, translation)
-        
-        # Compute emotion warp
-        emotion_warp = self.emotion_net(expression + appearance)
-        
-        # Combine warps
-        warp = rt_warp + emotion_warp
-        
-        return warp
         
 
 '''
@@ -611,8 +582,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
         self.Emtn = Emtn()
-        self.Ws2c = WarpingGenerator(input_channels=512)
-        self.Wc2d = WarpingGenerator(input_channels=512)
+        self.Ws2c = WarpGenerator(input_channels=512)
+        self.Wc2d = WarpGenerator(input_channels=512)
         self.G3d = G3d(input_channels=96)
         self.G2d = G2d(input_channels=96)
 
