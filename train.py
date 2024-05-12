@@ -142,7 +142,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         for batch in dataloader:
             source_frames = batch['source_frames'].to(device)
             driving_frames = batch['driving_frames'].to(device)
+            keypoints = batch['keypoints'].to(device)
             
+
             # Train generator
             optimizer_G.zero_grad()
             
@@ -202,7 +204,8 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
         for batch in dataloader_hr:
             source_frames = batch['source_frames'].to(device)
             driving_frames = batch['driving_frames'].to(device)
-            
+            keypoints = batch['keypoints'].to(device)
+
             # Generate output frames using pre-trained base model
             with torch.no_grad():
                 xhat_base = GHR.Gbase(source_frames, driving_frames)
