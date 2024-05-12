@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from resnet import ResNet,Bottleneck, resnet18
+from resnet import ResNet,Bottleneck, resnet18,ResBlock2D
 from unet3d import ResBlock3D
 import torchvision.models as models
 
@@ -530,30 +530,6 @@ class Gbase(nn.Module):
         
         return xhat
 
-# original resblock
-class ResBlock2D(nn.Module):
-    def __init__(self, n_c, kernel=3, dilation=1, p_drop=0.15):
-        super(ResBlock2D, self).__init__()
-        padding = self._get_same_padding(kernel, dilation)
-
-        layer_s = list()
-        layer_s.append(nn.Conv2d(n_c, n_c, kernel, padding=padding, dilation=dilation, bias=False))
-        layer_s.append(nn.InstanceNorm2d(n_c, affine=True, eps=1e-6))
-        layer_s.append(nn.ELU(inplace=True))
-        # dropout
-        layer_s.append(nn.Dropout(p_drop))
-        # convolution
-        layer_s.append(nn.Conv2d(n_c, n_c, kernel, dilation=dilation, padding=padding, bias=False))
-        layer_s.append(nn.InstanceNorm2d(n_c, affine=True, eps=1e-6))
-        self.layer = nn.Sequential(*layer_s)
-        self.final_activation = nn.ELU(inplace=True)
-
-    def _get_same_padding(self, kernel, dilation):
-        return (kernel + (kernel - 1) * (dilation - 1) - 1) // 2
-
-    def forward(self, x):
-        out = self.layer(x)
-        return self.final_activation(x + out)
 
 
 
