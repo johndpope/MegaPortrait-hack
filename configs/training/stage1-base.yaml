@@ -5,9 +5,13 @@ data:
   n_sample_frames: 1
   n_motion_frames: 2
 training:
-  lambda_perceptual: 1
-  lambda_cosine: 1
-  lambda_gaze: 1
+  lambda_perceptual: 1.0
+  lambda_adversarial: 1.0
+  lambda_cosine: 1.0
+  lambda_keypoints: 1.0
+  lambda_gaze: 1.0
+  lambda_supervised: 1.0
+  lambda_unsupervised: 1.0
   batch_size: 24
   num_workers: 0
   lr: 1.0e-5
