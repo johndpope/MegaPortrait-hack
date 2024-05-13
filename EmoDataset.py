@@ -29,19 +29,26 @@ class EMODataset(Dataset):
 
         # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
         # self.face_mask_generator = FaceHelper()
+        # self.pixel_transform = transforms.Compose(
+        #     [
+        #         transforms.RandomResizedCrop(
+        #             (height, width),
+        #             scale=self.img_scale,
+        #             ratio=self.img_ratio,
+        #             interpolation=transforms.InterpolationMode.BILINEAR,
+        #         ),
+        #         transforms.ToTensor(),
+        #         transforms.Normalize([0.5], [0.5]),
+        #     ]
+        # )
+        # Reduce 512 images -> 256
         self.pixel_transform = transforms.Compose(
             [
-                transforms.RandomResizedCrop(
-                    (height, width),
-                    scale=self.img_scale,
-                    ratio=self.img_ratio,
-                    interpolation=transforms.InterpolationMode.BILINEAR,
-                ),
+                transforms.Resize((256, 256)),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5], [0.5]),
             ]
         )
-
         self.cond_transform = transforms.Compose(
             [
                 transforms.RandomResizedCrop(
