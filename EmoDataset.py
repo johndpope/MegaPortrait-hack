@@ -12,6 +12,7 @@ import os
 import decord
 from typing import List, Tuple, Dict, Any
 from decord import VideoReader,AVReader
+import face_alignment
 
 class EMODataset(Dataset):
     def __init__(self, use_gpu:False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None):
@@ -24,8 +25,9 @@ class EMODataset(Dataset):
         self.video_dir = video_dir
         self.transform = transform
         self.stage = stage
-        # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
+        self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, device='cpu')
 
+        # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
         # self.face_mask_generator = FaceHelper()
         self.pixel_transform = transforms.Compose(
             [
@@ -62,6 +64,22 @@ class EMODataset(Dataset):
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
         self.ctx = decord.cpu()
 
+        # DRIVING VIDEO
+        video_drv_reader = VideoReader("./junk/-2KGPYEFnsU_8.mp4", ctx=self.ctx)
+        video_length = len(video_drv_reader)
+
+        driving_vid_pil_image_list = []
+        # keypoints_list = []
+        
+        for frame_idx in range(video_length):
+            # Read frame and convert to PIL Image
+            frame = Image.fromarray(video_drv_reader[frame_idx].numpy())
+
+
+            # Transform the frame
+            state = torch.get_rng_state()
+            pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
+            driving_vid_pil_image_list.append(pixel_values_frame)
 
     def __len__(self) -> int:
         
@@ -87,11 +105,19 @@ class EMODataset(Dataset):
         
 
         vid_pil_image_list = []
-        
+        keypoints_list = []
         
         for frame_idx in range(video_length):
             # Read frame and convert to PIL Image
             frame = Image.fromarray(video_reader[frame_idx].numpy())
+
+
+            # Detect keypoints using face_alignment
+            keypoints = self.face_alignment.get_landmarks(video_reader[frame_idx].numpy())
+            if keypoints is not None:
+                keypoints_list.append(keypoints[0])
+            else:
+                keypoints_list.append(None)
 
             # Transform the frame
             state = torch.get_rng_state()
@@ -101,6 +127,8 @@ class EMODataset(Dataset):
         # Convert list of lists to a tensor
         sample = {
             "video_id": video_id,
-            "images": vid_pil_image_list
+            "source_frames": vid_pil_image_list,
+            "driving_frames": self.driving_vid_pil_image_list,
+            "keypoints": keypoints_list
         }
         return sample
