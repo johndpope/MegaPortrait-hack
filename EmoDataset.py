@@ -68,7 +68,7 @@ class EMODataset(Dataset):
         video_drv_reader = VideoReader("./junk/-2KGPYEFnsU_8.mp4", ctx=self.ctx)
         video_length = len(video_drv_reader)
 
-        driving_vid_pil_image_list = []
+        self.driving_vid_pil_image_list = []
         # keypoints_list = []
         
         for frame_idx in range(video_length):
@@ -79,7 +79,7 @@ class EMODataset(Dataset):
             # Transform the frame
             state = torch.get_rng_state()
             pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
-            driving_vid_pil_image_list.append(pixel_values_frame)
+            self.driving_vid_pil_image_list.append(pixel_values_frame)
 
     def __len__(self) -> int:
         
