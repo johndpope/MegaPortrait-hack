@@ -16,7 +16,7 @@ import torch.nn.functional as F
 import decord
 from omegaconf import OmegaConf
 from torchvision import models
-from model import GazeLoss,Encoder
+from model import MPGazeLoss,Encoder
 from rome_losses import PerceptualLoss
 
 
@@ -110,7 +110,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
     # Create an instance of the PerceptualLoss class
     perceptual_loss_fn = PerceptualLoss().to(device)
-    gaze_loss_fn = GazeLoss(device=device).to(device)
+    gaze_loss_fn = MPGazeLoss(device).to(device)
 
     # Create an instance of the Encoder class
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
@@ -177,7 +177,7 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
 
     # Create an instance of the PerceptualLoss class
     perceptual_loss_fn = PerceptualLoss().to(device)
-    gaze_loss_fn = GazeLoss(device=device).to(device)
+    gaze_loss_fn = MPGazeLoss(device=device).to(device)
 
     optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
     
