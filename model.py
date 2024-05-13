@@ -420,7 +420,8 @@ The diagram clearly shows 8 ResBlock2D-512 layers before the upsampling blocks t
 To summarize, the G2D network takes the orthographically projected 2D feature map from the 3D volumetric features as input.
 It first reshapes the number of channels to 512 using a 1x1 convolution layer. 
 Then it passes the features through 8 residual blocks (ResBlock2D) that maintain 512 channels. 
-This is followed by upsampling blocks that progressively halve the number of channels while doubling the spatial resolution, going from 512 to 256 to 128 to 64 channels.
+This is followed by upsampling blocks that progressively halve the number of channels while doubling the spatial resolution, 
+going from 512 to 256 to 128 to 64 channels.
 Finally, a 3x3 convolution outputs the synthesized image with 3 color channels.
 
 '''
@@ -829,36 +830,6 @@ class GHR(nn.Module):
         return xhat_hr
 
 
-'''
-The encoder consists of convolutional layers, custom residual blocks, and average pooling operations to downsample the input image.
-The SPADE (Spatially-Adaptive Normalization) blocks are applied after the encoder, conditioned on the avatar index.
-The decoder consists of custom residual blocks, upsampling operations, and a final convolutional layer to generate the output image.
-
-GDT
-'''
-class Student(nn.Module):
-    def __init__(self, num_avatars):
-        super(Student, self).__init__()
-        self.encoder = nn.Sequential(
-            ResNet18(),
-            ResBlock(192, 192),
-            ResBlock(192, 192),
-            ResBlock(192, 192),
-            ResBlock(192, 192),
-            ResBlock(192, 96),
-            ResBlock(96, 48),
-            ResBlock(48, 24),
-        )
-        self.final_layer = nn.Sequential(
-            nn.InstanceNorm2d(24),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(24, 3, kernel_size=1),
-        )
-
-    def forward(self, xd):
-        features = self.encoder(xd)
-        output = self.final_layer(features)
-        return output
 
 '''
 In this expanded code, we have the SPADEResBlock class which represents a residual block with SPADE (Spatially-Adaptive Normalization) layers. The block consists of two convolutional layers (conv_0 and conv_1) with normalization layers (norm_0 and norm_1) and a learnable shortcut connection (conv_s and norm_s) if the input and output channels differ.
@@ -937,6 +908,49 @@ class SPADE(nn.Module):
 
         out = x * (1 + gamma) + beta
         return out
+
+
+
+'''
+The encoder consists of convolutional layers, custom residual blocks, and average pooling operations to downsample the input image.
+The SPADE (Spatially-Adaptive Normalization) blocks are applied after the encoder, conditioned on the avatar index.
+The decoder consists of custom residual blocks, upsampling operations, and a final convolutional layer to generate the output image.
+
+GDT
+'''
+
+class Student(nn.Module):
+    def __init__(self, num_avatars):
+        super(Student, self).__init__()
+        self.encoder = nn.Sequential(
+            ResNet18(),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 192),
+            ResBlock(192, 96),
+            ResBlock(96, 48),
+            ResBlock(48, 24),
+        )
+        self.decoder = nn.Sequential(
+            SPADEResBlock(24, 48, num_avatars),
+            SPADEResBlock(48, 96, num_avatars),
+            SPADEResBlock(96, 192, num_avatars),
+            SPADEResBlock(192, 192, num_avatars),
+            SPADEResBlock(192, 192, num_avatars),
+            SPADEResBlock(192, 192, num_avatars),
+        )
+        self.final_layer = nn.Sequential(
+            nn.InstanceNorm2d(192),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(192, 3, kernel_size=1),
+        )
+
+    def forward(self, xd, avatar_index):
+        features = self.encoder(xd)
+        features = self.decoder(features, avatar_index)
+        output = self.final_layer(features)
+        return output
 
 
 '''
