@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from resnet import ResNet,Bottleneck, resnet18,ResBlock2D,ResNet18
-from unet3d import ResBlock3D
 import torchvision.models as models
+
 
 
 
@@ -272,6 +272,67 @@ class WarpGenerator(nn.Module):
 
         return out
 
+
+'''
+The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
+Let's break down the code:
+
+The init method initializes the layers of the residual block.
+
+conv1 and conv2 are 3D convolutional layers with the specified input and output channels, kernel size of 3, and padding of 1.
+norm1 and norm2 are group normalization layers with 32 groups and the corresponding number of channels.
+If the input and output channels are different, a shortcut connection is created using a 1x1 convolutional layer and group normalization to match the dimensions.
+
+
+The forward method defines the forward pass of the residual block.
+
+The input x is stored as the residual.
+The input is passed through the first convolutional layer (conv1), followed by group normalization (norm1) and ReLU activation.
+The output is then passed through the second convolutional layer (conv2) and group normalization (norm2).
+If a shortcut connection exists (i.e., input and output channels are different), the residual is passed through the shortcut connection.
+The residual is added to the output of the second convolutional layer.
+Finally, ReLU activation is applied to the sum.
+
+
+
+The ResBlock3D class can be used as a building block in a larger 3D convolutional neural network architecture. It allows for the efficient training of deep networks by enabling the gradients to flow directly through the shortcut connection, mitigating the vanishing gradient problem.
+You can create an instance of the ResBlock3D class by specifying the input and output channels:'''
+class ResBlock3D(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock3D, self).__init__()
+
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
+
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv3d(in_channels, out_channels, kernel_size=1),
+                nn.GroupNorm(num_groups=32, num_channels=out_channels)
+            )
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = nn.ReLU(inplace=True)(out)
+
+        out = self.conv2(out)
+        out = self.norm2(out)
+
+        if self.shortcut is not None:
+            residual = self.shortcut(x)
+
+        out += residual
+        out = nn.ReLU(inplace=True)(out)
+
+        return out
+    
+    
 '''
 G3d Class:
 - The G3d class represents the 3D convolutional network (G3D) in the diagram.
@@ -341,11 +402,36 @@ class G3d(nn.Module):
         return x
 
 
+
+'''
+The G2d class consists of the following components:
+
+The input has 96 channels (C96)
+The input has a depth dimension of 16 (D16)
+The output should have 1536 channels (C1536)
+
+The depth dimension (D16) is present because the input to G2d is a 3D tensor 
+(volumetric features) with shape (batch_size, 96, 16, height/4, width/4).
+The reshape operation is meant to collapse the depth dimension and increase the number of channels.
+
+
+The ResBlock2D layers have 512 channels, not 1536 channels as I previously stated. 
+The diagram clearly shows 8 ResBlock2D-512 layers before the upsampling blocks that reduce the number of channels.
+To summarize, the G2D network takes the orthographically projected 2D feature map from the 3D volumetric features as input.
+It first reshapes the number of channels to 512 using a 1x1 convolution layer. 
+Then it passes the features through 8 residual blocks (ResBlock2D) that maintain 512 channels. 
+This is followed by upsampling blocks that progressively halve the number of channels while doubling the spatial resolution, going from 512 to 256 to 128 to 64 channels.
+Finally, a 3x3 convolution outputs the synthesized image with 3 color channels.
+
+'''
+
 class G2d(nn.Module):
     def __init__(self, input_channels):
         super(G2d, self).__init__()
+        self.reshape = nn.Conv3d(96, 1536, kernel_size=1)  # Reshape C96xD16 → C1536
+
         self.res_blocks = nn.Sequential(
-            ResBlock2D(input_channels, 512),
+            ResBlock2D(512, 512),
             ResBlock2D(512, 512),
             ResBlock2D(512, 512),
             ResBlock2D(512, 512),
@@ -354,20 +440,36 @@ class G2d(nn.Module):
             ResBlock2D(512, 512),
             ResBlock2D(512, 512),
         )
-        self.upsampling = nn.Sequential(
+
+        self.upsample1 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(512, 256),
+            ResBlock2D(512, 256)
+        )
+
+        self.upsample2 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(256, 128),
+            ResBlock2D(256, 128)
+        )
+
+        self.upsample3 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(128, 64),
+            ResBlock2D(128, 64)
+        )
+
+        self.final_conv = nn.Sequential(
+            nn.GroupNorm(num_groups=32, num_channels=64),
+            nn.ReLU(inplace=True), 
             nn.Conv2d(64, 3, kernel_size=3, padding=1),
-            nn.Tanh(),
+            nn.Sigmoid()
         )
 
     def forward(self, x):
+        x = self.reshape(x)
         x = self.res_blocks(x)
-        x = self.upsampling(x)
+        x = self.upsample1(x)
+        x = self.upsample2(x)
+        x = self.upsample3(x)
+        x = self.final_conv(x)
         return x
 
 
@@ -912,3 +1014,160 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+    
+'''
+In this updated code:
+
+We define a GazeBlinkLoss module that combines the gaze and blink prediction tasks.
+The module consists of a backbone network (VGG-16), a keypoint network, a gaze prediction head, and a blink prediction head.
+The backbone network is used to extract features from the left and right eye images separately. The features are then summed to obtain a combined eye representation.
+The keypoint network takes the 2D keypoints as input and produces a latent vector of size 64.
+The gaze prediction head takes the concatenated eye features and keypoint features as input and predicts the gaze direction.
+The blink prediction head takes only the eye features as input and predicts the blink probability.
+The gaze loss is computed using both MAE and MSE losses, weighted by w_mae and w_mse, respectively.
+The blink loss is computed using binary cross-entropy loss.
+The total loss is the sum of the gaze loss and blink loss.
+
+To train this model, you can follow the training procedure you described:
+
+Use Adam optimizer with the specified hyperparameters.
+Train for 60 epochs with a batch size of 64.
+Use the one-cycle learning rate schedule.
+Treat the predictions from RT-GENE and RT-BENE as ground truth.
+
+Note that you'll need to preprocess your data to provide the left eye image, right eye image, 2D keypoints, target gaze, and target blink for each sample during training.
+This code provides a starting point for aligning the MediaPipe-based gaze and blink loss with the approach you described. You may need to make further adjustments based on your specific dataset and requirements.
+
+'''
+import cv2
+import mediapipe as mp
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+
+class GazeBlinkLoss(nn.Module):
+    def __init__(self, device, w_mae=15, w_mse=10):
+        super(GazeBlinkLoss, self).__init__()
+        self.device = device
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
+        self.w_mae = w_mae
+        self.w_mse = w_mse
+        
+        self.backbone = self._create_backbone()
+        self.keypoint_net = self._create_keypoint_net()
+        self.gaze_head = self._create_gaze_head()
+        self.blink_head = self._create_blink_head()
+        
+    def _create_backbone(self):
+        model = torchvision.models.vgg16(pretrained=True)
+        model.classifier = nn.Sequential(*list(model.classifier.children())[:1])
+        return model
+    
+    def _create_keypoint_net(self):
+        return nn.Sequential(
+            nn.Linear(136, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU()
+        )
+    
+    def _create_gaze_head(self):
+        return nn.Sequential(
+            nn.Linear(320, 256),
+            nn.ReLU(),
+            nn.Linear(256, 2)
+        )
+    
+    def _create_blink_head(self):
+        return nn.Sequential(
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)
+        )
+    
+    def forward(self, left_eye, right_eye, keypoints, target_gaze, target_blink):
+        # Extract eye features using the backbone
+        left_features = self.backbone(left_eye)
+        right_features = self.backbone(right_eye)
+        eye_features = left_features + right_features
+        
+        # Extract keypoint features
+        keypoint_features = self.keypoint_net(keypoints)
+        
+        # Predict gaze
+        gaze_input = torch.cat((eye_features, keypoint_features), dim=1)
+        predicted_gaze = self.gaze_head(gaze_input)
+        
+        # Predict blink
+        predicted_blink = self.blink_head(eye_features)
+        
+        # Compute gaze loss
+        gaze_mae_loss = nn.L1Loss()(predicted_gaze, target_gaze)
+        gaze_mse_loss = nn.MSELoss()(predicted_gaze, target_gaze)
+        gaze_loss = self.w_mae * gaze_mae_loss + self.w_mse * gaze_mse_loss
+        
+        # Compute blink loss
+        blink_loss = nn.BCEWithLogitsLoss()(predicted_blink, target_blink)
+        
+        # Total loss
+        total_loss = gaze_loss + blink_loss
+        
+        return total_loss, predicted_gaze, predicted_blink
+    
+
+
+# vanilla gazeloss using mediapipe
+
+from typing import Union, List
+import cv2
+import mediapipe as mp
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MPGazeLoss(object):
+    def __init__(self, device):
+        self.device = device
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
+        
+    def forward(self, predicted_gaze, target_gaze, face_image):
+        # Convert face image from tensor to numpy array
+        face_image = face_image.detach().cpu().numpy().transpose(1, 2, 0)
+        face_image = (face_image * 255).astype(np.uint8)
+        
+        # Extract eye landmarks using MediaPipe
+        results = self.face_mesh.process(cv2.cvtColor(face_image, cv2.COLOR_RGB2BGR))
+        if not results.multi_face_landmarks:
+            return torch.tensor(0.0).to(self.device)
+        
+        eye_landmarks = []
+        for face_landmarks in results.multi_face_landmarks:
+            left_eye_landmarks = [face_landmarks.landmark[idx] for idx in mp.solutions.face_mesh.FACEMESH_LEFT_EYE]
+            right_eye_landmarks = [face_landmarks.landmark[idx] for idx in mp.solutions.face_mesh.FACEMESH_RIGHT_EYE]
+            eye_landmarks.append((left_eye_landmarks, right_eye_landmarks))
+        
+        # Compute loss for each eye
+        loss = 0.0
+        for left_eye, right_eye in eye_landmarks:
+            # Convert landmarks to pixel coordinates
+            h, w = face_image.shape[:2]
+            left_eye_pixels = [(int(lm.x * w), int(lm.y * h)) for lm in left_eye]
+            right_eye_pixels = [(int(lm.x * w), int(lm.y * h)) for lm in right_eye]
+            
+            # Create eye mask
+            left_mask = torch.zeros((1, h, w)).to(self.device)
+            right_mask = torch.zeros((1, h, w)).to(self.device)
+            cv2.fillPoly(left_mask[0], [np.array(left_eye_pixels)], 1.0)
+            cv2.fillPoly(right_mask[0], [np.array(right_eye_pixels)], 1.0)
+            
+            # Compute gaze loss for each eye
+            left_gaze_loss = F.mse_loss(predicted_gaze * left_mask, target_gaze * left_mask)
+            right_gaze_loss = F.mse_loss(predicted_gaze * right_mask, target_gaze * right_mask)
+            loss += left_gaze_loss + right_gaze_loss
+        
+        return loss / len(eye_landmarks)

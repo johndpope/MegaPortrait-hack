@@ -17,7 +17,7 @@ import decord
 from omegaconf import OmegaConf
 from torchvision import models
 from model import GazeLoss,Encoder
-from rome_losses import PerceptualLoss, GazeLoss
+from rome_losses import PerceptualLoss
 
 
 use_cuda = torch.cuda.is_available()
@@ -173,6 +173,12 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
     GHR.train()
     Genh.train()
     
+
+
+    # Create an instance of the PerceptualLoss class
+    perceptual_loss_fn = PerceptualLoss().to(device)
+    gaze_loss_fn = GazeLoss(device=device).to(device)
+
     optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
     
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.hr_epochs, eta_min=1e-6)
