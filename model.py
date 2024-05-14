@@ -259,10 +259,16 @@ class WarpGenerator(nn.Module):
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
 
     def forward(self, rotation, translation, expression, appearance):
-        # Concatenate the input parameters
+        # Reshape the input tensors
+        rotation = rotation.view(rotation.size(0), -1)
+        translation = translation.view(translation.size(0), -1)
+        expression = expression.view(expression.size(0), -1)
+        appearance = appearance.view(appearance.size(0), -1)
+
+        # Concatenate the reshaped input tensors
         x = torch.cat([rotation, translation, expression, appearance], dim=1)
-        
-        out = self.conv1(x)
+
+        out = self.conv1(x.unsqueeze(-1))  # Add an extra dimension for conv1d
         out = out.view(out.size(0), 512, 4, 16, 16)
 
         out = self.hidden_layer(out)
@@ -734,6 +740,12 @@ class Gbase(nn.Module):
         vs, es = self.Eapp(xs)
         Rs, ts, zs = self.Emtn(xs)
         Rd, td, zd = self.Emtn(xd)
+
+        print("vs shape:", vs.shape)
+        print("es shape:", es.shape)
+        print("Rs shape:", Rs.shape)
+        print("ts shape:", ts.shape)
+        print("zs shape:", zs.shape)
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.Ws2c(Rs, ts, zs, es)
