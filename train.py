@@ -116,7 +116,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             driving_frames = batch['driving_frames']
             keypoints = batch['keypoints']
 
-            num_frames = source_frames.size(1)  # Get the number of frames in the batch
+            num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for frame_idx in range(num_frames):
                 source_frame = source_frames[:, frame_idx]
@@ -181,7 +181,7 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
             driving_frames = batch['driving_frames'].to(device)
             keypoints = batch['keypoints'].to(device)
 
-            num_frames = source_frames.size(1)  # Get the number of frames in the batch
+            num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for frame_idx in range(num_frames):
                 source_frame = source_frames[:, frame_idx]
