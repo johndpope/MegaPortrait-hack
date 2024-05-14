@@ -65,7 +65,8 @@ class EMODataset(Dataset):
         with open(json_file, 'r') as f:
             self.celebvhq_info = json.load(f)
 
-        self.video_ids = list(self.celebvhq_info['clips'].keys())
+        # self.video_ids = list(self.celebvhq_info['clips'].keys())
+        self.video_ids = ["M2Ohb0FAaJU_1"]
         self.use_gpu = use_gpu
 
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
@@ -87,7 +88,7 @@ class EMODataset(Dataset):
             state = torch.get_rng_state()
             pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
             self.driving_vid_pil_image_list.append(pixel_values_frame)
-
+        print("driving video frames:",len(self.driving_vid_pil_image_list))
     def __len__(self) -> int:
         
         return len(self.video_ids)

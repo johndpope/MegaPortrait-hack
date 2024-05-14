@@ -100,71 +100,67 @@ def discriminator_loss(real_pred, fake_pred):
 def train_base(cfg, Gbase, Dbase, dataloader):
     Gbase.train()
     Dbase.train()
-    
     optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
     optimizer_D = torch.optim.AdamW(Dbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
-    
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.base_epochs, eta_min=1e-6)
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
-    
 
-    # Create an instance of the PerceptualLoss class
     perceptual_loss_fn = PerceptualLoss().to(device)
     gaze_loss_fn = MPGazeLoss(device)
-
-    # Create an instance of the Encoder class
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
     for epoch in range(cfg.training.base_epochs):
+        print("epoch:", epoch)
         for batch in dataloader:
-            source_frames = batch['source_frames'].to(device)
-            driving_frames = batch['driving_frames'].to(device)
-            keypoints = batch['keypoints'].to(device)
-            
+            source_frames = batch['source_frames']
+            driving_frames = batch['driving_frames']
+            keypoints = batch['keypoints']
 
-            # Train generator
-            optimizer_G.zero_grad()
-            
-            # Generate output frames
-            output_frames = Gbase(source_frames, driving_frames)
-            
-            # Compute losses
-            loss_perceptual = perceptual_loss_fn(output_frames, driving_frames)
-            loss_adversarial = adversarial_loss(output_frames, Dbase)
-            loss_cosine = contrastive_loss(output_frames, source_frames, driving_frames, encoder)
-            loss_gaze = gaze_loss_fn(output_frames, driving_frames, keypoints)
+            num_frames = source_frames.size(1)  # Get the number of frames in the batch
 
-            loss_G = cfg.training.lambda_perceptual * loss_perceptual + \
-                    cfg.training.lambda_adversarial * loss_adversarial + \
-                    cfg.training.lambda_cosine * loss_cosine + \
-                    cfg.training.lambda_gaze * loss_gaze
-                        
-            
-            # Backpropagate and update generator
-            loss_G.backward()
-            optimizer_G.step()
-            
-            # Train discriminator
-            optimizer_D.zero_grad()
-            
-            # Compute discriminator loss
-            real_pred = Dbase(driving_frames)
-            fake_pred = Dbase(output_frames.detach())
-            loss_D = discriminator_loss(real_pred, fake_pred)
-            
-            # Backpropagate and update discriminator
-            loss_D.backward()
-            optimizer_D.step()
-        
+            for frame_idx in range(num_frames):
+                source_frame = source_frames[:, frame_idx]
+                driving_frame = driving_frames[:, frame_idx]
+                keypoint = keypoints[:, frame_idx]
+
+                # Train generator
+                optimizer_G.zero_grad()
+                output_frame = Gbase(source_frame, driving_frame)
+
+                # Compute losses
+                loss_perceptual = perceptual_loss_fn(output_frame, driving_frame)
+                loss_adversarial = adversarial_loss(output_frame, Dbase)
+                loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
+                loss_gaze = gaze_loss_fn(output_frame, driving_frame, keypoint)
+                loss_G = (
+                    cfg.training.lambda_perceptual * loss_perceptual
+                    + cfg.training.lambda_adversarial * loss_adversarial
+                    + cfg.training.lambda_cosine * loss_cosine
+                    + cfg.training.lambda_gaze * loss_gaze
+                )
+
+                # Backpropagate and update generator
+                loss_G.backward()
+                optimizer_G.step()
+
+                # Train discriminator
+                optimizer_D.zero_grad()
+                real_pred = Dbase(driving_frame)
+                fake_pred = Dbase(output_frame.detach())
+                loss_D = discriminator_loss(real_pred, fake_pred)
+
+                # Backpropagate and update discriminator
+                loss_D.backward()
+                optimizer_D.step()
+
         # Update learning rates
         scheduler_G.step()
         scheduler_D.step()
-        
+
         # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
                   f"Loss_G: {loss_G.item():.4f}, Loss_D: {loss_D.item():.4f}")
-        
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
@@ -172,62 +168,57 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 def train_hr(cfg, GHR, Genh, dataloader_hr):
     GHR.train()
     Genh.train()
-    
 
-
-    # Create an instance of the PerceptualLoss class
     perceptual_loss_fn = PerceptualLoss().to(device)
     gaze_loss_fn = MPGazeLoss(device=device)
 
     optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
-    
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.hr_epochs, eta_min=1e-6)
-    
+
     for epoch in range(cfg.training.hr_epochs):
         for batch in dataloader_hr:
             source_frames = batch['source_frames'].to(device)
             driving_frames = batch['driving_frames'].to(device)
             keypoints = batch['keypoints'].to(device)
 
-            # Generate output frames using pre-trained base model
-            with torch.no_grad():
-                xhat_base = GHR.Gbase(source_frames, driving_frames)
-            
-            # Train high-resolution model
-            optimizer_G.zero_grad()
-            
-            # Generate high-resolution output frames
-            xhat_hr = Genh(xhat_base)
-            
-           
-            # Compute losses
-            loss_supervised = Genh.supervised_loss(xhat_hr, driving_frames)
-            loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
-            loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frames)
-            loss_gaze = gaze_loss_fn(xhat_hr, driving_frames, keypoints)
+            num_frames = source_frames.size(1)  # Get the number of frames in the batch
 
-            loss_G = cfg.training.lambda_supervised * loss_supervised + \
-                    cfg.training.lambda_unsupervised * loss_unsupervised + \
-                    cfg.training.lambda_perceptual * loss_perceptual + \
-                    cfg.training.lambda_gaze * loss_gaze
+            for frame_idx in range(num_frames):
+                source_frame = source_frames[:, frame_idx]
+                driving_frame = driving_frames[:, frame_idx]
+                keypoint = keypoints[:, frame_idx]
 
-            # loss_supervised = Genh.supervised_loss(xhat_hr, driving_frames)
-            # loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
-            
-            # loss_G = cfg.training.lambda_supervised * loss_supervised + cfg.training.lambda_unsupervised * loss_unsupervised
-            
-            # Backpropagate and update high-resolution model
-            loss_G.backward()
-            optimizer_G.step()
-        
+                # Generate output frame using pre-trained base model
+                with torch.no_grad():
+                    xhat_base = GHR.Gbase(source_frame, driving_frame)
+
+                # Train high-resolution model
+                optimizer_G.zero_grad()
+                xhat_hr = Genh(xhat_base)
+
+                # Compute losses
+                loss_supervised = Genh.supervised_loss(xhat_hr, driving_frame)
+                loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
+                loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frame)
+                loss_gaze = gaze_loss_fn(xhat_hr, driving_frame, keypoint)
+                loss_G = (
+                    cfg.training.lambda_supervised * loss_supervised
+                    + cfg.training.lambda_unsupervised * loss_unsupervised
+                    + cfg.training.lambda_perceptual * loss_perceptual
+                    + cfg.training.lambda_gaze * loss_gaze
+                )
+
+                # Backpropagate and update high-resolution model
+                loss_G.backward()
+                optimizer_G.step()
+
         # Update learning rate
         scheduler_G.step()
-        
+
         # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.hr_epochs}], "
                   f"Loss_G: {loss_G.item():.4f}")
-        
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Genh.state_dict(), f"Genh_epoch{epoch+1}.pth")
 
