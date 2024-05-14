@@ -25,7 +25,7 @@ class EMODataset(Dataset):
         self.video_dir = video_dir
         self.transform = transform
         self.stage = stage
-        self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, device='cpu')
+        self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.THREE_D, device='cpu')
 
         # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
         # self.face_mask_generator = FaceHelper()
