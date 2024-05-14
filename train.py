@@ -118,10 +118,10 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
-            for frame_idx in range(num_frames):
-                source_frame = source_frames[:, frame_idx]
-                driving_frame = driving_frames[:, frame_idx]
-                keypoint = keypoints[:, frame_idx]
+            for idx in range(num_frames):
+                source_frame = source_frames[idx]
+                driving_frame = driving_frames[idx]
+                keypoint = keypoints[idx]
 
                 # Train generator
                 optimizer_G.zero_grad()
@@ -183,10 +183,10 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
-            for frame_idx in range(num_frames):
-                source_frame = source_frames[:, frame_idx]
-                driving_frame = driving_frames[:, frame_idx]
-                keypoint = keypoints[:, frame_idx]
+            for idx in range(num_frames):
+                source_frame = source_frames[idx]
+                driving_frame = driving_frames[idx]
+                keypoint = keypoints[idx]
 
                 # Generate output frame using pre-trained base model
                 with torch.no_grad():
