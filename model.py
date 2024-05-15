@@ -37,14 +37,12 @@ class Discriminator(nn.Module):
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.register_buffer('weight_mean', torch.mean(self.weight, dim=[1, 2, 3], keepdim=True))
+        self.register_buffer('weight_std', torch.std(self.weight, dim=[1, 2, 3], keepdim=True))
+        self.weight = (self.weight - self.weight_mean) / (self.weight_std + 1e-5)
 
     def forward(self, x):
-        weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
-        weight = weight - weight_mean
-        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
-        weight = weight / std.expand_as(weight)
-        return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
     
 
 
@@ -72,34 +70,33 @@ class ResBlock_Custom(nn.Module):
         self.input_channels = input_channels
         self.output_channels = output_channels
         if dimension == 2:
-            self.conv_res = nn.Conv2d(self.input_channels, self.output_channels, 3, padding= 1)
-            self.conv_ws = Conv2d_WS(in_channels = self.input_channels,
-                                  out_channels= self.output_channels,
-                                  kernel_size = 3,
-                                  padding = 1)
-            self.conv = nn.Conv2d(self.output_channels, self.output_channels, 3, padding = 1)
+            self.conv1 = nn.Conv2d(self.input_channels, self.output_channels, 3, padding=1)
+            self.conv2 = nn.Conv2d(self.output_channels, self.output_channels, 3, padding=1)
         elif dimension == 3:
-            self.conv_res = nn.Conv3d(self.input_channels, self.output_channels, 3, padding=1)
-            self.conv_ws = Conv3D_WS(in_channels=self.input_channels,
-                                     out_channels=self.output_channels,
-                                     kernel_size=3,
-                                     padding=1)
-            self.conv = nn.Conv3d(self.output_channels, self.output_channels, 3, padding=1)
+            self.conv1 = nn.Conv3d(self.input_channels, self.output_channels, 3, padding=1)
+            self.conv2 = nn.Conv3d(self.output_channels, self.output_channels, 3, padding=1)
 
+        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=self.output_channels)
+        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=self.output_channels)
+
+        if self.input_channels != self.output_channels:
+            if dimension == 2:
+                self.shortcut = nn.Conv2d(self.input_channels, self.output_channels, 1)
+            elif dimension == 3:
+                self.shortcut = nn.Conv3d(self.input_channels, self.output_channels, 1)
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
-        out2 = self.conv_res(x)
-
-        out1 = F.group_norm(x, num_groups=32)
-        out1 = F.relu(out1)
-        out1 = self.conv_ws(out1)
-        out1 = F.group_norm(out1, num_groups=32)
-        out1 = F.relu(out1)
-        out1 = self.conv(out1)
-
-        output = out1 + out2
-
-        return output
+        residual = self.shortcut(x)
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = nn.ReLU(inplace=True)(out)
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out = out + residual
+        out = nn.ReLU(inplace=True)(out)
+        return out
 
 
 '''
