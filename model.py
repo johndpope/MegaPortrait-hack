@@ -37,15 +37,18 @@ class Discriminator(nn.Module):
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        self.register_buffer('weight_mean', torch.mean(self.weight, dim=[1, 2, 3], keepdim=True))
-        self.register_buffer('weight_std', torch.std(self.weight, dim=[1, 2, 3], keepdim=True))
-        self.weight = (self.weight - self.weight_mean) / (self.weight_std + 1e-5)
+        self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
+        self.register_buffer('weight_std', torch.ones(self.weight.shape))
 
     def forward(self, x):
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        weight = self.weight
+        weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
+        weight_std = weight.std(dim=[1, 2, 3], keepdim=True)
+        self.weight_mean.copy_(weight_mean)
+        self.weight_std.copy_(weight_std)
+        standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
+        return F.conv2d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
     
-
-
 class Conv3D_WS(nn.Conv3d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
