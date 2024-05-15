@@ -259,6 +259,31 @@ class WarpGenerator(nn.Module):
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
 
     def forward(self, rotation, translation, expression, appearance):
+
+            # Print the shapes of the input tensors
+        print("Rotation shape:", rotation.shape)
+        print("Translation shape:", translation.shape)
+        print("Expression shape:", expression.shape)
+        print("Appearance shape:", appearance.shape)
+
+        # Reshape the input tensors
+        rotation = rotation.view(rotation.size(0), -1)
+        translation = translation.view(translation.size(0), -1)
+        expression = expression.view(expression.size(0), -1)
+        appearance = appearance.view(appearance.size(0), -1)
+
+        # Print the shapes after reshaping
+        print("Rotation shape after reshaping:", rotation.shape)
+        print("Translation shape after reshaping:", translation.shape)
+        print("Expression shape after reshaping:", expression.shape)
+        print("Appearance shape after reshaping:", appearance.shape)
+
+        # Concatenate the reshaped input tensors
+        x = torch.cat([rotation, translation, expression, appearance], dim=1)
+
+        # Print the shape of the concatenated tensor
+        print("Concatenated input shape:", x.shape)
+        
         # Reshape the input tensors
         rotation = rotation.view(rotation.size(0), -1)
         translation = translation.view(translation.size(0), -1)
