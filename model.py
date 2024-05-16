@@ -147,7 +147,7 @@ class Eapp(nn.Module):
         self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # # Second part: producing global descriptor es
-        self.resnet50 = ResNet(block=Bottleneck, layers=[3, 4, 6, 3], num_classes=1000).to('cuda')
+        self.resnet50 = ResNet(block=Bottleneck, layers=[3, 4, 6, 3], num_classes=2048).to('cuda')
         # Global Descriptor
         # self.resnet50 = models.resnet50(pretrained=True)
         self.resnet50.fc = nn.Identity()  # Removing the fully connected layer
