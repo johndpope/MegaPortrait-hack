@@ -2,8 +2,6 @@ import argparse
 import torch
 import model
 import cv2 as cv
-import HeadPoseEstimation
-import vgg_face
 import numpy as np
 import torch.nn as nn
 from PIL import Image
