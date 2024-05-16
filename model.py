@@ -273,6 +273,15 @@ class WarpGenerator(nn.Module):
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
 
     def forward(self, rotation, translation, expression, appearance):
+        # Rotation shape: torch.Size([1, 3])
+        # Translation shape: torch.Size([1, 3])
+        # Expression shape: torch.Size([1, 50])
+        # Appearance shape: torch.Size([1, 512])
+        # Rotation shape after reshaping: torch.Size([1, 3])
+        # Translation shape after reshaping: torch.Size([1, 3])
+        # Expression shape after reshaping: torch.Size([1, 50])
+        # Appearance shape after reshaping: torch.Size([1, 512])
+        # Concatenated input shape: torch.Size([1, 568])
 
             # Print the shapes of the input tensors
         print("Rotation shape:", rotation.shape)
@@ -291,20 +300,6 @@ class WarpGenerator(nn.Module):
         print("Translation shape after reshaping:", translation.shape)
         print("Expression shape after reshaping:", expression.shape)
         print("Appearance shape after reshaping:", appearance.shape)
-
-        # Concatenate the reshaped input tensors
-        x = torch.cat([rotation, translation, expression, appearance], dim=1)
-
-        # Print the shape of the concatenated tensor
-        print("Concatenated input shape:", x.shape)
-        
-        # Reshape the input tensors
-        rotation = rotation.view(rotation.size(0), -1)
-        translation = translation.view(translation.size(0), -1)
-        expression = expression.view(expression.size(0), -1)
-        appearance = appearance.view(appearance.size(0), -1)
-
-
 
         # Concatenate the reshaped input tensors
         x = torch.cat([rotation, translation, expression, appearance], dim=1)
