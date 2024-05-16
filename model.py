@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from resnet import ResNet,Bottleneck, resnet18
 import torchvision.models as models
+import math
 
 
 
@@ -272,48 +273,18 @@ class WarpGenerator(nn.Module):
         )
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
 
-    def forward(self, rotation, translation, expression, appearance):
-        # Rotation shape: torch.Size([1, 3])
-        # Translation shape: torch.Size([1, 3])
-        # Expression shape: torch.Size([1, 50])
-        # Appearance shape: torch.Size([1, 512])
-        # Rotation shape after reshaping: torch.Size([1, 3])
-        # Translation shape after reshaping: torch.Size([1, 3])
-        # Expression shape after reshaping: torch.Size([1, 50])
-        # Appearance shape after reshaping: torch.Size([1, 512])
-        # Concatenated input shape: torch.Size([1, 568])
+    
+    def forward(self, Rs, ts, zs, es):
+        # Combine inputs as needed (this is a simplified example)
+        x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
+        
+        x = F.relu(self.gn1(self.conv1(x)))  # Conv3D + GroupNorm + ReLU
+        x = F.relu(self.gn2(self.conv2(x)))  # Conv3D + GroupNorm + ReLU
+        x = self.tanh(self.conv3(x))  # Conv3D + Tanh activation
+        
+        return x  # No reshape here; let the next layer handle reshaping if needed
 
-            # Print the shapes of the input tensors
-        print("Rotation shape:", rotation.shape)
-        print("Translation shape:", translation.shape)
-        print("Expression shape:", expression.shape)
-        print("Appearance shape:", appearance.shape)
 
-        # Reshape the input tensors
-        rotation = rotation.view(rotation.size(0), -1)
-        translation = translation.view(translation.size(0), -1)
-        expression = expression.view(expression.size(0), -1)
-        appearance = appearance.view(appearance.size(0), -1)
-
-        # Print the shapes after reshaping
-        print("Rotation shape after reshaping:", rotation.shape)
-        print("Translation shape after reshaping:", translation.shape)
-        print("Expression shape after reshaping:", expression.shape)
-        print("Appearance shape after reshaping:", appearance.shape)
-
-        # Concatenate the reshaped input tensors
-        x = torch.cat([rotation, translation, expression, appearance], dim=1)
-
-        out = self.conv1(x.unsqueeze(-1))  # Add an extra dimension for conv1d
-        out = out.view(out.size(0), 512, 4, 16, 16)
-
-        out = self.hidden_layer(out)
-        out = F.group_norm(out, num_groups=32)
-        out = F.relu(out)
-        out = self.conv3D(out)
-        out = torch.tanh(out)  # Apply tanh activation to obtain output in range [-1, 1]
-
-        return out
 
 '''
 The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
