@@ -328,6 +328,8 @@ class WarpGenerator(nn.Module):
     def warp_from_emotion(self, z, e):
         x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
         
+        # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
+        x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
         out = self.conv1(x)
         out = out.view(out.size(0), 512, 4, out.size(2), out.size(3))  # Reshape to C512 x D4
         
