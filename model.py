@@ -272,31 +272,66 @@ out.size(0): The batch size dimension
 This reshaping operation aligns with the "Reshape C2048 → C512xD4" block shown in the diagram, which takes the output of the 1x1 convolution and reshapes it into the specified dimensions.
         
 '''
+class ResBlock3D_Adaptive(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock3D_Adaptive, self).__init__()
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm3d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm3d(out_channels)
+        self.upsample = nn.Upsample(scale_factor=(2, 2, 2))
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += identity
+        out = self.relu(out)
+        out = self.upsample(out)
+        return out
+
 class WarpGenerator(nn.Module):
     def __init__(self, input_channels):
         super(WarpGenerator, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
+        self.conv1 = nn.Conv3d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
         self.hidden_layer = nn.Sequential(
-            ResBlock_Custom(dimension=3, input_channels=512, output_channels=256),
+            ResBlock3D_Adaptive(512, 256),
             nn.Upsample(scale_factor=(2, 2, 2)),
-            ResBlock_Custom(dimension=3, input_channels=256, output_channels=128),
+            ResBlock3D_Adaptive(256, 128),
             nn.Upsample(scale_factor=(2, 2, 2)),
-            ResBlock_Custom(dimension=3, input_channels=128, output_channels=64),
+            ResBlock3D_Adaptive(128, 64),
             nn.Upsample(scale_factor=(1, 2, 2)),
-            ResBlock_Custom(dimension=3, input_channels=64, output_channels=32),
+            ResBlock3D_Adaptive(64, 32),
             nn.Upsample(scale_factor=(1, 2, 2)),
         )
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
-        self.gn1 = nn.GroupNorm(32, 512)  # GroupNorm with 32 groups
-        self.gn2 = nn.GroupNorm(32, 512)  # GroupNorm with 32 groups
+        self.gn1 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
         self.tanh = nn.Tanh()
-
+    
     def forward(self, Rs, ts, zs, es):
-        # Combine inputs as needed (this is a simplified example)
+        print("es shape:", es.shape)
+        print("Rs shape:", Rs.shape)
+        print("ts shape:", ts.shape)
+        print("zs shape:", zs.shape)
+    
+        # Ensure tensors are 2D and concatenate along the channel dimension
+        es = es.view(1, -1)
+        Rs = Rs.view(1, -1)
+        ts = ts.view(1, -1)
+        zs = zs.view(1, -1)
+
         x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
         assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
         
-        x = F.relu(self.gn1(self.conv1(x)))  # Conv3D + GroupNorm + ReLU
+        # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
+        x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
+
+        x = F.relu(self.gn1(self.conv1(x)))  # Conv3d + GroupNorm + ReLU
         assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
         
         x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
@@ -553,72 +588,6 @@ class G2d(nn.Module):
         x = self.final_conv(x)
         return x
 
-
-'''
-In this expanded version of compute_rt_warp, we first compute the rotation matrix from the rotation parameters using the compute_rotation_matrix function. The rotation parameters are assumed to be a tensor of shape (batch_size, 3), representing rotation angles in degrees around the x, y, and z axes.
-Inside compute_rotation_matrix, we convert the rotation angles from degrees to radians and compute the individual rotation matrices for each axis using the rotation angles. We then combine the rotation matrices using matrix multiplication to obtain the final rotation matrix.
-Next, we create a 4x4 affine transformation matrix and set the top-left 3x3 submatrix to the computed rotation matrix. We also set the first three elements of the last column to the translation parameters.
-Finally, we create a grid of normalized coordinates using F.affine_grid based on the affine transformation matrix. The grid size is assumed to be 64x64x64, but you can adjust it according to your specific requirements.
-The resulting grid represents the warping transformations based on the given rotation and translation parameters, which can be used to warp the volumetric features or other tensors.
-https://github.com/Kevinfringe/MegaPortrait/issues/4
-
-'''
-def compute_rt_warp(rotation, translation):
-    # Compute the rotation matrix from the rotation parameters
-    rotation_matrix = compute_rotation_matrix(rotation)
-
-    # Create a 4x4 affine transformation matrix
-    affine_matrix = torch.eye(4, device=rotation.device).repeat(rotation.shape[0], 1, 1)
-
-    # Set the top-left 3x3 submatrix to the rotation matrix
-    affine_matrix[:, :3, :3] = rotation_matrix
-
-    # Set the first three elements of the last column to the translation parameters
-    affine_matrix[:, :3, 3] = translation
-
-    # Create a grid of normalized coordinates
-    grid_size = 64  # Assumes a grid size of 64x64x64
-    grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
-
-    return grid
-
-def compute_rotation_matrix(rotation):
-    # Assumes rotation is a tensor of shape (batch_size, 3), representing rotation angles in degrees
-    rotation_rad = rotation * (torch.pi / 180.0)  # Convert degrees to radians
-
-    cos_alpha = torch.cos(rotation_rad[:, 0])
-    sin_alpha = torch.sin(rotation_rad[:, 0])
-    cos_beta = torch.cos(rotation_rad[:, 1])
-    sin_beta = torch.sin(rotation_rad[:, 1])
-    cos_gamma = torch.cos(rotation_rad[:, 2])
-    sin_gamma = torch.sin(rotation_rad[:, 2])
-
-    # Compute the rotation matrix using the rotation angles
-    zero = torch.zeros_like(cos_alpha)
-    one = torch.ones_like(cos_alpha)
-
-    R_alpha = torch.stack([
-        torch.stack([one, zero, zero], dim=1),
-        torch.stack([zero, cos_alpha, -sin_alpha], dim=1),
-        torch.stack([zero, sin_alpha, cos_alpha], dim=1)
-    ], dim=1)
-
-    R_beta = torch.stack([
-        torch.stack([cos_beta, zero, sin_beta], dim=1),
-        torch.stack([zero, one, zero], dim=1),
-        torch.stack([-sin_beta, zero, cos_beta], dim=1)
-    ], dim=1)
-
-    R_gamma = torch.stack([
-        torch.stack([cos_gamma, -sin_gamma, zero], dim=1),
-        torch.stack([sin_gamma, cos_gamma, zero], dim=1),
-        torch.stack([zero, zero, one], dim=1)
-    ], dim=1)
-
-    # Combine the rotation matrices
-    rotation_matrix = torch.matmul(R_alpha, torch.matmul(R_beta, R_gamma))
-
-    return rotation_matrix
 
         
 
