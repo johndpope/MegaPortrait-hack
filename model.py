@@ -298,22 +298,16 @@ These changes align the code with the description provided in the image, where t
 class WarpGenerator(nn.Module):
     def __init__(self, input_channels):
         super(WarpGenerator, self).__init__()
-        self.conv1 = nn.Conv3d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
-        self.hidden_layer = nn.Sequential(
-            ResBlock3D_Adaptive(512, 256),
-            nn.Upsample(scale_factor=(2, 2, 2)),
-            ResBlock3D_Adaptive(256, 128),
-            nn.Upsample(scale_factor=(2, 2, 2)),
-            ResBlock3D_Adaptive(128, 64),
-            nn.Upsample(scale_factor=(1, 2, 2)),
-            ResBlock3D_Adaptive(64, 32),
-            nn.Upsample(scale_factor=(1, 2, 2)),
-        )
-        self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
-        self.gn1 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
-        self.gn2 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
+        self.conv1 = nn.Conv3d(2048, 512, kernel_size=1)
+
+        self.resblock1 = ResBlock3D(512, 256, upsample=True, scale_factors=(2, 2, 2))
+        self.resblock2 = ResBlock3D(256, 128, upsample=True, scale_factors=(2, 2, 2))
+        self.resblock3 = ResBlock3D(128, 64, upsample=True, scale_factors=(1, 2, 2))
+        self.resblock4 = ResBlock3D(64, 32, upsample=True, scale_factors=(1, 2, 2))
         
-        self.tanh = nn.Tanh()
+        self.gn = nn.GroupNorm(num_groups=32, num_channels=32)
+        self.conv2 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
+
     
     def forward(self, Rs, ts, zs, es, Rd, td, zd):
 
@@ -334,58 +328,22 @@ class WarpGenerator(nn.Module):
     def warp_from_emotion(self, z, e):
         x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
         
-        x = F.relu(self.gn1(self.conv1(x)))  # Conv1D + GroupNorm + ReLU
+        out = self.conv1(x)
+        out = out.view(out.size(0), 512, 4, out.size(2), out.size(3))  # Reshape to C512 x D4
         
-        x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
+        out = self.resblock1(out)
+        out = self.resblock2(out)
+        out = self.resblock3(out)
+        out = self.resblock4(out)
         
-        x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D_Adaptive and upsampling)
+        out = self.gn(out)
+        out = F.relu(out, inplace=True)
+        out = self.conv2(out)
+        out = torch.tanh(out)
         
-        x = self.conv3D(x)  # Apply final Conv3D
-        
-        x = self.tanh(x)  # Apply tanh activation
-        
-        return x
+        return out
     
-    # def forward(self, Rs, ts, zs, es):
-    #     print("es shape:", es.shape)
-    #     print("Rs shape:", Rs.shape)
-    #     print("ts shape:", ts.shape)
-    #     print("zs shape:", zs.shape)
-        
-    #     # Ensure tensors are 2D and concatenate along the channel dimension
-    #     es = es.view(1, -1)
-    #     Rs = Rs.view(1, -1)
-    #     ts = ts.view(1, -1)
-    #     zs = zs.view(1, -1)
-
-    #     x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
-    #     assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
-    #     print("x.shape:",x.shape)
-    #     # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
-    #     x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
-    #     assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
-
-    #     x = self.conv1(x)  # Apply 1x1 convolution
-    #     print("x.shape:",x.shape)
-    #     assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
-    #     # x.shape: torch.Size([1, 2048, 1, 1, 1])
-
-    #     x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
-    #     assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
-        
-    #     x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D* and upsampling)
-    #     assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
-        
-    #     x = F.group_norm(x, num_groups=32)  # Apply group normalization
-    #     x = F.relu(x)  # Apply ReLU activation
-        
-    #     x = self.conv3D(x)  # Apply final Conv3D
-    #     assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
-        
-    #     x = self.tanh(x)  # Apply tanh activation
-    #     assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after tanh activation, got {x.shape}"  # Assertion for shape after tanh activation
-        
-    #     return x
+    
 
 '''
 The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
@@ -412,38 +370,33 @@ Finally, ReLU activation is applied to the sum.
 The ResBlock3D class can be used as a building block in a larger 3D convolutional neural network architecture. It allows for the efficient training of deep networks by enabling the gradients to flow directly through the shortcut connection, mitigating the vanishing gradient problem.
 You can create an instance of the ResBlock3D class by specifying the input and output channels:'''
 class ResBlock3D(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, upsample=False, scale_factors=(1, 1, 1)):
         super(ResBlock3D, self).__init__()
-
+        self.upsample = upsample
+        self.scale_factors = scale_factors
         self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
+        self.gn1 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
         self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
-
-        if in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv3d(in_channels, out_channels, kernel_size=1),
-                nn.GroupNorm(num_groups=32, num_channels=out_channels)
-            )
-        else:
-            self.shortcut = nn.Identity()
-
+        self.gn2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
+        
+        self.shortcut = nn.Conv3d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+        
     def forward(self, x):
-        residual = x
-
+        identity = self.shortcut(x)
+        
         out = self.conv1(x)
-        out = self.norm1(out)
-        out = nn.ReLU(inplace=True)(out)
-
+        out = self.gn1(out)
+        out = F.relu(out, inplace=True)
+        
         out = self.conv2(out)
-        out = self.norm2(out)
-
-        if self.shortcut is not None:
-            residual = self.shortcut(x)
-
-        out += residual
-        out = nn.ReLU(inplace=True)(out)
-
+        out = self.gn2(out)
+        
+        out += identity
+        out = F.relu(out, inplace=True)
+        
+        if self.upsample:
+            out = F.interpolate(out, scale_factor=self.scale_factors, mode='trilinear', align_corners=False)
+        
         return out
     
     
