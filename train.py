@@ -112,6 +112,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     for epoch in range(cfg.training.base_epochs):
         print("epoch:", epoch)
         for batch in dataloader:
+            print("🌸")
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
             keypoints = batch['keypoints']
@@ -119,6 +120,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for idx in range(num_frames):
+                print(".")
                 source_frame = source_frames[idx]
                 driving_frame = driving_frames[idx]
                 keypoint = keypoints[idx]

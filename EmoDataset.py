@@ -104,18 +104,20 @@ class EMODataset(Dataset):
             return ret_tensor
     
     def __getitem__(self, index: int) -> Dict[str, Any]:
+        print("__getitem__")
         video_id = self.video_ids[index]
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
 
         video_reader = VideoReader(mp4_path, ctx=self.ctx)
-        video_length = len(video_reader)
+        video_length = 2 # frames len(video_reader)
         
 
         vid_pil_image_list = []
         keypoints_list = []
         
         for frame_idx in range(video_length):
+            print("frame_idx")
             # Read frame and convert to PIL Image
             frame = Image.fromarray(video_reader[frame_idx].numpy())
 

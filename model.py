@@ -152,21 +152,36 @@ class Eapp(nn.Module):
     def forward(self, x):
         # First part
         out = self.conv(x)
+        assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
+        
         out = self.resblock_128(out)
+        assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
         out = self.avgpool(out)
+        
         out = self.resblock_256(out)
+        assert out.shape[1] == 256, f"Expected 256 channels after resblock_256, got {out.shape[1]}"
         out = self.avgpool(out)
+        
         out = self.resblock_512(out)
+        assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
         out = self.avgpool(out)
+        
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
+        assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
+        
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
+        assert vs.shape[1:] == (96, 16, out.size(2), out.size(3)), f"Expected vs shape (_, 96, 16, _, _), got {vs.shape}"
+        
         vs = self.resblock3D_96(vs)
-        vs = self.resblock3D_96_2(vs)
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        vs = self.resblock3D_96_2(vs) 
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
         es = self.resnet50(x)
+        assert es.shape[1] == 512, f"Expected 512 channels for es, got {es.shape[1]}"
 
         return vs, es
 
@@ -279,14 +294,24 @@ class WarpGenerator(nn.Module):
     def forward(self, Rs, ts, zs, es):
         # Combine inputs as needed (this is a simplified example)
         x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
+        assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
         
         x = F.relu(self.gn1(self.conv1(x)))  # Conv3D + GroupNorm + ReLU
-        x = F.relu(self.gn2(self.conv2(x)))  # Conv3D + GroupNorm + ReLU
-        x = self.tanh(self.conv3(x))  # Conv3D + Tanh activation
+        assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
         
-        return x  # No reshape here; let the next layer handle reshaping if needed
-
-
+        x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
+        assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
+        
+        x = self.hidden_layer(x)  # Apply hidden layers
+        assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
+        
+        x = self.conv3D(x)  # Apply final Conv3D
+        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
+        
+        x = self.tanh(x)  # Apply tanh activation
+        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after tanh activation, got {x.shape}"  # Assertion for shape after tanh activation
+        
+        return x
 
 '''
 The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
@@ -750,31 +775,33 @@ class Gbase(nn.Module):
         Rs, ts, zs = self.Emtn(xs)
         Rd, td, zd = self.Emtn(xd)
 
-        print("vs shape:", vs.shape)
-        print("es shape:", es.shape)
-        print("Rs shape:", Rs.shape)
-        print("ts shape:", ts.shape)
-        print("zs shape:", zs.shape)
+        assert vs.shape[1:] == (96, 16, xs.shape[2]//4, xs.shape[3]//4), f"Expected vs shape (_, 96, 16, H/4, W/4), got {vs.shape}"
+        assert es.shape[1] == 512, f"Expected es shape (_, 512), got {es.shape}"
+        assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.Ws2c(Rs, ts, zs, es)
         vc = torch.nn.functional.grid_sample(vs, ws2c)
+        assert vc.shape == vs.shape, f"Expected vc shape {vs.shape}, got {vc.shape}"
         
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
+        assert vc2d.shape == vs.shape, f"Expected vc2d shape {vs.shape}, got {vc2d.shape}"
         
         # Warp vc2d using wc2d to impose driving motion
         wc2d = self.Wc2d(Rd, td, zd, es)
         vc2d = torch.nn.functional.grid_sample(vc2d, wc2d)
+        assert vc2d.shape == vs.shape, f"Expected vc2d shape {vs.shape}, got {vc2d.shape}"
         
         # Perform orthographic projection (denoted as P in the paper)
         vc2d_projected = torch.mean(vc2d, dim=2)  # Average along the depth dimension
+        assert vc2d_projected.shape[1:] == (96, vs.shape[3], vs.shape[4]), f"Expected vc2d_projected shape (_, 96, H/4, W/4), got {vc2d_projected.shape}"
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
+        assert xhat.shape[1:] == (3, xs.shape[2], xs.shape[3]), f"Expected xhat shape (_, 3, H, W), got {xhat.shape}"
         
         return xhat
-
 
 
 
