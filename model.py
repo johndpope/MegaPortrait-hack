@@ -327,22 +327,42 @@ class WarpGenerator(nn.Module):
 
     def warp_from_emotion(self, z, e):
         x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
-        
+        print(f"After concatenation: {x.shape}")
+
         # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
         x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        print(f"After unsqueeze: {x.shape}")
+
         out = self.conv1(x)
+        print(f"After conv1: {out.shape}")
+
         out = out.view(out.size(0), 512, 4, out.size(2), out.size(3))  # Reshape to C512 x D4
-        
+        print(f"After view: {out.shape}")
+
         out = self.resblock1(out)
+        print(f"After resblock1: {out.shape}")
+
         out = self.resblock2(out)
+        print(f"After resblock2: {out.shape}")
+
         out = self.resblock3(out)
+        print(f"After resblock3: {out.shape}")
+
         out = self.resblock4(out)
-        
+        print(f"After resblock4: {out.shape}")
+
         out = self.gn(out)
+        print(f"After group norm: {out.shape}")
+
         out = F.relu(out, inplace=True)
+        print(f"After ReLU: {out.shape}")
+
         out = self.conv2(out)
+        print(f"After conv2: {out.shape}")
+
         out = torch.tanh(out)
-        
+        print(f"After Tanh: {out.shape}")
+
         return out
     
     
