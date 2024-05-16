@@ -4,3 +4,4 @@ pytorch-msssim
 chardet
 lpips
 mediapipe
+colored-traceback
