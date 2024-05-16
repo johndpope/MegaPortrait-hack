@@ -283,6 +283,20 @@ class ResBlock3D_Adaptive(nn.Module):
         out = self.upsample(out)
         return out
 
+
+
+'''
+
+
+The forward method now takes Rs, ts, zs from the source and Rd, td, zd from the driver separately.
+It computes the rotation/translation warpings (w_rt) using the compute_rt_warp function for both source-to-canonical (w_s2c_rt) and canonical-to-driver (w_c2d_rt) transforms. The invert flag controls whether to invert the transformation matrix.
+It computes the emotion warpings (w_em) using the warp_from_emotion method, which concatenates the emotion vector z with the appearance features e and passes them through the warping generator network. This is done for both source (w_s2c_em) and driver (w_c2d_em) emotion vectors.
+The final warpings (w_s2c and w_c2d) are obtained by adding the rotation/translation and emotion warpings element-wise.
+The method returns both w_s2c and w_c2d warpings.
+
+These changes align the code with the description provided in the image, where the warping generators take rotation, translation, emotion, and appearance features separately to produce the 3D warpings.
+
+'''
 class WarpGenerator(nn.Module):
     def __init__(self, input_channels):
         super(WarpGenerator, self).__init__()
