@@ -299,10 +299,10 @@ class WarpGenerator(nn.Module):
         out = self.hidden_layer(out)
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
-        out = torch.tanh(out)
+        out = self.conv3D(out)
+        out = torch.tanh(out)  # Apply tanh activation to obtain output in range [-1, 1]
 
         return out
-
 
 '''
 The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
