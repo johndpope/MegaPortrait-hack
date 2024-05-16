@@ -241,6 +241,20 @@ The output of the hidden layers is passed through group normalization (F.group_n
 The final output of the WarpGenerator is passed through a tanh activation function (torch.tanh) to obtain the warping field in the range [-1, 1].
 
 In summary, the WarpGenerator class in the code aligns well with the warping generator (Ws2c or Wc2d) shown in the diagram. The input processing, 1x1 convolution, reshaping, hidden layers, and output convolution in the code correspond to the respective blocks in the diagram. The activation functions and upsampling operations are also consistent with the diagram.
+
+
+This code first applies the 1D convolution (self.conv1) to the input tensor x, which reduces the number of channels to 2048. 
+Then, the out.view(out.size(0), 512, 4, 16, 16) line reshapes the output tensor to have dimensions (batch_size, 512, 4, 16, 16), effectively transforming the shape from C2048 to C512xD4.
+The dimensions in the out.view function call correspond to:
+
+out.size(0): The batch size dimension
+512: The number of channels (C) in the reshaped tensor
+4: The depth dimension (D) in the reshaped tensor
+16: The height dimension in the reshaped tensor
+16: The width dimension in the reshaped tensor
+
+This reshaping operation aligns with the "Reshape C2048 → C512xD4" block shown in the diagram, which takes the output of the 1x1 convolution and reshapes it into the specified dimensions.
+        
 '''
 class WarpGenerator(nn.Module):
     def __init__(self, input_channels):
@@ -289,6 +303,8 @@ class WarpGenerator(nn.Module):
         translation = translation.view(translation.size(0), -1)
         expression = expression.view(expression.size(0), -1)
         appearance = appearance.view(appearance.size(0), -1)
+
+
 
         # Concatenate the reshaped input tensors
         x = torch.cat([rotation, translation, expression, appearance], dim=1)
