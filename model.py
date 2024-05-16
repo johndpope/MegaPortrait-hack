@@ -876,6 +876,8 @@ class Gbase(nn.Module):
         print("ts shape:", ts.shape)
         print("zs shape:", zs.shape)
     
+        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
+
         assert vs.shape[1:] == (96, 16, vs.shape[3], vs.shape[4]), f"Expected vs shape (_, 96, 16, H', W'), got {vs.shape}"
         assert es.shape[1] == 512, f"Expected es shape (_, 512), got {es.shape}"
         #assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
