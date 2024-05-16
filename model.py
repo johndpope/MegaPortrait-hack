@@ -299,48 +299,81 @@ class WarpGenerator(nn.Module):
         )
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
         self.gn1 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
+        self.gn2 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
+        
         self.tanh = nn.Tanh()
     
-    def forward(self, Rs, ts, zs, es):
-        print("es shape:", es.shape)
-        print("Rs shape:", Rs.shape)
-        print("ts shape:", ts.shape)
-        print("zs shape:", zs.shape)
+    def forward(self, Rs, ts, zs, es, Rd, td, zd):
+
+        # Compute rotation and translation grid (w_rt) 
+        w_s2c_rt = compute_rt_warp(Rs, ts, invert=True)  
+        w_c2d_rt = compute_rt_warp(Rd, td, invert=False)
+
+        # Compute emotion warping (w_em)
+        w_s2c_em = self.warp_from_emotion(zs, es)
+        w_c2d_em = self.warp_from_emotion(zd, es)
+
+        # Combine rotation/translation and emotion warpings
+        w_s2c = w_s2c_rt + w_s2c_em 
+        w_c2d = w_c2d_rt + w_c2d_em
+
+        return w_s2c, w_c2d
+
+    def warp_from_emotion(self, z, e):
+        x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
         
-        # Ensure tensors are 2D and concatenate along the channel dimension
-        es = es.view(1, -1)
-        Rs = Rs.view(1, -1)
-        ts = ts.view(1, -1)
-        zs = zs.view(1, -1)
-
-        x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
-        assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
-        print("x.shape:",x.shape)
-        # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
-        x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
-        assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
-
-        x = self.conv1(x)  # Apply 1x1 convolution
-        print("x.shape:",x.shape)
-        assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
-        # x.shape: torch.Size([1, 2048, 1, 1, 1])
-
+        x = F.relu(self.gn1(self.conv1(x)))  # Conv1D + GroupNorm + ReLU
+        
         x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
-        assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
         
-        x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D* and upsampling)
-        assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
-        
-        x = F.group_norm(x, num_groups=32)  # Apply group normalization
-        x = F.relu(x)  # Apply ReLU activation
+        x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D_Adaptive and upsampling)
         
         x = self.conv3D(x)  # Apply final Conv3D
-        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
         
         x = self.tanh(x)  # Apply tanh activation
-        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after tanh activation, got {x.shape}"  # Assertion for shape after tanh activation
         
         return x
+    
+    # def forward(self, Rs, ts, zs, es):
+    #     print("es shape:", es.shape)
+    #     print("Rs shape:", Rs.shape)
+    #     print("ts shape:", ts.shape)
+    #     print("zs shape:", zs.shape)
+        
+    #     # Ensure tensors are 2D and concatenate along the channel dimension
+    #     es = es.view(1, -1)
+    #     Rs = Rs.view(1, -1)
+    #     ts = ts.view(1, -1)
+    #     zs = zs.view(1, -1)
+
+    #     x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
+    #     assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
+    #     print("x.shape:",x.shape)
+    #     # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
+    #     x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+    #     assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
+
+    #     x = self.conv1(x)  # Apply 1x1 convolution
+    #     print("x.shape:",x.shape)
+    #     assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
+    #     # x.shape: torch.Size([1, 2048, 1, 1, 1])
+
+    #     x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
+    #     assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
+        
+    #     x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D* and upsampling)
+    #     assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
+        
+    #     x = F.group_norm(x, num_groups=32)  # Apply group normalization
+    #     x = F.relu(x)  # Apply ReLU activation
+        
+    #     x = self.conv3D(x)  # Apply final Conv3D
+    #     assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
+        
+    #     x = self.tanh(x)  # Apply tanh activation
+    #     assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after tanh activation, got {x.shape}"  # Assertion for shape after tanh activation
+        
+    #     return x
 
 '''
 The ResBlock3D class represents a 3D residual block. It consists of two 3D convolutional layers (conv1 and conv2) with group normalization (norm1 and norm2) and ReLU activation. The residual connection is implemented using a shortcut connection.
@@ -583,6 +616,72 @@ class G2d(nn.Module):
         return x
 
 
+'''
+In this expanded version of compute_rt_warp, we first compute the rotation matrix from the rotation parameters using the compute_rotation_matrix function. The rotation parameters are assumed to be a tensor of shape (batch_size, 3), representing rotation angles in degrees around the x, y, and z axes.
+Inside compute_rotation_matrix, we convert the rotation angles from degrees to radians and compute the individual rotation matrices for each axis using the rotation angles. We then combine the rotation matrices using matrix multiplication to obtain the final rotation matrix.
+Next, we create a 4x4 affine transformation matrix and set the top-left 3x3 submatrix to the computed rotation matrix. We also set the first three elements of the last column to the translation parameters.
+Finally, we create a grid of normalized coordinates using F.affine_grid based on the affine transformation matrix. The grid size is assumed to be 64x64x64, but you can adjust it according to your specific requirements.
+The resulting grid represents the warping transformations based on the given rotation and translation parameters, which can be used to warp the volumetric features or other tensors.
+https://github.com/Kevinfringe/MegaPortrait/issues/4
+
+'''
+def compute_rt_warp(rotation, translation):
+    # Compute the rotation matrix from the rotation parameters
+    rotation_matrix = compute_rotation_matrix(rotation)
+
+    # Create a 4x4 affine transformation matrix
+    affine_matrix = torch.eye(4, device=rotation.device).repeat(rotation.shape[0], 1, 1)
+
+    # Set the top-left 3x3 submatrix to the rotation matrix
+    affine_matrix[:, :3, :3] = rotation_matrix
+
+    # Set the first three elements of the last column to the translation parameters
+    affine_matrix[:, :3, 3] = translation
+
+    # Create a grid of normalized coordinates
+    grid_size = 64  # Assumes a grid size of 64x64x64
+    grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
+
+    return grid
+
+def compute_rotation_matrix(rotation):
+    # Assumes rotation is a tensor of shape (batch_size, 3), representing rotation angles in degrees
+    rotation_rad = rotation * (torch.pi / 180.0)  # Convert degrees to radians
+
+    cos_alpha = torch.cos(rotation_rad[:, 0])
+    sin_alpha = torch.sin(rotation_rad[:, 0])
+    cos_beta = torch.cos(rotation_rad[:, 1])
+    sin_beta = torch.sin(rotation_rad[:, 1])
+    cos_gamma = torch.cos(rotation_rad[:, 2])
+    sin_gamma = torch.sin(rotation_rad[:, 2])
+
+    # Compute the rotation matrix using the rotation angles
+    zero = torch.zeros_like(cos_alpha)
+    one = torch.ones_like(cos_alpha)
+
+    R_alpha = torch.stack([
+        torch.stack([one, zero, zero], dim=1),
+        torch.stack([zero, cos_alpha, -sin_alpha], dim=1),
+        torch.stack([zero, sin_alpha, cos_alpha], dim=1)
+    ], dim=1)
+
+    R_beta = torch.stack([
+        torch.stack([cos_beta, zero, sin_beta], dim=1),
+        torch.stack([zero, one, zero], dim=1),
+        torch.stack([-sin_beta, zero, cos_beta], dim=1)
+    ], dim=1)
+
+    R_gamma = torch.stack([
+        torch.stack([cos_gamma, -sin_gamma, zero], dim=1),
+        torch.stack([sin_gamma, cos_gamma, zero], dim=1),
+        torch.stack([zero, zero, one], dim=1)
+    ], dim=1)
+
+    # Combine the rotation matrices
+    rotation_matrix = torch.matmul(R_alpha, torch.matmul(R_beta, R_gamma))
+
+    return rotation_matrix
+
         
 
 '''
@@ -682,15 +781,26 @@ class Emtn(nn.Module):
         
         self.expression_net = resnet18(pretrained=False,num_classes=50)  # 50 corresponds to the dimensions of expression vector
 
-    def forward(self, x):
-        head_pose = self.head_pose_net(x)
-        expression = self.expression_net(x)
+    def forward(self, xs, xd):
+        # Process source image
+        source_head_pose = self.head_pose_net(xs)
+        source_expression = self.expression_net(xs)
         
-        # Split head pose into rotation and translation parameters
-        rotation = head_pose[:, :3]
-        translation = head_pose[:, 3:]
+        # Split source head pose into rotation and translation parameters
+        Rs = source_head_pose[:, :3]
+        ts = source_head_pose[:, 3:]
+        zs = source_expression
         
-        return rotation, translation, expression
+        # Process driving image
+        driving_head_pose = self.head_pose_net(xd)
+        driving_expression = self.expression_net(xd)
+        
+        # Split driving head pose into rotation and translation parameters
+        Rd = driving_head_pose[:, :3]
+        td = driving_head_pose[:, 3:]
+        zd = driving_expression
+        
+        return Rs, ts, zs, Rd, td, zd
 
 '''
 The main changes made to align the code with the training stages are:
@@ -734,9 +844,12 @@ class Gbase(nn.Module):
         self.G2d = G2d(input_channels=96)
 
     def forward(self, xs, xd):
-        vs, es = self.Eapp(xs) # Appearance encoder source
-        Rs, ts, zs = self.Emtn(xs) # motion encoder source
-        Rd, td, zd = self.Emtn(xd) # motion encoder driving
+        vs, es = self.Eapp(xs)
+        Rs, ts, zs, Rd, td, zd = self.Emtn(xs, xd)
+
+        # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
+        ws2c, wc2d = self.Ws2c(Rs, ts, zs, es, Rd, td, zd)
+        vc = torch.nn.functional.grid_sample(vs, ws2c)
 
         # es shape: torch.Size([1, 512])
         # Rs shape: torch.Size([1, 3])
