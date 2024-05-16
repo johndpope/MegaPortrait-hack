@@ -122,6 +122,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             for idx in range(num_frames):
                 print(".")
                 source_frame = source_frames[idx]
+                # Get the size of the image
+                print("source_frame.shape:",source_frame.shape)
                 driving_frame = driving_frames[idx]
                 keypoint = keypoints[idx]
 
