@@ -756,8 +756,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
         self.Emtn = Emtn()
-        self.Ws2c = WarpGenerator(input_channels=512)
-        self.Wc2d = WarpGenerator(input_channels=512)
+        self.Ws2c = WarpGenerator(input_channels=568) #https://github.com/johndpope/MegaPortrait-hack/issues/5
+        self.Wc2d = WarpGenerator(input_channels=568)
         self.G3d = G3d(input_channels=96)
         self.G2d = G2d(input_channels=96)
 
