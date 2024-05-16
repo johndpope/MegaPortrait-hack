@@ -5,7 +5,7 @@ from resnet import ResNet,Bottleneck, resnet18
 import torchvision.models as models
 import math
 import colored_traceback.auto
-
+from torchsummary import summary
 
 
 
@@ -136,7 +136,7 @@ class Eapp(nn.Module):
         super().__init__()
         
         # First part: producing volumetric features vs
-        self.conv = Conv2d_WS(3, 64, 7, stride=1, padding=3)
+        self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
         self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
         self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
         self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
@@ -177,6 +177,9 @@ class Eapp(nn.Module):
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
         assert vs.shape[1:] == (96, 16, out.size(2), out.size(3)), f"Expected vs shape (_, 96, 16, _, _), got {vs.shape}"
         
+        # Resize vs to have width and height of 64
+        vs = torch.nn.functional.interpolate(vs, size=(96, 16, 64, 64), mode='trilinear', align_corners=False)
+  
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
         vs = self.resblock3D_96_2(vs) 
@@ -185,8 +188,10 @@ class Eapp(nn.Module):
         # Second part
         # Global Descriptor
         es = self.resnet50(x)
+        es = es.view(es.size(0), -1)  # Flatten the output
 
         return vs, es
+
 
 
 class ResBlock(nn.Module):
@@ -859,6 +864,7 @@ class Gbase(nn.Module):
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
+        summary(vs,es)
         Rs, ts, zs, Rd, td, zd = self.Emtn(xs, xd)
 
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)

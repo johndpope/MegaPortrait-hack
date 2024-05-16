@@ -7,3 +7,4 @@ mediapipe
 colored-traceback
 pygments 
 git+https://github.com/johndpope/colored-traceback.py.git
+torchsummary
