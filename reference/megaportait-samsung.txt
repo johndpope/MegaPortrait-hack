@@ -1582,3 +1582,314 @@ report Report
 an issue View original
 on arXiv►
 Copyright Privacy Policy Generated on Wed Mar 13 14:14:12 2024 by LaTeXMLMascot Sammy
+
+
+
+MegaPortraits: One-shot Megapixel Neural Head Avatars
+A
+NETWORK ARCHITECTURES
+Here we describe the architectures of our networks, conduct an
+in-depth evaluation of the architectural choices and provide details
+about preprocessing of the dataset.
+A.1
+Base model
+In the architecture of our base model, we replace all BatchNorms
+with GroupNorms, and all convolutional layers, except the first and
+the last ones, are used with weight standardization.
+Appearance encoder Eapp . The network consists of two parts.
+The first part produces a 4D tensor of volumetric features 𝑣𝑠 that
+represent the person’s appearance from the source image. It in-
+cludes several residual blocks followed by average pooling. We
+reshape the resulting 2D features to 3D features and then apply
+several 3D residual blocks to compute the final volumetric repre-
+sentation. The scheme shown in Figure 9 (a).
+The second part produces a global descriptor e𝑠 that helps retain
+the appearance of the output image. We use a ResNet-50 architec-
+ture with custom residual blocks. The architecture of our residual
+block can be seen in Figure 11 (c), where 𝑛 denotes the dimension
+of a convolutional layer (either 2D or 3D) and x denotes the number
+of output channels.
+Motion encoder Emtn . We use two separate ResNet-18 networks
+as encoders to separately predict the head pose and expression
+vector. The head pose prediction network is pre-trained, while the
+expression prediction network is trained from scratch.
+Warping generators W𝑠→ and W→𝑑 . When both source and
+driver tuples (R𝑠/𝑑 , t𝑠/𝑑 , z𝑠/𝑑 , e𝑠 ) are predicted, we can produce 3D
+warping w𝑠→ and w→𝑑 . Both warpings consist of two parts: one in
+charge of rotation and translation (wrt
+... ) and another one in charge
+of emotion changing (wem
+... ).
+To get the first part: for wrt
+we multiply identity grid on trans-
+→𝑑
+rt we multiply identity grid on inversed
+formation matrix and for w𝑠→
+transformation matrix.
+em and wem we use two separate warping generators
+To get w𝑠→
+→𝑑
+(see Figure 9 (b)) with the same architecture contain several 3D
+residual blocks where all GroupNorms changed on Adaptive Group-
+Norms (marked as ResBlock3D* on the scheme), whereas inputs we
+use sums z𝑠 + e𝑠 and z𝑑 + e𝑠 respectively. To generate adaptive pa-
+rameters, we multiply the foregoing sums and additionally learned
+matrices for each pair of parameters.
+3D convolutional network G3D . Next, we process volumetric rep-
+resentation after the first warping to get canonical volume where
+source motion removed from the appearance features. For this,
+we apply Unet-like architecture with several downsample units
+consists of 3D residual block and downsample operation, followed
+by the same number of upsample units consists of 3D residual
+block and upsample operation. The scheme shown in Figure 9 (c).
+Sample(z, x, y) mean sample operation that changes depth, height,
+width in z, x, y times respectively. For example, z=1/2 means down-
+sample along depth dimension in 2 times and z=2 means upsample
+along depth dimension in 2 times.
+MM ’22, October 10–14, 2022, Lisboa, Portugal
+2D convolutional network G2D . Finally, to predict an output
+image from a processed volume, we first use orthographically pro-
+jection P that is consists of reshape operation and 1x1 convolution.
+While more complex projection operators could be used (like volu-
+metric ray marching), we found such simple approach is sufficient
+for our applications, the same way as it has been done in [32]. Then
+we utilize the network includes 8 residual blocks on the same res-
+olution and number of feature maps, then gradually apply units
+contain upsampling and residual blocks with successively decreas-
+ing number of output channels. The scheme shown in Figure 9
+(d).
+A.2
+High-resolution model
+High-resolution model contain 2 parts: encoder and decoder. Both
+of them you can see on the scheme shown in Figure 11. Encoder,
+that takes x̂𝑠−>𝑑 as an input, contain just conv layer followed by
+2 residual blocks and produce 3D feature tensor f𝑠−>𝑑 . Decoder,
+that takes output features f𝑠−>𝑑 and produce hi-resolution version
+HR , recalls 2D convolutional network from the base
+of input x̂𝑠−>𝑑
+model, it also includes 8 residual blocks on the same resolution and
+number of feature maps, followed by two upsampling with residual
+blocks and three residual blocks on high-resolution.
+A.3
+Student model
+The encoder of a student model is ResNet18, and the generator
+consists of residual blocks with SPADE normalization layers, in
+each SPADE block a tensor used for normalization is fixed for a
+specific avatar. During the forward pass we select which tensor to
+use in normalization layer to switch between predefined avatars.
+Using such procedure during the training, we force our model to
+store all the identity-specific information into SPADE blocks. Also,
+to compress the final model we tweak a size of spatial dimension of
+normalization tensors (which dominate the size of the whole model)
+in SPADE blocks: by default these tensors must be of the same shape
+as a corresponding input feature map, instead, we compress them
+spatially and use bilinear upsampling to output the feature map of
+the right size. More precisely, we bound the resolution of an inner
+identity tensor by 64.
+B ADDITIONAL INFORMATION
+B.1 Training details
+Gbase and GHR . As augmentation for both source and target im-
+ages, we use color jitter and random flip. As for driving image,
+before sending it to Emtn we do a center crop around the face of
+a person. Next, we augment it using a random warping based on
+thin-plate-splines, which severely degrades the shape of the facial
+features, yet keeps the expression intact (ex., it cannot close or open
+eyes or change the eyes’ direction). Finally, we apply a severe color
+jitter.
+For LGAN loss we use multi-resolution patchGAN where the dis-
+criminator produces the patch-level prediction. We apply spectral
+normalization for both Gbase and GHR .
+For AdamW optimizer we used the following parameters: be-
+tas=(0.5, 0.999), eps=1e-8, weight decay=1e-2 for both Gbase and
+GHR and correspond discriminator.MM ’22, October 10–14, 2022, Lisboa, Portugal
+Nikita Drobyshev et al.
+|ResBlock3D-192, Downsample(1/2,2,2)
+1x1-Conv-2048ResBlock3D-384, Downsample(2,2,2)
+7x7-Conv-64
+ResBlock3D-196
+ResBlock2D-128, AvgPool
+Reshape C96xD16 → C1536
+ResBlock3D-384
+Reshape C2048 → C512xD4
+ResBlock2D-256, AvgPool
+ResBlock3D*-256, Upsample(2,2,2)
+ResBlock2D-512, AvgPool
+GN, ReLU, 1x1-Conv2D-1536ResBlock3D*-128, Upsample(2,2,2)
+Reshape C1536 → C96xD16
+...ResBlock3D*-64, Upsample(1,2,2)
+ResBlock3D-96ResBlock3D*-32, Upsample(1,2,2)
+1x1-Conv-512
+ResBlock3D-512
+ResBlock2D-512
+ResBlock3D-512
+x8
+ResBlock2D-512
+ResBlock3D-384,+ Upsample(2,2,2)
+Upsample(2,2), ResBlock2D-256
+ResBlock3D-196, Upsample(1/2,2,2)
+Upsample(2,2),ResBlock2D-128
+x3
+ResBlock3D-96
+GN, ReLU, 3x3x3-Conv3D-3, Tanh
+ResBlock3D-96Upsample(2,2), ResBlock2D-64
+GN, ReLU, 3x3x3-Conv3D-96GN, ReLU, 3x3-Conv2D-3, Sigmoid
+|
+Eapp (a)
+W→𝑑 | W𝑠→ (b)
+G3D (c)
+Figure 9: Architectures of components of Gbase .
+G2D (d)
+1x1-Conv-512
+ResBlock2D-512
+x8
+Upsample(2,2), 7x7-Conv-64
+ResBlock2D-512
+ResBlock2D-128, AvgPool
+Upsample(2,2), ResBlock2D-256
+ResBlock2D-256, AvgPool
+Upsample(2,2), ResBlock2D-128
+ResBlock2D-512, AvgPool
+Upsample(2,2), ResBlock2D-128
+GN, ReLU, 1x1-Conv2D-1536
+ResBlock2D-128
+Reshape C1536 → C96xD16
+...
+ResBlock2D-64
+ResBlock3D-96
+GN, ReLU, 3x3-Conv(n)D_WS-x
+ResBlock2D-32
+x3
+ResBlock3D-96
+3x3-Conv(n)D-x
+GN, ReLU, 3x3-Conv2D-3, Tanh
+GN, ReLU, 3x3-Conv(n)D-x
+Encoder (a)
+Decoder (b)
+Resblock (c)
+Figure 10: Architectures of components of Genh .
+Student
+The student model was trained to predict the corresponding predic-
+tion of the teacher model for a fixed set of identities. We used a stan-
+dard set of losses for such setup, specifically, adversarial and three
+kinds of perceptual losses. Adversarial training was done with mul-
+tiscale discriminator on four resolutions. Perceptual losses are the
+same that were used to train teacher model: standard VGG19 loss,
+gaze loss and VGG Face loss. Additionally, to check how student
+model handle self-reenactment mode, we train separate student
+model on 10 avatars, using persons from 10 random test videos.
+Student model achieved PSNR of 19.25 and SSIM of 0.682 (while
+teacher model achieved 21.34 and 0.768 correspondingly). You can
+see an example in Figure 17.
+B.2
+Two stage training
+Initially, we have evaluated some of the feasible configurations for
+the end-to-end training. First of all, end-to-end training with the
+full enhancer network or even a single decoder layer at 1024x1024
+resolution would not fit into the memory of our available GPUs. We,
+therefore, tried freezing a pre-trained encoder and fine-tuning a de-
+coder with an additional upsampling block, combining both of the
+objectives and with some weighting coefficient. We have observed
+a significant decrease in the quality of the results, compared to a
+separately trained network, across three different weights. Since it
+is effectively doing super-resolution without high-resolution con-
+ditioning, maintaining its high capacity is crucial for the network
+to generate the missing high-frequency details. You can see some
+comparison in Figure 9.
+B.3
+Datasets preprocessing
+We obtain the VoxCeleb2HQ dataset by first downloading the origi-
+nal videos from the VoxCeleb2 [4] dataset. These videos are pro-
+cessed using an off-the-shelf face [41] and keypoints [2] detectors
+and cropped frame-by-frame around the head regions. Then, the
+obtained cropped frames are first filtered by their resolution, toMegaPortraits: One-shot Megapixel Neural Head Avatars
+MM ’22, October 10–14, 2022, Lisboa, Portugal
+ResNet18
+ResBlock 192
+Upsampling
+ResBlock 192
+Identity Tensor
+ResBlock 192
+ResBlock 192
+InstanceNorm2d
+ResBlock 192
+Conv2d, 3x3
+SPADE
+Slice Corresponding
+Identities in MiniBatch
+ReLU
+Conv2d, 3x3
+ResBlock 96
+SPADE
+Conv2d, 1x1
+ResBlock 48Weight (Conv2d)Bias (Conv2d)ResBlock 24UpsamplingUpsampling+
+InstanceNorm2d,
+ReLU, Conv2d(24, 3)*+ReLU
+Student model (a)
+Adaptive normalization (SPADE) (b)
+Residual block (c)
+Figure 11: Architectures of components of the student model. Dashed lines correspond to the optional blocks (i.e. used only if
+channel/resolution configuration needs to apply some transform, either upsampling or change the number of channels). Each
+SPADE tensor shape 𝑊 × 𝐻 is at most 64 × 64.
+exclude all crops that are smaller than 512×512. We call this process
+a bitrade filtering. Then, we additionally rank the frames from the
+remaining videos by their image quality assessment (IQA) scores,
+calculated using a pre-trained system [28]. We then remove the bot-
+tom 50% of the videos using the mean IQA score across its frames,
+thus arriving at the 15,000 videos that we use for training.
+B.4
+Evaluation of the architectural choices
+In addition to the ablations we describe in the main part of the paper,
+we decided to conduct a series of additional experiments to evalu-
+ate the impact of the key features in our method. We demonstrate
+results of an additional ablation study in Figure 12. The following
+parts were eliminated separately: (a) architecture without encoder
+e𝑠 , (b) the warping for source image w𝑠→ , (c) driver augmentation,
+(d) added block to predict background directly with person appear-
+ance, (e) base model. We show that e𝑠 helps to preserve identity
+information, especially on tight turns. Without warping generator
+w𝑠→ the preservation of whole structure of the shoulders and head
+worsen and artifacts appeared on ears. If turn off driver augmenta-
+tion, apparently the model shows significant worsening of results
+in terms of identity preservation (see the eyes and ears zones, and
+artifacts on the cap and temples). Additionally, we train our model
+to predict background and person together. The preservation of
+the identity dropped as long as the whole image quality. Mainly
+because the capacity spent on the background modeling.
+B.5
+Gaze loss
+To get more natural facial appearance, we put into operation spe-
+cialized gaze loss based on gaze and blink estimation models. Our
+model was trained to distill a state-of-the-art gaze detection system
+(RT-GENE) [9] and blink estimation model (RT-BENE). [5]. We dis-
+tilled two systems in one model with two heads with the common
+backbone, one to predict gaze direction and another one to predict
+blink. First, we infer both models on 60k random frames from our
+dataset. We did this in order to extract the maximum information
+from the images of the eyes. As a backbone for our model we used
+VGG-16 that takes one image of the eye (either left or right) and
+predict latent vector with size 256, next we sum both vector to
+get bound representation of eyes. We also derive features from 2D
+keypoints, for this we use a simple network consists of 3 liner layers
+with ReLU activations that produce latent vector with size 64. Next,
+we utilize 2 separate heads, both contain only 2 liners layers with
+ReLU activations. For the gaze prediction head we use as an input
+sum of eye vectors concatenated with keypoint vector and for blink
+prediction just sum of eye vectors.
+We train this model for 60 epoches with batch size equal to 64.
+We use Adam optimizer with initial learning rate equal to 0.8e-3,
+betas=(0.9, 0.999), eps=1e-08, weight decay=0 and one cycle learning
+rate schedule with steps per epoch equal number of batches in epoch
+and pct start=0.1. We use MAE and MSE losses with 𝑤 MAE = 15
+and 𝑤 MSE = 10, we treat predictions from RT-GENE and RT-BENE
+as ground truth.
+B.6
+Explicit control of the pose
+Our system allows some explicit control of a human pose on an
+output image. First, we can either preserve scale of the source
+image, that could be utilized in video conference, or use scale and
+translation (𝑠 &𝑡) from the driving image to fully mimic the driver
+(Figure 13). Despite the fact that we didn’t pay any attention to
+disentangle expression and head rotation, we found that we can
+both make formalization (Figure 14) and apply head rotation from
+frontal pose on moderate angels, we found that it works at least for
+15°angles (Figure 15).
