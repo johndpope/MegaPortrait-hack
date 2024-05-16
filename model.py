@@ -4,8 +4,9 @@ import torch.nn.functional as F
 from resnet import ResNet,Bottleneck, resnet18
 import torchvision.models as models
 import math
-
-
+# from samsunglabs / rome
+from src.networks.common.norm_layers import AdaptiveGroupNorm
+from src.networks.common.conv_layers import WSConv2d
 
 
 
@@ -34,36 +35,6 @@ class Discriminator(nn.Module):
         # Concatenate image and condition image by channels to produce input
         img_input = torch.cat((img_A, img_B), 1)
         return self.model(img_input)
-
-class Conv2d_WS(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
-        self.register_buffer('weight_std', torch.ones(self.weight.shape))
-
-    def forward(self, x):
-        weight = self.weight
-        weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
-        weight_std = weight.std(dim=[1, 2, 3], keepdim=True)
-        self.weight_mean.copy_(weight_mean)
-        self.weight_std.copy_(weight_std)
-        standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
-        return F.conv2d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-    
-class Conv3D_WS(nn.Conv3d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-
-    def forward(self, x):
-        weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
-                                  keepdim=True).mean(dim=3, keepdim=True).mean(
-                                  dim=4, keepdim=True)
-        weight = weight - weight_mean
-        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1, 1) + 1e-5
-        weight = weight / std.expand_as(weight)
-        return F.conv3d(x, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
 
 
 
@@ -136,7 +107,7 @@ class Eapp(nn.Module):
         super().__init__()
         
         # First part: producing volumetric features vs
-        self.conv = Conv2d_WS(3, 64, 7, stride=1, padding=3)
+        self.conv = WSConv2d(3, 64, 7, stride=1, padding=3)
         self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
         self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
         self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
@@ -272,79 +243,81 @@ out.size(0): The batch size dimension
 This reshaping operation aligns with the "Reshape C2048 → C512xD4" block shown in the diagram, which takes the output of the 1x1 convolution and reshapes it into the specified dimensions.
         
 '''
+
+
 class ResBlock3D_Adaptive(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResBlock3D_Adaptive, self).__init__()
         self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm3d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
+        self.adaptive_norm1 = AdaptiveGroupNorm(32, out_channels)
+        self.relu1 = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm3d(out_channels)
-        self.upsample = nn.Upsample(scale_factor=(2, 2, 2))
+        self.adaptive_norm2 = AdaptiveGroupNorm(32, out_channels)
+        self.relu2 = nn.ReLU(inplace=True)
+        
+        if in_channels != out_channels:
+            self.shortcut = nn.Conv3d(in_channels, out_channels, kernel_size=1)
+        else:
+            self.shortcut = None
+        
+        self.upsample = nn.Upsample(scale_factor=(2, 2, 2), mode='trilinear', align_corners=True)
 
     def forward(self, x):
-        identity = x
+        residual = x
+        
         out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+        out = self.adaptive_norm1(out)
+        out = self.relu1(out)
+        
         out = self.conv2(out)
-        out = self.bn2(out)
-        out += identity
-        out = self.relu(out)
+        out = self.adaptive_norm2(out)
+        
+        if self.shortcut is not None:
+            residual = self.shortcut(x)
+        
+        out += residual
+        out = self.relu2(out)
         out = self.upsample(out)
+        
         return out
 
 class WarpGenerator(nn.Module):
-    def __init__(self, input_channels):
+    def __init__(self):
         super(WarpGenerator, self).__init__()
-        self.conv1 = nn.Conv3d(in_channels=input_channels, out_channels=2048, kernel_size=1, padding=0, stride=1)
-        self.hidden_layer = nn.Sequential(
-            ResBlock3D_Adaptive(512, 256),
-            nn.Upsample(scale_factor=(2, 2, 2)),
+        self.conv_initial = nn.Conv3d(1, 2048, kernel_size=1)
+        self.res_blocks = nn.Sequential(
+            ResBlock3D_Adaptive(2048, 256),
             ResBlock3D_Adaptive(256, 128),
-            nn.Upsample(scale_factor=(2, 2, 2)),
             ResBlock3D_Adaptive(128, 64),
-            nn.Upsample(scale_factor=(1, 2, 2)),
-            ResBlock3D_Adaptive(64, 32),
-            nn.Upsample(scale_factor=(1, 2, 2)),
+            ResBlock3D_Adaptive(64, 32)
         )
-        self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
-        self.gn1 = nn.GroupNorm(32, 2048)  # GroupNorm with 32 groups
-        self.tanh = nn.Tanh()
-    
+        self.final_layers = nn.Sequential(
+            AdaptiveGroupNorm(32, 32),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 3, kernel_size=3, padding=1),
+            nn.Tanh()
+        )
+
     def forward(self, Rs, ts, zs, es):
         print("es shape:", es.shape)
         print("Rs shape:", Rs.shape)
         print("ts shape:", ts.shape)
         print("zs shape:", zs.shape)
-    
-        # Ensure tensors are 2D and concatenate along the channel dimension
-        es = es.view(1, -1)
-        Rs = Rs.view(1, -1)
-        ts = ts.view(1, -1)
-        zs = zs.view(1, -1)
-
-        x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
-        assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
+        # Ensure tensors are 4D and concatenate along the batch dimension
+        es = es.view(1, -1, 1, 1)
+        Rs = Rs.view(1, -1, 1, 1)
+        ts = ts.view(1, -1, 1, 1)
+        zs = zs.view(1, -1, 1, 1)
+        x = torch.cat([Rs, ts, zs, es], dim=1)
         
-        # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
-        x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
-        assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
-
-        x = F.relu(self.gn1(self.conv1(x)))  # Conv3d + GroupNorm + ReLU
-        assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
+        # Pass through the initial convolution
+        x = self.conv_initial(x)
         
-        x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
-        assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
+        # Pass through the residual blocks
+        x = self.res_blocks(x)
         
-        x = self.hidden_layer(x)  # Apply hidden layers
-        assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
-        
-        x = self.conv3D(x)  # Apply final Conv3D
-        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
-        
-        x = self.tanh(x)  # Apply tanh activation
-        assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after tanh activation, got {x.shape}"  # Assertion for shape after tanh activation
+        # Pass through the final layers
+        x = self.final_layers(x)
         
         return x
 
@@ -591,84 +564,7 @@ class G2d(nn.Module):
 
         
 
-'''
 
-In this expanded version of AdaptiveGroupNorm, we define a module that performs adaptive group normalization on a 5D input tensor of shape (batch_size, channels, depth, height, width).
-The module is initialized with the number of channels (num_channels), the number of groups (num_groups), and a small constant (eps) for numerical stability.
-We define learnable parameters gamma and beta for adaptive normalization, which have the same shape as the input tensor.
-We also define embedding layers embed_gamma and embed_beta that take the mean of the input tensor across the spatial dimensions (depth, height, width) and output adaptive parameters of the same shape as gamma and beta. These embedding layers allow the normalization parameters to adapt based on the input.
-In the forward method, we first reshape the input tensor into (batch_size, num_groups, channels // num_groups, depth, height, width) to perform group normalization. We compute the mean and variance per group and normalize the tensor using these statistics.
-After normalization, we reshape the tensor back to its original shape (batch_size, channels, depth, height, width).
-Finally, we compute the adaptive scale and shift parameters by adding the learnable parameters gamma and beta to the embedded parameters obtained from embed_gamma and embed_beta. We apply these adaptive parameters to the normalized tensor using element-wise multiplication and addition.
-The resulting tensor has the same shape as the input tensor but has undergone adaptive group normalization.
-This AdaptiveGroupNorm module can be used as a replacement for standard group normalization layers in the network, allowing for adaptive normalization based on the input.
-'''
-class AdaptiveGroupNorm(nn.Module):
-    def __init__(self, num_channels, num_groups=32, eps=1e-5):
-        super(AdaptiveGroupNorm, self).__init__()
-        self.num_channels = num_channels
-        self.num_groups = num_groups
-        self.eps = eps
-
-        # Parameters for adaptive normalization
-        self.gamma = nn.Parameter(torch.ones(1, num_channels, 1, 1, 1))
-        self.beta = nn.Parameter(torch.zeros(1, num_channels, 1, 1, 1))
-
-        # Embedding layers for adaptive parameters
-        self.embed_gamma = nn.Sequential(
-            nn.Linear(num_channels, num_channels),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_channels, num_channels)
-        )
-        self.embed_beta = nn.Sequential(
-            nn.Linear(num_channels, num_channels),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_channels, num_channels)
-        )
-
-    def forward(self, x):
-        batch_size, channels, depth, height, width = x.size()
-
-        # Reshape into (batch_size, num_groups, channels // num_groups, depth, height, width)
-        x = x.view(batch_size, self.num_groups, -1, depth, height, width)
-
-        # Compute mean and variance per group
-        mean = x.mean(dim=[2, 3, 4, 5], keepdim=True)
-        var = x.var(dim=[2, 3, 4, 5], keepdim=True, unbiased=False)
-
-        # Normalize
-        x = (x - mean) / torch.sqrt(var + self.eps)
-
-        # Reshape back to (batch_size, channels, depth, height, width)
-        x = x.view(batch_size, channels, depth, height, width)
-
-        # Adaptive scale and shift
-        embedded_gamma = self.embed_gamma(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        embedded_beta = self.embed_beta(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        adaptive_gamma = self.gamma + embedded_gamma
-        adaptive_beta = self.beta + embedded_beta
-
-        return x * adaptive_gamma + adaptive_beta
-
-
-class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, input_channels, output_channels):
-        super().__init__()
-        self.conv1 = nn.Conv3d(input_channels, output_channels, 3, padding=1)
-        self.conv2 = nn.Conv3d(output_channels, output_channels, 3, padding=1)
-        self.norm1 = AdaptiveGroupNorm(output_channels)
-        self.norm2 = AdaptiveGroupNorm(output_channels)
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.norm1(out)
-        out = F.relu(out)
-        out = self.conv2(out)
-        out = self.norm2(out)
-        out += residual
-        out = F.relu(out)
-        return out
 
 
 '''
@@ -734,8 +630,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
         self.Emtn = Emtn()
-        self.Ws2c = WarpGenerator(input_channels=568) #https://github.com/johndpope/MegaPortrait-hack/issues/5
-        self.Wc2d = WarpGenerator(input_channels=568)
+        self.Ws2c = WarpGenerator() #https://github.com/johndpope/MegaPortrait-hack/issues/5
+        self.Wc2d = WarpGenerator()
         self.G3d = G3d(input_channels=96)
         self.G2d = G2d(input_channels=96)
 
