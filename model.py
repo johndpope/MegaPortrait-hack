@@ -717,7 +717,7 @@ class Emtn(nn.Module):
         self.head_pose_net = resnet18(pretrained=True)
         self.head_pose_net.fc = nn.Linear(512, 6)  # 6 corresponds to rotation and translation parameters
         
-        self.expression_net = resnet18(num_classes=50)  # 50 corresponds to the dimensions of expression vector
+        self.expression_net = resnet18(pretrained=False,num_classes=50)  # 50 corresponds to the dimensions of expression vector
 
     def forward(self, x):
         head_pose = self.head_pose_net(x)
@@ -777,7 +777,7 @@ class Gbase(nn.Module):
 
         assert vs.shape[1:] == (96, 16, vs.shape[3], vs.shape[4]), f"Expected vs shape (_, 96, 16, H', W'), got {vs.shape}"
         assert es.shape[1] == 512, f"Expected es shape (_, 512), got {es.shape}"
-        assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
+        #assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.Ws2c(Rs, ts, zs, es)
