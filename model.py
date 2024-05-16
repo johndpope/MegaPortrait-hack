@@ -272,8 +272,10 @@ class WarpGenerator(nn.Module):
             nn.Upsample(scale_factor=(1, 2, 2)),
         )
         self.conv3D = nn.Conv3d(in_channels=32, out_channels=3, kernel_size=3, padding=1, stride=1)
+        self.gn1 = nn.GroupNorm(32, 512)  # GroupNorm with 32 groups
+        self.gn2 = nn.GroupNorm(32, 512)  # GroupNorm with 32 groups
+        self.tanh = nn.Tanh()
 
-    
     def forward(self, Rs, ts, zs, es):
         # Combine inputs as needed (this is a simplified example)
         x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
