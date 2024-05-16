@@ -590,7 +590,18 @@ The resulting grid represents the warping transformations based on the given rot
 https://github.com/Kevinfringe/MegaPortrait/issues/4
 
 '''
-def compute_rt_warp(rotation, translation):
+def compute_rt_warp(rotation, translation, invert=False):
+    """
+    Computes the rotation/translation warpings (w_rt).
+    
+    Args:
+        rotation (torch.Tensor): The rotation angles (in degrees) of shape (batch_size, 3).
+        translation (torch.Tensor): The translation vector of shape (batch_size, 3).
+        invert (bool): If True, invert the transformation matrix.
+        
+    Returns:
+        torch.Tensor: The resulting transformation grid.
+    """
     # Compute the rotation matrix from the rotation parameters
     rotation_matrix = compute_rotation_matrix(rotation)
 
@@ -603,6 +614,10 @@ def compute_rt_warp(rotation, translation):
     # Set the first three elements of the last column to the translation parameters
     affine_matrix[:, :3, 3] = translation
 
+    # Invert the transformation matrix if needed
+    if invert:
+        affine_matrix = torch.inverse(affine_matrix)
+
     # Create a grid of normalized coordinates
     grid_size = 64  # Assumes a grid size of 64x64x64
     grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
@@ -610,6 +625,15 @@ def compute_rt_warp(rotation, translation):
     return grid
 
 def compute_rotation_matrix(rotation):
+    """
+    Computes the rotation matrix from rotation angles.
+    
+    Args:
+        rotation (torch.Tensor): The rotation angles (in degrees) of shape (batch_size, 3).
+        
+    Returns:
+        torch.Tensor: The rotation matrix of shape (batch_size, 3, 3).
+    """
     # Assumes rotation is a tensor of shape (batch_size, 3), representing rotation angles in degrees
     rotation_rad = rotation * (torch.pi / 180.0)  # Convert degrees to radians
 
