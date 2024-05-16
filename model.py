@@ -146,8 +146,11 @@ class Eapp(nn.Module):
 
         self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
-        # Second part: producing global descriptor es
-        self.resnet50 = ResNet(block=Bottleneck, layers=[3, 4, 6, 3], num_classes=512)
+        # # Second part: producing global descriptor es
+        # self.resnet50 = ResNet(block=Bottleneck, layers=[3, 4, 6, 3], num_classes=512)
+        # Global Descriptor
+        self.resnet50 = models.resnet50(pretrained=True)
+        self.resnet50.fc = nn.Identity()  # Removing the fully connected layer
 
     def forward(self, x):
         # First part
@@ -180,8 +183,8 @@ class Eapp(nn.Module):
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
+        # Global Descriptor
         es = self.resnet50(x)
-        assert es.shape[1] == 512, f"Expected 512 channels for es, got {es.shape[1]}"
 
         return vs, es
 

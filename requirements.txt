@@ -3,3 +3,4 @@
 pytorch-msssim
 chardet
 lpips
+mediapipe
