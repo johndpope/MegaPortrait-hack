@@ -259,18 +259,7 @@ The final output of the WarpGenerator is passed through a tanh activation functi
 In summary, the WarpGenerator class in the code aligns well with the warping generator (Ws2c or Wc2d) shown in the diagram. The input processing, 1x1 convolution, reshaping, hidden layers, and output convolution in the code correspond to the respective blocks in the diagram. The activation functions and upsampling operations are also consistent with the diagram.
 
 
-This code first applies the 1D convolution (self.conv1) to the input tensor x, which reduces the number of channels to 2048. 
-Then, the out.view(out.size(0), 512, 4, 16, 16) line reshapes the output tensor to have dimensions (batch_size, 512, 4, 16, 16), effectively transforming the shape from C2048 to C512xD4.
-The dimensions in the out.view function call correspond to:
-
-out.size(0): The batch size dimension
-512: The number of channels (C) in the reshaped tensor
-4: The depth dimension (D) in the reshaped tensor
-16: The height dimension in the reshaped tensor
-16: The width dimension in the reshaped tensor
-
-This reshaping operation aligns with the "Reshape C2048 → C512xD4" block shown in the diagram, which takes the output of the 1x1 convolution and reshapes it into the specified dimensions.
-        
+    
 '''
 class ResBlock3D_Adaptive(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -317,7 +306,7 @@ class WarpGenerator(nn.Module):
         print("Rs shape:", Rs.shape)
         print("ts shape:", ts.shape)
         print("zs shape:", zs.shape)
-    
+        
         # Ensure tensors are 2D and concatenate along the channel dimension
         es = es.view(1, -1)
         Rs = Rs.view(1, -1)
@@ -326,19 +315,24 @@ class WarpGenerator(nn.Module):
 
         x = torch.cat([Rs, ts, zs, es], dim=1)  # Concatenate along the channel dimension
         assert x.shape[1] == 568, f"Expected input channels 568, got {x.shape[1]}"  # Assertion for input channels
-        
+        print("x.shape:",x.shape)
         # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
         x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
         assert x.shape == (1, 568, 1, 1, 1), f"Expected shape (1, 568, 1, 1, 1) after unsqueeze, got {x.shape}"  # Assertion for shape after unsqueeze
 
-        x = F.relu(self.gn1(self.conv1(x)))  # Conv3d + GroupNorm + ReLU
+        x = self.conv1(x)  # Apply 1x1 convolution
+        print("x.shape:",x.shape)
         assert x.shape[1] == 2048, f"Expected 2048 channels after conv1, got {x.shape[1]}"  # Assertion for channels after conv1
-        
+        # x.shape: torch.Size([1, 2048, 1, 1, 1])
+
         x = x.view(x.size(0), 512, 4, 16, 16)  # Reshape to (batch_size, 512, 4, 16, 16)
         assert x.shape[1:] == (512, 4, 16, 16), f"Expected shape (_, 512, 4, 16, 16) after reshape, got {x.shape}"  # Assertion for shape after reshape
         
-        x = self.hidden_layer(x)  # Apply hidden layers
+        x = self.hidden_layer(x)  # Apply hidden layers (ResBlock3D* and upsampling)
         assert x.shape[1:] == (32, 8, 64, 64), f"Expected shape (_, 32, 8, 64, 64) after hidden layers, got {x.shape}"  # Assertion for shape after hidden layers
+        
+        x = F.group_norm(x, num_groups=32)  # Apply group normalization
+        x = F.relu(x)  # Apply ReLU activation
         
         x = self.conv3D(x)  # Apply final Conv3D
         assert x.shape[1:] == (3, 8, 64, 64), f"Expected shape (_, 3, 8, 64, 64) after final conv3D, got {x.shape}"  # Assertion for shape after final conv3D
@@ -740,10 +734,21 @@ class Gbase(nn.Module):
         self.G2d = G2d(input_channels=96)
 
     def forward(self, xs, xd):
-        vs, es = self.Eapp(xs)
-        Rs, ts, zs = self.Emtn(xs)
-        Rd, td, zd = self.Emtn(xd)
+        vs, es = self.Eapp(xs) # Appearance encoder source
+        Rs, ts, zs = self.Emtn(xs) # motion encoder source
+        Rd, td, zd = self.Emtn(xd) # motion encoder driving
 
+        # es shape: torch.Size([1, 512])
+        # Rs shape: torch.Size([1, 3])
+        # ts shape: torch.Size([1, 3])
+        # zs shape: torch.Size([1, 50])
+
+        print("vs shape:", vs.shape)
+        print("es shape:", es.shape)
+        print("Rs shape:", Rs.shape)
+        print("ts shape:", ts.shape)
+        print("zs shape:", zs.shape)
+    
         assert vs.shape[1:] == (96, 16, vs.shape[3], vs.shape[4]), f"Expected vs shape (_, 96, 16, H', W'), got {vs.shape}"
         assert es.shape[1] == 512, f"Expected es shape (_, 512), got {es.shape}"
         #assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
