@@ -864,7 +864,6 @@ class Gbase(nn.Module):
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
-        summary(vs,es)
         Rs, ts, zs, Rd, td, zd = self.Emtn(xs, xd)
 
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
