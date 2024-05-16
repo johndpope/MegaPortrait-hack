@@ -209,6 +209,30 @@ class ResBlock(nn.Module):
         input = nn.ReLU()(self.bn2(self.conv2(input)))
         input = input + shortcut
         return nn.ReLU()(input)
+    
+
+class ResBlock3D_Adaptive(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock3D_Adaptive, self).__init__()
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm3d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm3d(out_channels)
+        self.upsample = nn.Upsample(scale_factor=(2, 2, 2))
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += identity
+        out = self.relu(out)
+        out = self.upsample(out)
+        return out
+
 
 
 # W→d |Ws→
@@ -258,36 +282,7 @@ The final output of the WarpGenerator is passed through a tanh activation functi
 
 In summary, the WarpGenerator class in the code aligns well with the warping generator (Ws2c or Wc2d) shown in the diagram. The input processing, 1x1 convolution, reshaping, hidden layers, and output convolution in the code correspond to the respective blocks in the diagram. The activation functions and upsampling operations are also consistent with the diagram.
 
-
-    
-'''
-class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResBlock3D_Adaptive, self).__init__()
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm3d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm3d(out_channels)
-        self.upsample = nn.Upsample(scale_factor=(2, 2, 2))
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += identity
-        out = self.relu(out)
-        out = self.upsample(out)
-        return out
-
-
-
-'''
-
-
+UPDATE
 The forward method now takes Rs, ts, zs from the source and Rd, td, zd from the driver separately.
 It computes the rotation/translation warpings (w_rt) using the compute_rt_warp function for both source-to-canonical (w_s2c_rt) and canonical-to-driver (w_c2d_rt) transforms. The invert flag controls whether to invert the transformation matrix.
 It computes the emotion warpings (w_em) using the warp_from_emotion method, which concatenates the emotion vector z with the appearance features e and passes them through the warping generator network. This is done for both source (w_s2c_em) and driver (w_c2d_em) emotion vectors.
