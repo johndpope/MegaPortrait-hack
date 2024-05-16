@@ -178,7 +178,7 @@ class Eapp(nn.Module):
         assert vs.shape[1:] == (96, 16, out.size(2), out.size(3)), f"Expected vs shape (_, 96, 16, _, _), got {vs.shape}"
         
         # Resize vs to have width and height of 64
-        vs = torch.nn.functional.interpolate(vs, size=(96, 16, 64, 64), mode='trilinear', align_corners=False)
+        # vs = torch.nn.functional.interpolate(vs, size=(96, 16, 64, 64), mode='trilinear', align_corners=False)
   
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
