@@ -6,11 +6,8 @@ import torchvision.models as models
 import math
 import colored_traceback.auto
 from torchsummary import summary
+from resnet50 import ResNet50
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.models as models
 
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
@@ -91,205 +88,6 @@ class ResBlock_Custom(nn.Module):
 
         return out
 
-# TODO - collapse these 2 ResBlock_Custom
-'''
-Based on the provided code and diagram, the ResBlock_Custom_ResNet50 class corresponds to the Resblock (c) block in the diagram.
-
-The ResBlock_Custom_ResNet50 class consists of the following components:
-
-1. conv1: A 2D convolutional layer with kernel size 1 and stride equal to the provided stride argument. This corresponds to the first 3x3-Conv(n)D_WS-x block in the diagram.
-
-2. gn1: A group normalization layer (nn.GroupNorm) with 32 groups applied to the output of conv1. This corresponds to the first GN block in the diagram.
-
-3. relu: A ReLU activation function applied after gn1. This corresponds to the first ReLU block in the diagram.
-
-4. conv2: Another 2D convolutional layer with kernel size 3, stride 1, and padding 1. This corresponds to the second 3x3-Conv(n)D_WS-x block in the diagram.
-
-5. gn2: A group normalization layer applied to the output of conv2. This corresponds to the second GN block in the diagram.
-
-6. shortcut: A sequential block that applies a 1x1 convolutional layer (with stride equal to the provided stride argument) followed by a group normalization layer if the input and output channels are different or the stride is not 1. This shortcut connection aligns with the arrow connecting the input directly to the output in the diagram.
-
-In the forward method of ResBlock_Custom_ResNet50:
-
-1. The input x is passed through conv1, gn1, and relu sequentially, which aligns with the upper path in the diagram.
-
-2. The output is then passed through conv2 and gn2, corresponding to the second 3x3-Conv(n)D_WS-x and GN blocks in the diagram.
-
-3. If the shortcut block exists (i.e., input and output channels are different or stride is not 1), the input x is passed through the shortcut block.
-
-4. The output of the main path (conv2 and gn2) is added to the output of the shortcut block, which aligns with the addition operation in the diagram.
-
-5. Finally, a ReLU activation function is applied to the sum, producing the final output of the ResBlock_Custom_ResNet50.
-
-The code implementation of ResBlock_Custom_ResNet50 closely follows the structure and components shown in the Resblock (c) diagram, with the convolutional layers, group normalization, ReLU activations, and the shortcut connection matching the diagram's layout.
-'''
-
-class ResBlock_Custom_ResNet50(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
-        super(ResBlock_Custom_ResNet50, self).__init__()
-        
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False) 
-        self.gn1 = nn.GroupNorm(32, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.gn2 = nn.GroupNorm(32, out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        
-        if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.GroupNorm(32, out_channels)
-            )
-        else:
-            self.shortcut = nn.Identity()
-        
-    def forward(self, x):
-        identity = self.shortcut(x)
-        
-        out = self.conv1(x)
-        out = self.gn1(out) 
-        out = self.relu(out)
-        
-        out = self.conv2(out)
-        out = self.gn2(out)
-        
-        out += identity
-        out = self.relu(out)
-        
-        return out
-    
-class CustomResNet50(nn.Module):
-    def __init__(self, in_channels=3):
-        super(CustomResNet50, self).__init__()
-        
-        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-        self.gn1 = nn.GroupNorm(32, 64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1) 
-        
-        self.layer1 = self._make_layer(64, 64, 3)
-        self.layer2 = self._make_layer(256, 128, 4, stride=2)
-        self.layer3 = self._make_layer(512, 256, 6, stride=2)
-        self.layer4 = self._make_layer(1024, 512, 3, stride=2)
-        
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # self.fc = nn.Linear(2048, num_classes)
-        self.fc = nn.Identity()  # Removing the fully connected layer
-
-        self._initialize_weights()
-        
-    def _make_layer(self, in_channels, out_channels, num_blocks, stride=1):
-        layers = []
-        layers.append(ResBlock_Custom_ResNet50(in_channels, out_channels, stride))
-        for _ in range(1, num_blocks):
-            layers.append(ResBlock_Custom_ResNet50(out_channels, out_channels))
-        return nn.Sequential(*layers)
-
-    '''
-    Let's break down the assertions and the corresponding layers:
-
-    x = self.layer1(x)
-    assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}"
-    According to the layer definition:
-    self.layer1 = self._make_layer(64, 64, 3)
-    The _make_layer function creates a sequence of BasicBlock or Bottleneck residual blocks. In this case, it creates 3 blocks with an input channel size of 64 and an output channel size of 64.
-    Since the input to self.layer1 is the output of self.conv1, which has 64 channels, and each BasicBlock or Bottleneck block maintains the same number of channels, the output of self.layer1 should have 64 channels.
-    Therefore, the assertion assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}" is correct, as it expects 256 output channels after self.layer1.
-    x = self.layer2(x)
-    assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}"
-    According to the layer definition:
-    self.layer2 = self._make_layer(256, 128, 4, stride=2)
-    The _make_layer function creates 4 blocks with an input channel size of 256 and an output channel size of 128. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
-    Since the input to self.layer2 is the output of self.layer1, which has 256 channels, and each block in self.layer2 has 128 output channels, the total number of output channels after self.layer2 should be 512 (4 blocks × 128 channels).
-    Therefore, the assertion assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}" is correct, as it expects 512 output channels after self.layer2.
-    x = self.layer3(x)
-    assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}"
-    According to the layer definition:
-    self.layer3 = self._make_layer(512, 256, 6, stride=2)
-    The _make_layer function creates 6 blocks with an input channel size of 512 and an output channel size of 256. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
-    Since the input to self.layer3 is the output of self.layer2, which has 512 channels, and each block in self.layer3 has 256 output channels, the total number of output channels after self.layer3 should be 1024 (6 blocks × 256 channels).
-    Therefore, the assertion assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}" is correct, as it expects 1024 output channels after self.layer3.
-    x = self.layer4(x)
-    assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}"
-    According to the layer definition:
-    self.layer4 = self._make_layer(1024, 512, 3, stride=2)
-    The _make_layer function creates 3 blocks with an input channel size of 1024 and an output channel size of 512. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
-    Since the input to self.layer4 is the output of self.layer3, which has 1024 channels, and each block in self.layer4 has 512 output channels, the total number of output channels after self.layer4 should be 2048 (3 blocks × 512 channels).
-    Therefore, the assertion assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}" is correct, as it expects 2048 output channels after self.layer4.
-
-    In summary, the assertions for the output channels after self.layer1, self.layer2, self.layer3, and self.layer4 are correct and consistent with the provided layer definitions and the ResNet architecture.
-    '''
-    def forward(self, x):
-        print("  >> x.shape:",x.shape) 
-        assert x.size(1) == 3, f"Expected input channels: 3, got: {x.size(1)}"
-        assert x.dim() == 4, f"Expected input dimensions: 4, got: {x.dim()}"
-        
-        x = self.conv1(x)
-        assert x.size(1) == 64, f"Expected channels after conv1: 64, got: {x.size(1)}"
-        
-        x = self.gn1(x)
-        print("gn1 > x.shape:",x.shape) 
-        x = self.relu(x)
-        print("relu > x.shape:",x.shape) 
-        x = self.maxpool(x)
-        print("maxpool > x.shape:",x.shape) 
-        
-        x = self.layer1(x)
-        assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}"
-        
-        x = self.layer2(x)
-        assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}"
-        
-        x = self.layer3(x)
-        assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}"
-        
-        x = self.layer4(x)
-        assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}"
-        
-        x = self.avgpool(x)
-        assert x.size(2) == 1 and x.size(3) == 1, f"Expected spatial dimensions after avgpool: (1, 1), got: ({x.size(2)}, {x.size(3)})"
-        
-        x = torch.flatten(x, 1)
-        assert x.size(1) == 2048, f"Expected flattened features: 2048, got: {x.size(1)}"
-        
-        x = self.fc(x)
-        assert x.size(1) == 2048, f"Expected output features: 2048, got: {x.size(1)}"
-        
-        return x
-    
-    def _initialize_weights(self):
-        pretrained_resnet50 = models.resnet50(pretrained=True)
-        
-        # Initialize conv1 and gn1 weights
-        self.conv1.weight.data = pretrained_resnet50.conv1.weight.data
-        self.gn1.weight.data = pretrained_resnet50.bn1.weight.data
-        self.gn1.bias.data = pretrained_resnet50.bn1.bias.data
-        
-        # Initialize layer1 to layer4 weights
-        for i in range(1, 5):
-            layer = getattr(self, f'layer{i}')
-            pretrained_layer = getattr(pretrained_resnet50, f'layer{i}')
-            self._initialize_layer_weights(layer, pretrained_layer)
-        
-        # Initialize fc weights - remove fully connected weights
-        # self.fc.weight.data = pretrained_resnet50.fc.weight.data
-        # self.fc.bias.data = pretrained_resnet50.fc.bias.data
-
-    def _initialize_layer_weights(self, layer, pretrained_layer):
-        for block, pretrained_block in zip(layer, pretrained_layer):
-            block.conv1.weight.data = pretrained_block.conv1.weight.data
-            block.gn1.weight.data = pretrained_block.bn1.weight.data
-            block.gn1.bias.data = pretrained_block.bn1.bias.data
-            block.conv2.weight.data = pretrained_block.conv2.weight.data
-            block.gn2.weight.data = pretrained_block.bn2.weight.data
-            block.gn2.bias.data = pretrained_block.bn2.bias.data
-            
-            if hasattr(block.shortcut, 'conv'):
-                block.shortcut.conv.weight.data = pretrained_block.downsample[0].weight.data
-                block.shortcut.gn.weight.data = pretrained_block.downsample[1].weight.data
-                block.shortcut.gn.bias.data = pretrained_block.downsample[1].bias.data
-
-           
 
 
 '''
@@ -341,7 +139,8 @@ class Eapp(nn.Module):
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
-        self.custom_resnet50 = CustomResNet50( in_channels=3)
+        self.custom_resnet50 = ResNet50( in_channels=3)
+        self.custom_resnet50.fc = nn.Identity # remove fully connected layer
 
     def forward(self, x):
         # First part
