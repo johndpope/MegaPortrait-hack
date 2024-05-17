@@ -372,22 +372,31 @@ class WarpGenerator(nn.Module):
         self.gn = nn.GroupNorm(num_groups=32, num_channels=32)
         self.conv2 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
 
-    
+        
     def forward(self, Rs, ts, zs, es, Rd, td, zd):
-
         # Compute rotation and translation grid (w_rt) 
         w_s2c_rt = compute_rt_warp(Rs, ts, invert=True)  
+        print(f"w_s2c_rt shape: {w_s2c_rt.shape}")
+
         w_c2d_rt = compute_rt_warp(Rd, td, invert=False)
+        print(f"w_c2d_rt shape: {w_c2d_rt.shape}")
 
         # Compute emotion warping (w_em)
         w_s2c_em = self.warp_from_emotion(zs, es)
+        print(f"w_s2c_em shape: {w_s2c_em.shape}")
+
         w_c2d_em = self.warp_from_emotion(zd, es)
+        print(f"w_c2d_em shape: {w_c2d_em.shape}")
 
         # Combine rotation/translation and emotion warpings
         w_s2c = w_s2c_rt + w_s2c_em 
+        print(f"w_s2c shape: {w_s2c.shape}")
+
         w_c2d = w_c2d_rt + w_c2d_em
+        print(f"w_c2d shape: {w_c2d.shape}")
 
         return w_s2c, w_c2d
+
 
     def warp_from_emotion(self, z, e):
         x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
