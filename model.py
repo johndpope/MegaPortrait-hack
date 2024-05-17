@@ -286,7 +286,7 @@ class Eapp(nn.Module):
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
-        self.custom_resnet50 = CustomResNet50( in_channels=3, outputs=2048)
+        self.custom_resnet50 = CustomResNet50( in_channels=3)
 
     def forward(self, x):
         # First part
