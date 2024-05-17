@@ -230,6 +230,8 @@ class Eapp(nn.Module):
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
         self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
+        
 
 
         # Second part: producing global descriptor es
@@ -253,8 +255,8 @@ class Eapp(nn.Module):
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
         print("self.resblock_512(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         # self.resblock_512(out) > out.shape: torch.Size([1, 512, 64, 64])
-        out = self.avgpool(out)
-        print("self.avgpool(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
+        out = self.idk_avgpool(out)
+        print("self.idk_avgpool(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         out = F.group_norm(out, num_groups=32)
         print("F.group_norm(out, num_groups=32) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         out = F.relu(out)
