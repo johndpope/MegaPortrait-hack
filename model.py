@@ -175,13 +175,21 @@ class CustomResNet50(nn.Module):
                     custom_block.shortcut[1].bias.data.copy_(pretrained_block.downsample[1].bias.data)
 
     def forward(self, input):
+        print("input.shape:",input.shape)
         input = self.layer0(input)
+        print("input.shape:",input.shape)
         input = self.layer1(input)
+        print("layer1 > input.shape:",input.shape)
         input = self.layer2(input)
+        print("layer2 > input.shape:",input.shape)
         input = self.layer3(input)
+        print("layer3 > input.shape:",input.shape)
         input = self.layer4(input)
+        print("layer4 > input.shape:",input.shape)
         input = self.gap(input)
+        print("self.gap > input.shape:",input.shape)
         input = torch.flatten(input, start_dim=1)
+        print("torch.flatten(input.shape:",input.shape)
         input = self.fc(input)
         print("Dimensions of final output of CustomResNet50: " + str(input.size()))
         return input
