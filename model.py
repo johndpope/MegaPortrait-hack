@@ -92,7 +92,7 @@ class ResBlock_Custom(nn.Module):
 # TODO - collapse these 2 ResBlock_Custom
 class ResBlock_Custom_ResNet50(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, dimension=2):
-        super(ResBlock_Custom, self).__init__()
+        super(ResBlock_Custom_ResNet50, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
         self.gn1 = nn.GroupNorm(32, out_channels)
         self.relu = nn.ReLU(inplace=True)
