@@ -42,9 +42,9 @@ class Conv3D_WS(nn.Conv3d):
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
-class ResBlock_Custom(nn.Module):
+class BROKENResBlock_Custom(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=2):
-        super(ResBlock_Custom, self).__init__()
+        super(BROKENResBlock_Custom, self).__init__()
 
         if dimension == 2:
             self.conv1 = Conv2d_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
@@ -89,11 +89,34 @@ class ResBlock_Custom(nn.Module):
 
         return out
 
+
+class ResBlock_Custom(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, dimension=2):
+        super(ResBlock_Custom, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
+        self.gn1 = nn.GroupNorm(32, out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.gn2 = nn.GroupNorm(32, out_channels)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels * 4:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride),
+                nn.GroupNorm(32, out_channels * 4)
+            )
+
+    def forward(self, x):
+        out = self.relu(self.gn1(self.conv1(x)))
+        out = self.gn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = self.relu(out)
+        return out
+    
 class CustomResNet50(nn.Module):
     def __init__(self, repeat, in_channels=3, outputs=256):
         super(CustomResNet50, self).__init__()
         self.layer0 = nn.Sequential(
-            Conv2d_WS(in_channels, 64, kernel_size=7, stride=2, padding=3),
+            nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             nn.GroupNorm(32, 64),
             nn.ReLU()
@@ -101,31 +124,23 @@ class CustomResNet50(nn.Module):
 
         filters = [64, 256, 512, 1024, 2048]
 
-        self.layer1 = nn.Sequential()
-        self.layer1.add_module('conv2_1', ResBlock_Custom(in_channels=filters[0], out_channels=filters[1] // 4, stride=1, dimension=2))
-        for i in range(1, repeat[0]):
-            self.layer1.add_module('conv2_%d' % (i+1,), ResBlock_Custom(in_channels=filters[1], out_channels=filters[1] // 4, stride=1, dimension=2))
+        self.layer1 = self._make_layer(ResBlock_Custom, filters[0], filters[1], repeat[0], stride=1)
+        self.layer2 = self._make_layer(ResBlock_Custom, filters[1], filters[2], repeat[1], stride=2)
+        self.layer3 = self._make_layer(ResBlock_Custom, filters[2], filters[3], repeat[2], stride=2)
+        self.layer4 = self._make_layer(ResBlock_Custom, filters[3], filters[4], repeat[3], stride=2)
 
-        self.layer2 = nn.Sequential()
-        self.layer2.add_module('conv3_1', ResBlock_Custom(in_channels=filters[1], out_channels=filters[2] // 4, stride=2, dimension=2))
-        for i in range(1, repeat[1]):
-            self.layer2.add_module('conv3_%d' % (i+1,), ResBlock_Custom(in_channels=filters[2], out_channels=filters[2] // 4, stride=1, dimension=2))
-
-        self.layer3 = nn.Sequential()
-        self.layer3.add_module('conv4_1', ResBlock_Custom(in_channels=filters[2], out_channels=filters[3] // 4, stride=2, dimension=2))
-        for i in range(1, repeat[2]):
-            self.layer3.add_module('conv4_%d' % (i+1,), ResBlock_Custom(in_channels=filters[3], out_channels=filters[3] // 4, stride=1, dimension=2))
-
-        self.layer4 = nn.Sequential()
-        self.layer4.add_module('conv5_1', ResBlock_Custom(in_channels=filters[3], out_channels=filters[4] // 4, stride=2, dimension=2))
-        for i in range(1, repeat[3]):
-            self.layer4.add_module('conv5_%d' % (i+1,), ResBlock_Custom(in_channels=filters[4], out_channels=filters[4] // 4, stride=1, dimension=2))
-
-        self.gap = torch.nn.AdaptiveAvgPool2d(1)
-        self.fc = torch.nn.Linear(filters[4], outputs)
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(filters[4], outputs)
 
         # Initialize weights from pretrained ResNet-50
         self._initialize_weights()
+
+    def _make_layer(self, block, in_channels, out_channels, blocks, stride=1):
+        layers = []
+        layers.append(block(in_channels, out_channels // 4, stride))
+        for _ in range(1, blocks):
+            layers.append(block(out_channels, out_channels // 4))
+        return nn.Sequential(*layers)
 
     def _initialize_weights(self):
         pretrained_resnet50 = models.resnet50(pretrained=True)
@@ -137,10 +152,10 @@ class CustomResNet50(nn.Module):
         self.layer0[2].bias.data.copy_(pretrained_layers[1].bias.data)
 
         # Initialize custom blocks with corresponding pretrained weights
-        self._copy_resblock_weights(self.layer1, pretrained_layers[4])
-        self._copy_resblock_weights(self.layer2, pretrained_layers[5])
-        self._copy_resblock_weights(self.layer3, pretrained_layers[6])
-        self._copy_resblock_weights(self.layer4, pretrained_layers[7])
+        self._copy_resblock_weights(self.layer1, pretrained_layers[4]) #layer1
+        self._copy_resblock_weights(self.layer2, pretrained_layers[5]) #layer2
+        self._copy_resblock_weights(self.layer3, pretrained_layers[6]) #layer3
+        self._copy_resblock_weights(self.layer4, pretrained_layers[7]) #layer4
 
     def _copy_resblock_weights(self, custom_layer, pretrained_layer):
         for i, (custom_block, pretrained_block) in enumerate(zip(custom_layer.children(), pretrained_layer.children())):
