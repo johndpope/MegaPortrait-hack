@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from resnet import ResNet,Bottleneck, resnet18
+from resnet import ResNet,Bottleneck, resnet18,ResBlock3D
 import torchvision.models as models
 import math
 import colored_traceback.auto
@@ -297,8 +297,10 @@ class ResBlock(nn.Module):
 
 
 class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels,upsample=False, scale_factors=(1, 1, 1)):
         super().__init__()
+        self.upsample = upsample
+        self.scale_factors = scale_factors
         self.conv1 = nn.Conv3d(in_channels, out_channels, 3, padding=1)
         self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1)
         self.norm1 = AdaptiveGroupNorm(out_channels)
@@ -313,6 +315,10 @@ class ResBlock3D_Adaptive(nn.Module):
         out = self.norm2(out)
         out += residual
         out = F.relu(out)
+        
+        if self.upsample:
+            out = F.interpolate(out, scale_factor=self.scale_factors, mode='trilinear', align_corners=False)
+        
         return out
 
 
