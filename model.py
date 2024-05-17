@@ -362,95 +362,39 @@ These changes align the code with the description provided in the image, where t
 class WarpGenerator(nn.Module):
     def __init__(self, in_channels):
         super(WarpGenerator, self).__init__()
-        self.conv1 = nn.Conv3d(2048, 512, kernel_size=1)
-
-        self.resblock1 = ResBlock3D_Adaptive(512, 256, upsample=True, scale_factors=(2, 2, 2))
-        self.resblock2 = ResBlock3D_Adaptive(256, 128, upsample=True, scale_factors=(2, 2, 2))
-        self.resblock3 = ResBlock3D_Adaptive(128, 64, upsample=True, scale_factors=(1, 2, 2))
-        self.resblock4 = ResBlock3D_Adaptive(64, 32, upsample=True, scale_factors=(1, 2, 2))
         
-        self.gn = nn.GroupNorm(num_groups=32, num_channels=32)
-        self.conv2 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
-
+        self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
         
-        # (s)Source / (d)Driving
-        # Rs: Rotation parameters
-        # ts: Translation parameters
-        # zs: Latent expression descriptors
-        # es: Appearance embeddings
-    def forward(self, Rs, ts, zs, es, Rd, td, zd):
-        # Compute rotation and translation grid (w_rt) 
-        # Rotation/Translation Warping (w_s2c_rt and w_c2d_rt):
-        # Removes source motion by mapping features into a canonical coordinate space.
-        # Applies driver motion to canonical features.
-        w_s2c_rt = compute_rt_warp(Rs, ts, invert=True)  
-        print(f"w_s2c_rt shape: {w_s2c_rt.shape}")
-
-        w_c2d_rt = compute_rt_warp(Rd, td, invert=False)
-        print(f"w_c2d_rt shape: {w_c2d_rt.shape}")
-
-        # Compute emotion warping (w_em)
-        # Emotion Warping (w_s2c_em and w_c2d_em):
-        # Encodes and applies facial expressions.
-        w_s2c_em = self.warp_from_emotion(zs, es)
-        print(f"w_s2c_em shape: {w_s2c_em.shape}")
-
-        w_c2d_em = self.warp_from_emotion(zd, es)
-        print(f"w_c2d_em shape: {w_c2d_em.shape}")
-
-        # Combine rotation/translation and emotion warpings
-        # The final warp field is obtained by combining the rotation/translation and emotion warp fields.
-        w_s2c = w_s2c_rt + w_s2c_em 
-        print(f"w_s2c shape: {w_s2c.shape}")
-
-        w_c2d = w_c2d_rt + w_c2d_em
-        print(f"w_c2d shape: {w_c2d.shape}")
-
-        return w_s2c, w_c2d
-
-
-    def warp_from_emotion(self, z, e):
-        x = torch.cat([z, e], dim=1)  # Concatenate along the channel dimension
-        print(f"e: {e.shape}")
-        print(f"z: {z.shape}")
-        print(f"After concatenation: {x.shape}")
+        self.reshape = nn.Sequential(
+            nn.Conv2d(2048, 512 * 4, kernel_size=1),
+            nn.PixelShuffle(2)
+        )
         
+        self.blocks = nn.Sequential(
+            ResBlock3D(512, 256, upsample=False, scale_factors=(2, 2, 2)),
+            ResBlock3D(256, 128, upsample=False, scale_factors=(2, 2, 2)),
+            ResBlock3D(128, 64, upsample=True, scale_factors=(2, 2, 2)),
+            ResBlock3D(64, 32, upsample=True, scale_factors=(2, 2, 2)),
+            nn.GroupNorm(num_groups=32, num_channels=32),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(32, 3, kernel_size=3, padding=1),
+            nn.Tanh()
+        )
 
-        # Unsqueeze to add the necessary dimensions for Conv3d (batch_size, channels, depth, height, width)
-        x = x.unsqueeze(2).unsqueeze(3).unsqueeze(4)
-        print(f"After unsqueeze: {x.shape}")
-
-        out = self.conv1(x)
-        print(f"After conv1: {out.shape}")
-
-        out = out.view(out.size(0), 512, 4, out.size(2), out.size(3))  # Reshape to C512 x D4
-        print(f"After view: {out.shape}")
-
-        out = self.resblock1(out)
-        print(f"After resblock1: {out.shape}")
-
-        out = self.resblock2(out)
-        print(f"After resblock2: {out.shape}")
-
-        out = self.resblock3(out)
-        print(f"After resblock3: {out.shape}")
-
-        out = self.resblock4(out)
-        print(f"After resblock4: {out.shape}")
-
-        out = self.gn(out)
-        print(f"After group norm: {out.shape}")
-
-        out = F.relu(out, inplace=True)
-        print(f"After ReLU: {out.shape}")
-
-        out = self.conv2(out)
-        print(f"After conv2: {out.shape}")
-
-        out = torch.tanh(out)
-        print(f"After Tanh: {out.shape}")
-
-        return out
+    def forward(self, Rs, ts, zs, es):
+        # Concatenate the source rotation, translation, expression, and appearance embeddings
+        x = torch.cat((Rs, ts, zs, es), dim=1)
+        
+        # Pass through the 1x1 convolution
+        x = self.conv_1x1(x)
+        
+        # Reshape and upsample
+        x = self.reshape(x)
+        
+        # Pass through the ResBlock3D blocks
+        w_s_to_c = self.blocks(x)
+        
+        return w_s_to_c
     
     
 
@@ -803,27 +747,15 @@ class Emtn(nn.Module):
         self.expression_net.fc = nn.Identity() # remove fully connected layer 
 
 
-    def forward(self, xs, xd):
-        # Process source image
-        source_head_pose = self.head_pose_net(xs)
-        source_expression = self.expression_net(xs)
+    def forward(self, x):
+        head_pose = self.head_pose_net(x)
+        expression = self.expression_net(x)
         
-        # Split source head pose into rotation and translation parameters
-        Rs = source_head_pose[:, :3]
-        ts = source_head_pose[:, 3:]
-        zs = source_expression
+        # Split head pose into rotation and translation parameters
+        rotation = head_pose[:, :3]
+        translation = head_pose[:, 3:]
         
-        # Process driving image
-        driving_head_pose = self.head_pose_net(xd)
-        driving_expression = self.expression_net(xd)
-        
-        # Split driving head pose into rotation and translation parameters
-        Rd = driving_head_pose[:, :3]
-        td = driving_head_pose[:, 3:]
-        zd = driving_expression
-        
-        return Rs, ts, zs, Rd, td, zd
-
+        return rotation, translation, expression
 '''
 The main changes made to align the code with the training stages are:
 
@@ -860,58 +792,35 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
         self.Emtn = Emtn()
-        self.Ws2c = WarpGenerator(in_channels=568) #https://github.com/johndpope/MegaPortrait-hack/issues/5
-        self.Wc2d = WarpGenerator(in_channels=568)
+        self.Ws2c = WarpGenerator(in_channels=256) #https://github.com/johndpope/MegaPortrait-hack/issues/5
+        self.Wc2d = WarpGenerator(in_channels=256)
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
-        print(f"vs shape: {vs.shape}")
-        print(f"es shape: {es.shape}")
-
-        Rs, ts, zs, Rd, td, zd = self.Emtn(xs, xd)
-        print(f"Rs shape: {Rs.shape}")
-        print(f"ts shape: {ts.shape}")
-        print(f"zs shape: {zs.shape}")
-        print(f"Rd shape: {Rd.shape}")
-        print(f"td shape: {td.shape}")
-        print(f"zd shape: {zd.shape}")
-
-        # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
-        ws2c, wc2d = self.Ws2c(Rs, ts, zs, es, Rd, td, zd)
-        print(f"ws2c shape: {ws2c.shape}")
-        print(f"wc2d shape: {wc2d.shape}")
-    
-        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
-
-        assert vs.shape[1:] == (96, 16, vs.shape[3], vs.shape[4]), f"Expected vs shape (_, 96, 16, H', W'), got {vs.shape}"
-        assert es.shape[1] == 512, f"Expected es shape (_, 512), got {es.shape}"
-        #assert Rs.shape[1:] == ts.shape[1:] == zs.shape[1:] == (3,), f"Expected Rs, ts, zs shape (_, 3), got {Rs.shape}, {ts.shape}, {zs.shape}"
+        Rs, ts, zs = self.Emtn(xs)
+        Rd, td, zd = self.Emtn(xd)
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.Ws2c(Rs, ts, zs, es)
         vc = torch.nn.functional.grid_sample(vs, ws2c)
-        assert vc.shape == vs.shape, f"Expected vc shape {vs.shape}, got {vc.shape}"
         
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
-        assert vc2d.shape == vs.shape, f"Expected vc2d shape {vs.shape}, got {vc2d.shape}"
         
         # Warp vc2d using wc2d to impose driving motion
         wc2d = self.Wc2d(Rd, td, zd, es)
         vc2d = torch.nn.functional.grid_sample(vc2d, wc2d)
-        assert vc2d.shape == vs.shape, f"Expected vc2d shape {vs.shape}, got {vc2d.shape}"
         
         # Perform orthographic projection (denoted as P in the paper)
         vc2d_projected = torch.mean(vc2d, dim=2)  # Average along the depth dimension
-        assert vc2d_projected.shape[1:] == (96, vs.shape[3], vs.shape[4]), f"Expected vc2d_projected shape (_, 96, H/4, W/4), got {vc2d_projected.shape}"
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
-        assert xhat.shape[1:] == (3, xs.shape[2], xs.shape[3]), f"Expected xhat shape (_, 3, H, W), got {xhat.shape}"
         
         return xhat
+
 
 
 
