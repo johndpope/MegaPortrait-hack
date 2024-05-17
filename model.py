@@ -231,16 +231,15 @@ class Eapp(nn.Module):
         # Adjusted AvgPool to reduce spatial dimensions effectively
         self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
 
-
         # Second part: producing global descriptor es
-        # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
         self.custom_resnet50 = CustomResNet50(repeat=[3, 4, 6, 3], in_channels=3, outputs=2048)
 
     def forward(self, x):
         # First part
         out = self.conv(x)
         assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
-        print("out.shape:",out.shape)  # out.shape: torch.Size([1, 64, 256, 256])
+        print("out.shape:", out.shape)  # out.shape: torch.Size([1, 64, 256, 256])
+        
         out = self.resblock_128(out)
         assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
         out = self.avgpool(out)
@@ -258,7 +257,7 @@ class Eapp(nn.Module):
         out = self.conv_1(out)
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
-        vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
+        vs = out.view(out.size(0), 96, 16, out.size(2) // 4, out.size(3) // 4)
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
         
         vs = self.resblock3D_96(vs)
@@ -267,11 +266,11 @@ class Eapp(nn.Module):
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
-
         es = self.custom_resnet50(x)
         es = es.view(es.size(0), -1)  # Flatten the output
 
         return vs, es
+
 
 
 
