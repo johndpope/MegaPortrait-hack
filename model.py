@@ -788,7 +788,7 @@ class Emtn(nn.Module):
         self.head_pose_net = resnet18(pretrained=True)
         self.head_pose_net.fc = nn.Linear(512, 6)  # 6 corresponds to rotation and translation parameters
         
-        self.expression_net = resnet18(pretrained=False,num_classes=50)  # 50 corresponds to the dimensions of expression vector
+        self.expression_net = resnet18(pretrained=False,num_classes=2048)  # 50 corresponds to the dimensions of expression vector
 
     def forward(self, xs, xd):
         # Process source image
