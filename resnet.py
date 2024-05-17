@@ -23,7 +23,7 @@ import requests
 from tqdm import tqdm
 import zipfile
 import torch.utils.model_zoo as modelzoo
-
+import torch.nn.functional as F
 import torch
 import torch.nn as nn
 
