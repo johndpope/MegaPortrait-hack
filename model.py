@@ -166,7 +166,8 @@ class CustomResNet50(nn.Module):
 
         self.gn1 = nn.GroupNorm(32, 64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1) - original # stride=2 =  256 -> 128
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1) 
         
         self.layer1 = self._make_layer(64, 64, 3)
         self.layer2 = self._make_layer(256, 128, 4, stride=2)
@@ -186,7 +187,40 @@ class CustomResNet50(nn.Module):
             layers.append(ResBlock_Custom_ResNet50(out_channels, out_channels))
         return nn.Sequential(*layers)
 
-    
+    '''
+    Let's break down the assertions and the corresponding layers:
+
+    x = self.layer1(x)
+    assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}"
+    According to the layer definition:
+    self.layer1 = self._make_layer(64, 64, 3)
+    The _make_layer function creates a sequence of BasicBlock or Bottleneck residual blocks. In this case, it creates 3 blocks with an input channel size of 64 and an output channel size of 64.
+    Since the input to self.layer1 is the output of self.conv1, which has 64 channels, and each BasicBlock or Bottleneck block maintains the same number of channels, the output of self.layer1 should have 64 channels.
+    Therefore, the assertion assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}" is correct, as it expects 256 output channels after self.layer1.
+    x = self.layer2(x)
+    assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}"
+    According to the layer definition:
+    self.layer2 = self._make_layer(256, 128, 4, stride=2)
+    The _make_layer function creates 4 blocks with an input channel size of 256 and an output channel size of 128. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
+    Since the input to self.layer2 is the output of self.layer1, which has 256 channels, and each block in self.layer2 has 128 output channels, the total number of output channels after self.layer2 should be 512 (4 blocks × 128 channels).
+    Therefore, the assertion assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}" is correct, as it expects 512 output channels after self.layer2.
+    x = self.layer3(x)
+    assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}"
+    According to the layer definition:
+    self.layer3 = self._make_layer(512, 256, 6, stride=2)
+    The _make_layer function creates 6 blocks with an input channel size of 512 and an output channel size of 256. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
+    Since the input to self.layer3 is the output of self.layer2, which has 512 channels, and each block in self.layer3 has 256 output channels, the total number of output channels after self.layer3 should be 1024 (6 blocks × 256 channels).
+    Therefore, the assertion assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}" is correct, as it expects 1024 output channels after self.layer3.
+    x = self.layer4(x)
+    assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}"
+    According to the layer definition:
+    self.layer4 = self._make_layer(1024, 512, 3, stride=2)
+    The _make_layer function creates 3 blocks with an input channel size of 1024 and an output channel size of 512. The stride=2 parameter indicates that the spatial dimensions will be downsampled by a factor of 2.
+    Since the input to self.layer4 is the output of self.layer3, which has 1024 channels, and each block in self.layer4 has 512 output channels, the total number of output channels after self.layer4 should be 2048 (3 blocks × 512 channels).
+    Therefore, the assertion assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}" is correct, as it expects 2048 output channels after self.layer4.
+
+    In summary, the assertions for the output channels after self.layer1, self.layer2, self.layer3, and self.layer4 are correct and consistent with the provided layer definitions and the ResNet architecture.
+    '''
     def forward(self, x):
         print("  >> x.shape:",x.shape) 
         assert x.size(1) == 3, f"Expected input channels: 3, got: {x.size(1)}"
