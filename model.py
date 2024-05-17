@@ -158,6 +158,83 @@ class ResBlock_Custom_ResNet50(nn.Module):
         return out
     
 class CustomResNet50(nn.Module):
+    def __init__(self, in_channels=3, num_classes=1000):
+        super(CustomResNet50, self).__init__()
+        
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.gn1 = nn.GroupNorm(32, 64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        self.layer1 = self._make_layer(64, 64, 3)
+        self.layer2 = self._make_layer(256, 128, 4, stride=2)
+        self.layer3 = self._make_layer(512, 256, 6, stride=2)
+        self.layer4 = self._make_layer(1024, 512, 3, stride=2)
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(2048, num_classes)
+        
+        self._initialize_weights()
+        
+    def _make_layer(self, in_channels, out_channels, num_blocks, stride=1):
+        layers = []
+        layers.append(ResBlock_Custom_ResNet50(in_channels, out_channels, stride))
+        for _ in range(1, num_blocks):
+            layers.append(ResBlock_Custom_ResNet50(out_channels, out_channels))
+        return nn.Sequential(*layers)
+
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.gn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        
+        return x
+    
+    def _initialize_weights(self):
+        pretrained_resnet50 = models.resnet50(pretrained=True)
+        
+        # Initialize conv1 and gn1 weights
+        self.conv1.weight.data = pretrained_resnet50.conv1.weight.data
+        self.gn1.weight.data = pretrained_resnet50.bn1.weight.data
+        self.gn1.bias.data = pretrained_resnet50.bn1.bias.data
+        
+        # Initialize layer1 to layer4 weights
+        for i in range(1, 5):
+            layer = getattr(self, f'layer{i}')
+            pretrained_layer = getattr(pretrained_resnet50, f'layer{i}')
+            self._initialize_layer_weights(layer, pretrained_layer)
+        
+        # Initialize fc weights
+        self.fc.weight.data = pretrained_resnet50.fc.weight.data
+        self.fc.bias.data = pretrained_resnet50.fc.bias.data
+        
+    def _initialize_layer_weights(self, layer, pretrained_layer):
+        for block, pretrained_block in zip(layer, pretrained_layer):
+            block.conv1.weight.data = pretrained_block.conv1.weight.data
+            block.gn1.weight.data = pretrained_block.bn1.weight.data
+            block.gn1.bias.data = pretrained_block.bn1.bias.data
+            block.conv2.weight.data = pretrained_block.conv2.weight.data
+            block.gn2.weight.data = pretrained_block.bn2.weight.data
+            block.gn2.bias.data = pretrained_block.bn2.bias.data
+            
+            if hasattr(block.shortcut, 'conv'):
+                block.shortcut.conv.weight.data = pretrained_block.downsample[0].weight.data
+                block.shortcut.gn.weight.data = pretrained_block.downsample[1].weight.data
+                block.shortcut.gn.bias.data = pretrained_block.downsample[1].bias.data
+
+                
+class CustomResNet50(nn.Module):
     def __init__(self, repeat, in_channels=3, outputs=256):
         super(CustomResNet50, self).__init__()
         self.layer0 = nn.Sequential(
