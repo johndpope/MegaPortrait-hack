@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from resnet import ResNet,Bottleneck, resnet18,ResBlock3D
+from resnet import ResNet,Bottleneck, resnet18
 import torchvision.models as models
 import math
 import colored_traceback.auto
@@ -315,7 +315,7 @@ class ResBlock3D_Adaptive(nn.Module):
         out = self.norm2(out)
         out += residual
         out = F.relu(out)
-        
+
         if self.upsample:
             out = F.interpolate(out, scale_factor=self.scale_factors, mode='trilinear', align_corners=False)
         
