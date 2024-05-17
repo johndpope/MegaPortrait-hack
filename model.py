@@ -186,19 +186,36 @@ class CustomResNet50(nn.Module):
 
     
     def forward(self, x):
+        assert x.size(1) == 3, f"Expected input channels: 3, got: {x.size(1)}"
+        assert x.dim() == 4, f"Expected input dimensions: 4, got: {x.dim()}"
+        
         x = self.conv1(x)
+        assert x.size(1) == 64, f"Expected channels after conv1: 64, got: {x.size(1)}"
+        
         x = self.gn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
         
         x = self.layer1(x)
+        assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}"
+        
         x = self.layer2(x)
+        assert x.size(1) == 512, f"Expected channels after layer2: 512, got: {x.size(1)}"
+        
         x = self.layer3(x)
+        assert x.size(1) == 1024, f"Expected channels after layer3: 1024, got: {x.size(1)}"
+        
         x = self.layer4(x)
+        assert x.size(1) == 2048, f"Expected channels after layer4: 2048, got: {x.size(1)}"
         
         x = self.avgpool(x)
+        assert x.size(2) == 1 and x.size(3) == 1, f"Expected spatial dimensions after avgpool: (1, 1), got: ({x.size(2)}, {x.size(3)})"
+        
         x = torch.flatten(x, 1)
+        assert x.size(1) == 2048, f"Expected flattened features: 2048, got: {x.size(1)}"
+        
         x = self.fc(x)
+        assert x.size(1) == 2048, f"Expected output features: 2048, got: {x.size(1)}"
         
         return x
     
