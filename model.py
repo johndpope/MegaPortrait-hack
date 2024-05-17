@@ -8,33 +8,6 @@ import colored_traceback.auto
 from torchsummary import summary
 
 
-
-class Discriminator(nn.Module):
-    def __init__(self, in_channels=3):
-        super(Discriminator, self).__init__()
-
-        def discriminator_block(in_filters, out_filters, normalization=True):
-            """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
-            if normalization:
-                layers.append(nn.InstanceNorm2d(out_filters))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-
-        self.model = nn.Sequential(
-            *discriminator_block(in_channels * 2, 64, normalization=False),
-            *discriminator_block(64, 128),
-            *discriminator_block(128, 256),
-            *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(512, 1, 4, padding=1, bias=False)
-        )
-
-    def forward(self, img_A, img_B):
-        # Concatenate image and condition image by channels to produce input
-        img_input = torch.cat((img_A, img_B), 1)
-        return self.model(img_input)
-
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
@@ -49,60 +22,68 @@ class Conv2d_WS(nn.Conv2d):
         self.weight_std.copy_(weight_std)
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv2d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-    
+
 class Conv3D_WS(nn.Conv3d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
+        self.register_buffer('weight_std', torch.ones(self.weight.shape))
 
     def forward(self, x):
         weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
-                                  keepdim=True).mean(dim=3, keepdim=True).mean(
-                                  dim=4, keepdim=True)
-        weight = weight - weight_mean
-        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1, 1) + 1e-5
-        weight = weight / std.expand_as(weight)
-        return F.conv3d(x, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
-
-
+        weight_mean = weight.mean(dim=[1, 2, 3, 4], keepdim=True)
+        weight_std = weight.std(dim=[1, 2, 3, 4], keepdim=True)
+        self.weight_mean.copy_(weight_mean)
+        self.weight_std.copy_(weight_std)
+        standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
+        return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 class ResBlock_Custom(nn.Module):
-    def __init__(self, dimension, input_channels, output_channels):
-        super().__init__()
-        self.dimension = dimension
-        self.input_channels = input_channels
-        self.output_channels = output_channels
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=3):
+        super(ResBlock_Custom, self).__init__()
+
         if dimension == 2:
-            self.conv1 = nn.Conv2d(self.input_channels, self.output_channels, 3, padding=1)
-            self.conv2 = nn.Conv2d(self.output_channels, self.output_channels, 3, padding=1)
-        elif dimension == 3:
-            self.conv1 = nn.Conv3d(self.input_channels, self.output_channels, 3, padding=1)
-            self.conv2 = nn.Conv3d(self.output_channels, self.output_channels, 3, padding=1)
+            self.conv1 = Conv2d_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+            self.conv2 = Conv2d_WS(out_channels, out_channels, kernel_size, 1, padding, dilation, groups, bias)
+        else:
+            self.conv1 = Conv3D_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+            self.conv2 = Conv3D_WS(out_channels, out_channels, kernel_size, 1, padding, dilation, groups, bias)
 
-        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=self.output_channels)
-        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=self.output_channels)
+        self.gn1 = nn.GroupNorm(32, out_channels)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.gn2 = nn.GroupNorm(32, out_channels)
 
-        if self.input_channels != self.output_channels:
+        if in_channels != out_channels or stride != 1:
             if dimension == 2:
-                self.shortcut = nn.Conv2d(self.input_channels, self.output_channels, 1)
-            elif dimension == 3:
-                self.shortcut = nn.Conv3d(self.input_channels, self.output_channels, 1)
+                self.shortcut = nn.Sequential(
+                    Conv2d_WS(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                    nn.GroupNorm(32, out_channels)
+                )
+            else:
+                self.shortcut = nn.Sequential(
+                    Conv3D_WS(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                    nn.GroupNorm(32, out_channels)
+                )
         else:
             self.shortcut = nn.Identity()
 
     def forward(self, x):
-        residual = self.shortcut(x)
+        residual = x
+
         out = self.conv1(x)
-        out = self.norm1(out)
-        out = nn.ReLU(inplace=True)(out)
+        out = self.gn1(out)
+        out = self.relu1(out)
+
         out = self.conv2(out)
-        out = self.norm2(out)
-        out = out + residual
+        out = self.gn2(out)
+
+        if isinstance(self.shortcut, nn.Sequential):
+            residual = self.shortcut(x)
+
+        out += residual
         out = nn.ReLU(inplace=True)(out)
+
         return out
-
-
 '''
 Eapp Class:
 
@@ -137,11 +118,11 @@ class Eapp(nn.Module):
         
         # First part: producing volumetric features vs
         self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
-        self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
-        self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
-        self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
-        self.resblock3D_96 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
-        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
+        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
+        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
+        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
+        self.resblock3D_96 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
+        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
@@ -1451,3 +1432,29 @@ class MPGazeLoss(object):
             loss += left_gaze_loss + right_gaze_loss
         
         return loss / len(eye_landmarks)
+
+class Discriminator(nn.Module):
+    def __init__(self, in_channels=3):
+        super(Discriminator, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, normalization=True):
+            """Returns downsampling layers of each discriminator block"""
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
+            if normalization:
+                layers.append(nn.InstanceNorm2d(out_filters))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            return layers
+
+        self.model = nn.Sequential(
+            *discriminator_block(in_channels * 2, 64, normalization=False),
+            *discriminator_block(64, 128),
+            *discriminator_block(128, 256),
+            *discriminator_block(256, 512),
+            nn.ZeroPad2d((1, 0, 1, 0)),
+            nn.Conv2d(512, 1, 4, padding=1, bias=False)
+        )
+
+    def forward(self, img_A, img_B):
+        # Concatenate image and condition image by channels to produce input
+        img_input = torch.cat((img_A, img_B), 1)
+        return self.model(img_input)
