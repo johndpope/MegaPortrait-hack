@@ -158,7 +158,7 @@ class ResBlock_Custom_ResNet50(nn.Module):
         return out
     
 class CustomResNet50(nn.Module):
-    def __init__(self, in_channels=3, num_classes=1000):
+    def __init__(self, in_channels=3):
         super(CustomResNet50, self).__init__()
         
         self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -172,8 +172,9 @@ class CustomResNet50(nn.Module):
         self.layer4 = self._make_layer(1024, 512, 3, stride=2)
         
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(2048, num_classes)
-        
+        # self.fc = nn.Linear(2048, num_classes)
+        self.fc = nn.Identity()  # Removing the fully connected layer
+
         self._initialize_weights()
         
     def _make_layer(self, in_channels, out_channels, num_blocks, stride=1):
@@ -215,9 +216,9 @@ class CustomResNet50(nn.Module):
             pretrained_layer = getattr(pretrained_resnet50, f'layer{i}')
             self._initialize_layer_weights(layer, pretrained_layer)
         
-        # Initialize fc weights
-        self.fc.weight.data = pretrained_resnet50.fc.weight.data
-        self.fc.bias.data = pretrained_resnet50.fc.bias.data
+        # Initialize fc weights - remove fully connected weights
+        # self.fc.weight.data = pretrained_resnet50.fc.weight.data
+        # self.fc.bias.data = pretrained_resnet50.fc.bias.data
 
     def _initialize_layer_weights(self, layer, pretrained_layer):
         for block, pretrained_block in zip(layer, pretrained_layer):
@@ -285,7 +286,7 @@ class Eapp(nn.Module):
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
-        self.custom_resnet50 = CustomResNet50(repeat=[3, 4, 6, 3], in_channels=3, outputs=2048)
+        self.custom_resnet50 = CustomResNet50( in_channels=3, outputs=2048)
 
     def forward(self, x):
         # First part
