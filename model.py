@@ -253,12 +253,12 @@ class Eapp(nn.Module):
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
         out = self.avgpool(out)
         
-        out = F.group_norm(out, num_groups=32)
+        out = F.group_norm(out, num_groups=64)
         out = F.relu(out)
         out = self.conv_1(out)
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
-        print("out.shape:",out.shape)  
+        print("out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
         
