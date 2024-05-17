@@ -854,22 +854,21 @@ class Gbase(nn.Module):
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
+        print(f"vs shape: {vs.shape}")
+        print(f"es shape: {es.shape}")
+
         Rs, ts, zs, Rd, td, zd = self.Emtn(xs, xd)
+        print(f"Rs shape: {Rs.shape}")
+        print(f"ts shape: {ts.shape}")
+        print(f"zs shape: {zs.shape}")
+        print(f"Rd shape: {Rd.shape}")
+        print(f"td shape: {td.shape}")
+        print(f"zd shape: {zd.shape}")
 
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c, wc2d = self.Ws2c(Rs, ts, zs, es, Rd, td, zd)
-        vc = torch.nn.functional.grid_sample(vs, ws2c)
-
-        # es shape: torch.Size([1, 512])
-        # Rs shape: torch.Size([1, 3])
-        # ts shape: torch.Size([1, 3])
-        # zs shape: torch.Size([1, 50])
-
-        print("vs shape:", vs.shape)
-        print("es shape:", es.shape)
-        print("Rs shape:", Rs.shape)
-        print("ts shape:", ts.shape)
-        print("zs shape:", zs.shape)
+        print(f"ws2c shape: {ws2c.shape}")
+        print(f"wc2d shape: {wc2d.shape}")
     
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
 
