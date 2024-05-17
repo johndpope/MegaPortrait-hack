@@ -7,6 +7,10 @@ import math
 import colored_traceback.auto
 from torchsummary import summary
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.models as models
 
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
@@ -39,7 +43,7 @@ class Conv3D_WS(nn.Conv3d):
         return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 class ResBlock_Custom(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=3):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=2):
         super(ResBlock_Custom, self).__init__()
 
         if dimension == 2:
@@ -84,39 +88,38 @@ class ResBlock_Custom(nn.Module):
         out = nn.ReLU(inplace=True)(out)
 
         return out
-    
 
 class CustomResNet50(nn.Module):
     def __init__(self, repeat, in_channels=3, outputs=256):
         super(CustomResNet50, self).__init__()
         self.layer0 = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
+            Conv2d_WS(in_channels, 64, kernel_size=7, stride=2, padding=3),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(64),
+            nn.GroupNorm(32, 64),
             nn.ReLU()
         )
 
         filters = [64, 256, 512, 1024, 2048]
 
         self.layer1 = nn.Sequential()
-        self.layer1.add_module('conv2_1', ResBlock_Custom(dimension=2, input_channels=filters[0], output_channels=filters[1]))
+        self.layer1.add_module('conv2_1', ResBlock_Custom(in_channels=filters[0], out_channels=filters[1] // 4, stride=1, dimension=2))
         for i in range(1, repeat[0]):
-            self.layer1.add_module('conv2_%d' % (i+1,), ResBlock_Custom(dimension=2, input_channels=filters[1], output_channels=filters[1]))
+            self.layer1.add_module('conv2_%d' % (i+1,), ResBlock_Custom(in_channels=filters[1], out_channels=filters[1] // 4, stride=1, dimension=2))
 
         self.layer2 = nn.Sequential()
-        self.layer2.add_module('conv3_1', ResBlock_Custom(dimension=2, input_channels=filters[1], output_channels=filters[2]))
+        self.layer2.add_module('conv3_1', ResBlock_Custom(in_channels=filters[1], out_channels=filters[2] // 4, stride=2, dimension=2))
         for i in range(1, repeat[1]):
-            self.layer2.add_module('conv3_%d' % (i+1,), ResBlock_Custom(dimension=2, input_channels=filters[2], output_channels=filters[2]))
+            self.layer2.add_module('conv3_%d' % (i+1,), ResBlock_Custom(in_channels=filters[2], out_channels=filters[2] // 4, stride=1, dimension=2))
 
         self.layer3 = nn.Sequential()
-        self.layer3.add_module('conv4_1', ResBlock_Custom(dimension=2, input_channels=filters[2], output_channels=filters[3]))
+        self.layer3.add_module('conv4_1', ResBlock_Custom(in_channels=filters[2], out_channels=filters[3] // 4, stride=2, dimension=2))
         for i in range(1, repeat[2]):
-            self.layer3.add_module('conv4_%d' % (i+1,), ResBlock_Custom(dimension=2, input_channels=filters[3], output_channels=filters[3]))
+            self.layer3.add_module('conv4_%d' % (i+1,), ResBlock_Custom(in_channels=filters[3], out_channels=filters[3] // 4, stride=1, dimension=2))
 
         self.layer4 = nn.Sequential()
-        self.layer4.add_module('conv5_1', ResBlock_Custom(dimension=2, input_channels=filters[3], output_channels=filters[4]))
+        self.layer4.add_module('conv5_1', ResBlock_Custom(in_channels=filters[3], out_channels=filters[4] // 4, stride=2, dimension=2))
         for i in range(1, repeat[3]):
-            self.layer4.add_module('conv5_%d' % (i+1,), ResBlock_Custom(dimension=2, input_channels=filters[4], output_channels=filters[4]))
+            self.layer4.add_module('conv5_%d' % (i+1,), ResBlock_Custom(in_channels=filters[4], out_channels=filters[4] // 4, stride=1, dimension=2))
 
         self.gap = torch.nn.AdaptiveAvgPool2d(1)
         self.fc = torch.nn.Linear(filters[4], outputs)
@@ -142,15 +145,16 @@ class CustomResNet50(nn.Module):
     def _copy_resblock_weights(self, custom_layer, pretrained_layer):
         for i, (custom_block, pretrained_block) in enumerate(zip(custom_layer.children(), pretrained_layer.children())):
             custom_block.conv1.weight.data.copy_(pretrained_block.conv1.weight.data)
-            custom_block.bn1.weight.data.copy_(pretrained_block.bn1.weight.data)
-            custom_block.bn1.bias.data.copy_(pretrained_block.bn1.bias.data)
+            custom_block.gn1.weight.data.copy_(pretrained_block.bn1.weight.data)
+            custom_block.gn1.bias.data.copy_(pretrained_block.bn1.bias.data)
             custom_block.conv2.weight.data.copy_(pretrained_block.conv2.weight.data)
-            custom_block.bn2.weight.data.copy_(pretrained_block.bn2.weight.data)
-            custom_block.bn2.bias.data.copy_(pretrained_block.bn2.bias.data)
+            custom_block.gn2.weight.data.copy_(pretrained_block.bn2.weight.data)
+            custom_block.gn2.bias.data.copy_(pretrained_block.bn2.bias.data)
             if hasattr(custom_block, 'shortcut') and isinstance(custom_block.shortcut, nn.Sequential):
-                custom_block.shortcut[0].weight.data.copy_(pretrained_block.downsample[0].weight.data)
-                custom_block.shortcut[1].weight.data.copy_(pretrained_block.downsample[1].weight.data)
-                custom_block.shortcut[1].bias.data.copy_(pretrained_block.downsample[1].bias.data)
+                if pretrained_block.downsample is not None:
+                    custom_block.shortcut[0].weight.data.copy_(pretrained_block.downsample[0].weight.data)
+                    custom_block.shortcut[1].weight.data.copy_(pretrained_block.downsample[1].weight.data)
+                    custom_block.shortcut[1].bias.data.copy_(pretrained_block.downsample[1].bias.data)
 
     def forward(self, input):
         input = self.layer0(input)
@@ -163,6 +167,7 @@ class CustomResNet50(nn.Module):
         input = self.fc(input)
         print("Dimensions of final output of CustomResNet50: " + str(input.size()))
         return input
+
 
 '''
 Eapp Class:
@@ -198,22 +203,17 @@ class Eapp(nn.Module):
         
         # First part: producing volumetric features vs
         self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
-        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
-        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
-        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
-        self.resblock3D_96 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
-        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
+        self.resblock_128 = ResBlock_Custom(in_channels=64, out_channels=128, dimension=2)
+        self.resblock_256 = ResBlock_Custom(in_channels=128, out_channels=256, dimension=2)
+        self.resblock_512 = ResBlock_Custom(in_channels=256, out_channels=512, dimension=2)
+        self.resblock3D_96 = ResBlock_Custom(in_channels=96, out_channels=96, dimension=3)
+        self.resblock3D_96_2 = ResBlock_Custom(in_channels=96, out_channels=96, dimension=3)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
-        # # Second part: producing global descriptor es
-        self.resnet50 = ResNet(block=Bottleneck, layers=[3, 4, 6, 3], num_classes=2048) #.to('cuda')
-        # Global Descriptor
         # Second part: producing global descriptor es
         self.custom_resnet50 = CustomResNet50(repeat=[3, 4, 6, 3], in_channels=3, outputs=2048)
-        self.custom_resnet50.fc = nn.Identity()   # Removing the fully connected layer
-        summary(self.custom_resnet50, (3, 224, 224))
 
     def forward(self, x):
         # First part
@@ -240,20 +240,17 @@ class Eapp(nn.Module):
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
         assert vs.shape[1:] == (96, 16, out.size(2), out.size(3)), f"Expected vs shape (_, 96, 16, _, _), got {vs.shape}"
         
-        # Resize vs to have width and height of 64
-        # vs = torch.nn.functional.interpolate(vs, size=(96, 16, 64, 64), mode='trilinear', align_corners=False)
-  
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
-        vs = self.resblock3D_96_2(vs) 
+        vs = self.resblock3D_96_2(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
-        # Global Descriptor
-        es = self.resnet50(x)
+        es = self.custom_resnet50(x)
         es = es.view(es.size(0), -1)  # Flatten the output
 
         return vs, es
+
 
 
 
@@ -285,12 +282,12 @@ class ResBlock(nn.Module):
 
 
 class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, input_channels, output_channels):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Conv3d(input_channels, output_channels, 3, padding=1)
-        self.conv2 = nn.Conv3d(output_channels, output_channels, 3, padding=1)
-        self.norm1 = AdaptiveGroupNorm(output_channels)
-        self.norm2 = AdaptiveGroupNorm(output_channels)
+        self.conv1 = nn.Conv3d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1)
+        self.norm1 = AdaptiveGroupNorm(out_channels)
+        self.norm2 = AdaptiveGroupNorm(out_channels)
 
     def forward(self, x):
         residual = x
@@ -423,7 +420,7 @@ These changes align the code with the description provided in the image, where t
 
 '''
 class WarpGenerator(nn.Module):
-    def __init__(self, input_channels):
+    def __init__(self, in_channels):
         super(WarpGenerator, self).__init__()
         self.conv1 = nn.Conv3d(2048, 512, kernel_size=1)
 
@@ -561,7 +558,7 @@ Downsampling Path:
 - The downsampling block in the code corresponds to the downsampling path in the diagram.
 - It consists of a series of ResBlock3D and 3D average pooling (nn.AvgPool3d) operations.
 - The architecture of the downsampling path follows the structure shown in the diagram:
-  - ResBlock3D(input_channels, 96) corresponds to the ResBlock3D-96 block.
+  - ResBlock3D(in_channels, 96) corresponds to the ResBlock3D-96 block.
   - nn.AvgPool3d(kernel_size=2, stride=2) corresponds to the downsampling operation after ResBlock3D-96.
   - ResBlock3D(96, 192) corresponds to the ResBlock3D-192 block.
   - nn.AvgPool3d(kernel_size=2, stride=2) corresponds to the downsampling operation after ResBlock3D-192.
@@ -593,10 +590,10 @@ In summary, the G3d class in the code aligns well with the 3D convolutional netw
 
 
 class G3d(nn.Module):
-    def __init__(self, input_channels):
+    def __init__(self, in_channels):
         super(G3d, self).__init__()
         self.downsampling = nn.Sequential(
-            ResBlock3D(input_channels, 96),
+            ResBlock3D(in_channels, 96),
             nn.AvgPool3d(kernel_size=2, stride=2),
             ResBlock3D(96, 192),
             nn.AvgPool3d(kernel_size=2, stride=2),
@@ -686,7 +683,7 @@ Finally, a 3x3 convolution outputs the synthesized image with 3 color channels.
 '''
 
 class G2d(nn.Module):
-    def __init__(self, input_channels):
+    def __init__(self, in_channels):
         super(G2d, self).__init__()
         self.reshape = nn.Conv3d(96, 1536, kernel_size=1)  # Reshape C96xD16 → C1536
 
@@ -901,10 +898,10 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
         self.Emtn = Emtn()
-        self.Ws2c = WarpGenerator(input_channels=568) #https://github.com/johndpope/MegaPortrait-hack/issues/5
-        self.Wc2d = WarpGenerator(input_channels=568)
-        self.G3d = G3d(input_channels=96)
-        self.G2d = G2d(input_channels=96)
+        self.Ws2c = WarpGenerator(in_channels=568) #https://github.com/johndpope/MegaPortrait-hack/issues/5
+        self.Wc2d = WarpGenerator(in_channels=568)
+        self.G3d = G3d(in_channels=96)
+        self.G2d = G2d(in_channels=96)
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
