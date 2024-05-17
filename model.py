@@ -133,7 +133,7 @@ class ResBlock_Custom_ResNet50(nn.Module):
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.gn2 = nn.GroupNorm(32, out_channels)
         self.shortcut = nn.Sequential()
-        if stride != 1 : # or in_channels != out_channels * 4 - github issue - 24790aff5d2592a52ba09e94c794b8eb10f6ccc4
+        if stride != 1 or in_channels != out_channels * 4: # or in_channels != out_channels * 4 - github issue - 24790aff5d2592a52ba09e94c794b8eb10f6ccc4
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
                 nn.GroupNorm(32, out_channels)
