@@ -186,6 +186,7 @@ class CustomResNet50(nn.Module):
 
     
     def forward(self, x):
+        print("  >> x.shape:",x.shape) 
         assert x.size(1) == 3, f"Expected input channels: 3, got: {x.size(1)}"
         assert x.dim() == 4, f"Expected input dimensions: 4, got: {x.dim()}"
         
