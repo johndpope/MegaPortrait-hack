@@ -218,7 +218,7 @@ class CustomResNet50(nn.Module):
         # Initialize fc weights
         self.fc.weight.data = pretrained_resnet50.fc.weight.data
         self.fc.bias.data = pretrained_resnet50.fc.bias.data
-        
+
     def _initialize_layer_weights(self, layer, pretrained_layer):
         for block, pretrained_block in zip(layer, pretrained_layer):
             block.conv1.weight.data = pretrained_block.conv1.weight.data
@@ -233,85 +233,7 @@ class CustomResNet50(nn.Module):
                 block.shortcut.gn.weight.data = pretrained_block.downsample[1].weight.data
                 block.shortcut.gn.bias.data = pretrained_block.downsample[1].bias.data
 
-                
-class CustomResNet50(nn.Module):
-    def __init__(self, repeat, in_channels=3, outputs=256):
-        super(CustomResNet50, self).__init__()
-        self.layer0 = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            nn.GroupNorm(32, 64),
-            nn.ReLU()
-        )
-
-        filters = [64, 256, 512, 1024, 2048]
-
-        self.layer1 = self._make_layer(ResBlock_Custom_ResNet50, filters[0], filters[1], repeat[0], stride=1)
-        self.layer2 = self._make_layer(ResBlock_Custom_ResNet50, filters[1], filters[2], repeat[1], stride=2)
-        self.layer3 = self._make_layer(ResBlock_Custom_ResNet50, filters[2], filters[3], repeat[2], stride=2)
-        self.layer4 = self._make_layer(ResBlock_Custom_ResNet50, filters[3], filters[4], repeat[3], stride=2)
-
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(filters[4], outputs)
-
-        # Initialize weights from pretrained ResNet-50
-        self._initialize_weights()
-
-    def _make_layer(self, block, in_channels, out_channels, blocks, stride=1):
-        layers = []
-        layers.append(block(in_channels, out_channels // 4, stride))
-        for _ in range(1, blocks):
-            layers.append(block(out_channels, out_channels // 4))
-        return nn.Sequential(*layers)
-
-    def _initialize_weights(self):
-        pretrained_resnet50 = models.resnet50(pretrained=True)
-        pretrained_layers = [pretrained_resnet50.conv1, pretrained_resnet50.bn1, pretrained_resnet50.relu, pretrained_resnet50.maxpool,
-                             pretrained_resnet50.layer1, pretrained_resnet50.layer2, pretrained_resnet50.layer3, pretrained_resnet50.layer4]
-
-        self.layer0[0].weight.data.copy_(pretrained_layers[0].weight.data) # pretrained_resnet50.conv1
-        self.layer0[2].weight.data.copy_(pretrained_layers[1].weight.data) # pretrained_resnet50.bn1
-        self.layer0[2].bias.data.copy_(pretrained_layers[1].bias.data)
-
-        # Initialize custom blocks with corresponding pretrained weights
-        self._copy_resblock_weights(self.layer1, pretrained_layers[4]) #layer1
-        self._copy_resblock_weights(self.layer2, pretrained_layers[5]) #layer2
-        self._copy_resblock_weights(self.layer3, pretrained_layers[6]) #layer3
-        self._copy_resblock_weights(self.layer4, pretrained_layers[7]) #layer4
-
-    def _copy_resblock_weights(self, custom_layer, pretrained_layer):
-        for i, (custom_block, pretrained_block) in enumerate(zip(custom_layer.children(), pretrained_layer.children())):
-            custom_block.conv1.weight.data.copy_(pretrained_block.conv1.weight.data)
-            custom_block.gn1.weight.data.copy_(pretrained_block.bn1.weight.data)
-            custom_block.gn1.bias.data.copy_(pretrained_block.bn1.bias.data)
-            custom_block.conv2.weight.data.copy_(pretrained_block.conv2.weight.data)
-            custom_block.gn2.weight.data.copy_(pretrained_block.bn2.weight.data)
-            custom_block.gn2.bias.data.copy_(pretrained_block.bn2.bias.data)
-            if hasattr(custom_block, 'shortcut') and isinstance(custom_block.shortcut, nn.Sequential):
-                if pretrained_block.downsample is not None:
-                    custom_block.shortcut[0].weight.data.copy_(pretrained_block.downsample[0].weight.data)
-                    custom_block.shortcut[1].weight.data.copy_(pretrained_block.downsample[1].weight.data)
-                    custom_block.shortcut[1].bias.data.copy_(pretrained_block.downsample[1].bias.data)
-
-    def forward(self, input):
-        print("input.shape:",input.shape) # input.shape: torch.Size([1, 3, 256, 256])
-        input = self.layer0(input)
-        print("input.shape:",input.shape) # input.shape: torch.Size([1, 64, 64, 64])
-        input = self.layer1(input)
-        print("layer1 > input.shape:",input.shape)
-        input = self.layer2(input)
-        print("layer2 > input.shape:",input.shape)
-        input = self.layer3(input)
-        print("layer3 > input.shape:",input.shape)
-        input = self.layer4(input)
-        print("layer4 > input.shape:",input.shape)
-        input = self.gap(input)
-        print("self.gap > input.shape:",input.shape)
-        input = torch.flatten(input, start_dim=1)
-        print("torch.flatten(input.shape:",input.shape)
-        input = self.fc(input)
-        print("Dimensions of final output of CustomResNet50: " + str(input.size()))
-        return input
+           
 
 
 '''
