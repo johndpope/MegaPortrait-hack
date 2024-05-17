@@ -252,12 +252,13 @@ class Eapp(nn.Module):
         out = self.resblock_512(out)
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
         print("self.resblock_512(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
-
+        # self.resblock_512(out) > out.shape: torch.Size([1, 512, 64, 64])
         out = self.avgpool(out)
         
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
-        out = self.conv_1(out)
+        out = self.conv_1(out) # self.conv_1 is a 2D convolutional layer with a kernel size of 1x1 and 1536 output channels.
+        print("self.conv_1(out)  > out.shape:",out.shape)
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
         print("out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
