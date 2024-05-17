@@ -1,0 +1,2283 @@
+HeadGAN: One-shot Neural Head Synthesis and Editing
+Michail Christos Doukas1,2, Stefanos Zafeiriou1,2, Viktoriia Sharmanska1,3
+1Imperial College London, UK 
+2
+Huawei Technologies, London, UK 
+3
+ University of Sussex, UK
+{
+michail-christos.doukas16, s.zafeiriou, sharmanska.v
+}
+@imperial.ac.uk
+Abstract
+Recent attempts to solve the problem of head reenactment using a single reference image have shown promising results. However, most of them either perform poorly in terms of photo-realism, or fail to meet the identity preservation problem, or do not fully transfer the driving pose and expression. We propose HeadGAN, a novel system that conditions synthesis on 3D face representations, which can be extracted from any driving video and adapted to the facial geometry of any reference image, disentangling identity from expression. We further improve mouth movements, by utilising audio features as a complementary input. The 3D face representation enables HeadGAN to be further used as an efficient method for compression and reconstruction and a tool for expression and pose editing.
+
+[Uncaptioned image]
+(a) Reference image
+(b) Reenactment
+(c) Reconstruction (self-reenactment)
+(d) Expression Editing
+(e) Pose Editing
+(f) Frontalisation
+Figure 1:Our proposed HeadGAN method performs reenactment (b), by fully transferring the facial expressions and head pose from a driving frame to a reference image. When the driving and reference identities coincide (c), it can be used for facial video compression and reconstruction. In addition, HeadGAN can be applied to facial expression editing (d), novel view synthesis (e) and face frontalisation (f). Project’s page: https://michaildoukas.github.io/HeadGAN/
+1Introduction
+Visual data synthesis [49, 48], including talking head animation [50, 54, 53, 18, 37, 38, 24] are particularly exciting and thriving research areas, with countless applications in editing, games, social media, VR, teleconference and virtual assistance. Over the past years, solutions were mainly given by the graphics community. For instance, Face2Face [44] method performs face reenactment, by recovering facial expressions from a driving video and overwriting them to the source frames. Some recent learning-based approaches [24, 26, 14] have sought to solve the problem of full head reenactment, which aims to transfer not only the expression, but also the pose, from a driving person to the source identity. The shortcoming of such methods is their dependence on long video footage of the source, as they train person-specific models. At the same time, various methods have been proposed for reenacting human heads under a few-shot setting [50, 48, 53, 18, 38, 15], where only a limited number of reference images are available, even a single one. Most state-of-the-art approaches use facial key-points to guide synthesis [54, 53, 48, 38], which usually leads to identity preservation problems during reenactment, as key-points encode appearance information. The problem becomes more prominent when the head geometry of the source differs from that of the person in the driving video.
+
+In this paper we propose HeadGAN, a novel one-shot GAN-based method for head animation and editing. We take a different approach from most existing few-shot methods and use a 3D face representation similar to PNCC [57] to condition synthesis. We capitalise on prior knowledge of expression and identity disentanglement, enclosed within 3D Morphable Models (3DMMs) [4, 6, 5, 7]. Our decision to model faces with 3DMMs enables HeadGAN to operate as: 1) a real-time reenactment system operating at 
+∼
+ 20 fps, 2) an efficient method for facial video compression and reconstruction, 3) a facial expression editing method, 4) a novel view synthesis system, including face frontalisation. Fig. 1 illustrates the tasks supported by our method. Apart from 3D faces, we optionally condition the generative process on speech features coming from the audio signal, enabling our method to perform accurate mouth synthesis, as suggested by our automated lipreading experiment.
+
+We perform extensive comparisons with state-of-the-art methods [50, 48, 53, 38, 34, 56] and report superior image quality and performance, in terms of standard GAN metrics [20, 46], on the tasks of reconstruction, reenactment and frontalisation, even when compared to models [53] trained on the larger VoxCeleb2 [10] dataset. Lastly, we conduct an ablation study in order to demonstrate the contribution of each component of our system.
+
+2Related Work
+Model-free methods for face synthesis. X2Face [50] is among the earliest learning-based methods for animating human heads that does not rely on any prior knowledge of faces. In some cases their warping operation causes unnatural head deformations, leading to poor photo-realism. MonkeyNet [37] is a more recent deep learning framework that proposes to infer motion via key-point detection from the driving video. Then, the appearance extracted from the reference image along with motion information are used to generate the output. In the follow-up work, First Order Motion Model (FOMM) [38] significantly improves the results of single image animation. FOMM uses relative key-point locations in order to preserve the identity of the source, which requires the object in the first frame of the driving video to be in the same pose with the one in the source image. As such assumption is not always met, the head pose of generated samples is not guaranteed to follow the driver.
+
+Landmark-based face modeling and generation. Bringing Portraits to Life [2] is one of the initial attempts to animate still images. 2D warps are applied on the source image in order to imitate the facial transformations in the driving video. It shows promising results when the source head pose is close to the one appearing in the target image and only a small deformation is required. Warp-Guided GANs [15] is a more recent work that uses 2D facial landmarks and 2D warps to animate an image. It requires a photo captured in a frontal pose with neutral expression. Much research on head animation assumes a few-show setting, where a small number of reference images are available. Zakharov et al. [54] extracts identity related embeddings from the reference images and injects them into the generator through adaptive instance normalisation layers (AdaIN) [21]. Their image-based method performs best after fine-tuning on the new identity. Bi-layer Neural Avatars [53] is another one-shot model that capitalises on SPADE [33], while operating in real-time speeds during inference. Using SPADE layers [33] for the adaptation of the generative process to the appearance of the source has been proposed earlier, as part of the few-shot vid2vid model [48], which is a video-based method extending vid2vid [49]. Most aforementioned methods are not able to address the identity preservation problem in reenactment, since facial landmarks allow identity related information from the driver to be transferred into the generated samples. MarioNETte [18] tries to solve this problem, by proposing a method for landmark transformation that adapts the driving landmarks to the reference head shape.
+
+Head animation assisted by 3D faces. 3DMMs [4, 6, 5, 7] have been proven to be very effective for modeling human faces and have been widely used to drive face synthesis [44, 24, 39, 43]. Fitting 3DMMs, enables recovering accurate pose and expressions from the target frames, as well as identity related parameters from the reference image(s). Then, the rendered 3D faces are used to condition neural networks, which complete the texture and fill in the areas of missing information (hair, body, background, etc.). Deep video portraits (DVP) [24] and Head2Head [26] are examples of such reenactment systems driven by 3D information. Both methods train person specific models, using a long video footage of the source subject. On the contrary, our proposed approach is person generic, i.e. it can perform video synthesis for any unseen person, using a single reference image. Other methods such as StyleRig [42] and GIF [16] use 3DMMs to control StyleGAN and StyleGAN2 [22, 23], but fail to preserve parts of the scene that are not explained by the face models, such as hair, background.
+
+Audio-driven head synthesis. Apart from the video-driven techniques discussed above, there exists an extensive body of literature focusing on audio-driven talking face synthesis [41, 9, 39, 8, 47, 43]. Much different from these methods, our system can optionally use audio signals to enhance speech quality and realism within the mouth area, while the pose and expressions are guided by the target video footage.
+
+3Methodology
+3.13D Face Representation
+In order to accurately transfer the expressions of the driving person while preserving the facial geometry of the source identity, we take advantage of prior knowledge of human faces, contained within 3DMMs [4, 6, 5, 7]. Given a driving video of 
+�
+ frames, 
+y
+1
+:
+�
+=
+{
+y
+�
+∣
+�
+=
+1
+,
+…
+,
+�
+}
+, the 3DMM fitting stage produces a sequence of camera parameters 
+c
+1
+:
+�
+ and shape parameters 
+p
+1
+:
+�
+, with 
+p
+�
+=
+[
+p
+�
+�
+​
+�
+⊤
+;
+p
+�
+�
+​
+�
+​
+�
+⊤
+]
+⊤
+. That is, for each frame 
+�
+, we obtain two types of shape parameters: a) identity related parameters 
+p
+�
+�
+​
+�
+∈
+I
+​
+R
+�
+�
+​
+�
+, encoding facial geometry and b) expression parameters 
+p
+�
+�
+​
+�
+​
+�
+∈
+I
+​
+R
+�
+�
+​
+�
+​
+�
+, representing facial deformations. This enables disentangling facial shape attributes that depend on identity from shape deformations caused by motion. We recover very accurate facial expressions, as our 3DMM fitting stage relies on a dense set of 3D points (around 1K). These points are regressed from frames with RetinaFace [13], which is pre-trained on WIDER FACE dataset [52]. Additionally, given a reference image of the source identity 
+y
+�
+​
+�
+​
+�
+, we perform 3DMM fitting to obtain the source’s shape parameters 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+, 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+​
+�
+ and camera parameters 
+c
+�
+​
+�
+​
+�
+. For details on the 3DMM fitting algorithm please refer to Appendix A.
+
+Next, for each frame 
+�
+, we compute the 3D facial shape (3D mesh) 
+s
+�
+=
+[
+�
+1
+,
+�
+1
+,
+�
+1
+,
+…
+,
+�
+�
+,
+�
+�
+,
+�
+�
+]
+⊤
+∈
+I
+​
+R
+3
+​
+�
+, as
+
+s
+�
+=
+x
+¯
++
+U
+�
+​
+�
+​
+p
+�
+​
+�
+​
+�
+�
+​
+�
++
+U
+�
+​
+�
+​
+�
+​
+p
+�
+�
+​
+�
+​
+�
+.
+(1)
+Here 
+x
+¯
+∈
+I
+​
+R
+3
+​
+�
+ is the mean shape, 
+U
+�
+​
+�
+ is the identity orthonormal basis and 
+U
+�
+​
+�
+​
+�
+ is the expression orthonormal basis of LSFM morphable model [7]. By construction, this 3D shape 
+s
+�
+ reflects the facial structure 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+ of the source with the facial expressions 
+p
+�
+�
+​
+�
+​
+�
+ of the driving identity. In this way, we address the source identity preservation problem. Finally, we render a 3D face representation 
+x
+�
+=
+ℛ
+​
+(
+s
+�
+,
+c
+�
+)
+, using the 3D shape 
+s
+�
+ and camera parameters 
+c
+�
+. This is an RGB image similar to PNCC [57], as shown in Fig. 2. We also render 
+x
+�
+​
+�
+​
+�
+, which is the 3D face recovered from the reference image 
+y
+�
+​
+�
+​
+�
+, using camera parameters 
+c
+�
+​
+�
+​
+�
+ and shape 
+s
+�
+​
+�
+​
+�
+ that is obtained from 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+ and 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+​
+�
+ using Eq. 1. In Sec. 4.1 we discuss 3D Face Rendering in more detail.
+
+Summarising, given a driving video 
+y
+1
+:
+�
+ and a source image 
+y
+�
+​
+�
+​
+�
+, the data pre-processing pipeline recovers a sequence of images 
+x
+1
+:
+�
+, which depict the 3D face extracted from the driver and adapted to the facial geometry of the source, as well as the 3D face of the reference image 
+x
+�
+​
+�
+​
+�
+. These facial representations are used to condition image synthesis with HeadGAN’s Generator network.
+
+Refer to caption
+Figure 2:Data pre-processing stage. We recover and render the 3D face of the reference image 
+y
+�
+​
+�
+​
+�
+, as well as the driving frame 
+y
+�
+, after adapting the identity parameters.
+3.2Audio features
+As opposed to previous one-shot head reenactment systems, our method takes advantage of the driving audio stream and its correlation with facial and mouth movements. We split the audio signal into 
+�
+ parts 
+a
+1
+:
+�
+, where each part 
+a
+�
+ is aligned and corresponds to frame 
+y
+�
+ of the driving video with length 
+�
+. Then, we apply audio feature extraction to a window of 
+2
+​
+�
+ audio parts 
+a
+�
+−
+�
+−
+1
+:
+�
++
+�
+=
+{
+a
+�
+−
+�
+−
+1
+,
+…
+,
+a
+�
+,
+…
+,
+a
+�
++
+�
+}
+, centred around frame 
+�
+, to obtain a feature vector 
+h
+�
+(
+�
+)
+, which contains information from the past and future time steps. We employ [17] for the extraction of low level features, such as MFCCs, signal energy and entropy, which yields a feature vector 
+h
+�
+(
+�
+�
+)
+∈
+I
+​
+R
+84
+. Then, we use DeepSpeech [19] for the extraction of character level logits from each part 
+a
+�
+′
+∈
+a
+�
+−
+�
+−
+1
+:
+�
++
+�
+. This results in 
+2
+​
+�
+ logits, which after concatenation gives a feature vector 
+h
+�
+(
+�
+�
+)
+∈
+I
+​
+R
+2
+​
+�
+⋅
+27
+. Our final audio feature vector is given as 
+h
+�
+(
+�
+)
+=
+[
+h
+�
+(
+�
+�
+)
+⊤
+;
+h
+�
+(
+�
+�
+)
+⊤
+]
+⊤
+∈
+I
+​
+R
+300
+, for 
+�
+=
+4
+.
+
+Refer to caption
+Figure 3:Overview of HeadGAN. The dense flow network 
+�
+ computes a flow field for warping the reference image and features, according to the 3D face input. Then, the rendering network 
+�
+ uses this visual information along with the audio features in order to translate the 3D face input into a photo-realistic image of the source.
+3.3HeadGAN Framework
+Our GAN-based head reenactment system is equipped with a Generator driven by two modalities: 1) the 3D face representation extracted from the driving video and the reference image, 2) optionally the audio features coming from the driver. Given 
+x
+�
+−
+�
+:
+�
+, the driving 3D face representation from frame 
+�
+, concatenated channel-wise with the 3D faces coming from the past 
+�
+=
+2
+ frames, the reference image 
+y
+�
+​
+�
+​
+�
+ with the corresponding 3D face representation 
+x
+�
+​
+�
+​
+�
+ and the audio feature vector 
+h
+�
+(
+�
+)
+, our Generator hallucinates a photo-realistic image, given as
+
+y
+~
+�
+=
+�
+​
+(
+x
+�
+−
+�
+:
+�
+,
+y
+�
+​
+�
+​
+�
+,
+x
+�
+​
+�
+​
+�
+,
+h
+�
+(
+�
+)
+;
+�
+�
+)
+.
+(2)
+Conditioning synthesis on the spatio-temporal volume 
+x
+�
+−
+�
+:
+�
+ helps to achieve temporal coherence across frames. The reference image 
+y
+�
+​
+�
+​
+�
+ provides information on the texture and appearance of the source person, while audio features enhance the generative ability of 
+�
+ across the face, and mainly the mouth area. In more detail, the Generator consists of two sub-networks: a dense flow network 
+�
+ and a a rendering network 
+�
+. For an overview of the Generator 
+�
+, please refer to Fig. 3.
+
+Dense flow network 
+�
+. Our rendering network 
+�
+ relies on high quality visual features that reflect the appearance of the source identity. Nonetheless, we observed that simply using an encoder to extract such features from the reference image 
+y
+�
+​
+�
+​
+�
+, does not capitalise well on the potential of the rendering network’s architecture. It has been proved more meaningful to align the visual feature maps with the desired head pose, which is reflected in the 3D face representation 
+x
+�
+, coming from the driving video. With this in mind, we propose a dense flow network, which learns a flow 
+w
+�
+ that can be used to warp visual features. For that, we pass the concatenation of the reference image and its corresponding 3D face 
+(
+y
+�
+​
+�
+​
+�
+,
+x
+�
+​
+�
+​
+�
+)
+ through an encoder, for the extraction of visual feature maps in three spatial scales 
+h
+(
+1
+)
+,
+h
+(
+2
+)
+,
+h
+(
+3
+)
+, which represent the appearance of the source identity. Then, a decoder predicts the flow 
+w
+�
+, guided by the driving 3D face representation 
+x
+�
+−
+�
+:
+�
+, which is injected into 
+�
+ through SPADE blocks [33]. Ideally, when applied on the reference image 
+y
+�
+​
+�
+​
+�
+, this dense flow should yield a warped image of the source person, with the same head pose and expression, as shown in the driving 3D face representation 
+x
+�
+. By applying the flow field on each visual feature map, we obtain the warped visual features 
+h
+¯
+�
+(
+1
+)
+,
+h
+¯
+�
+(
+2
+)
+,
+h
+¯
+�
+(
+3
+)
+ and the warped reference image 
+y
+¯
+�
+�
+​
+�
+​
+�
+, all of which depend on the driving head pose at frame 
+�
+.
+
+Rendering network 
+�
+. At the core of our Generator, the rendering network aims to translate the 3D face representation 
+x
+�
+−
+�
+:
+�
+ into a photo-realistic image 
+y
+~
+�
+ of the source. This is achieved with the assistance of high quality audio features 
+h
+�
+(
+�
+)
+ and visual feature maps 
+h
+¯
+�
+(
+1
+)
+,
+h
+¯
+�
+(
+2
+)
+,
+h
+¯
+�
+(
+3
+)
+. First, an encoder receives 
+x
+�
+−
+�
+:
+�
+ as input and applies a sequence of convolutional layers with down-sampling. Then, a decoder consisting of alternating SPADE [33] and AdaIN [21] layers generates the desired frame 
+y
+~
+�
+. These adaptive normalisation layers enable injecting 2D visual feature maps into the rendering network through SPADE blocks, as well as 1D audio features through AdaIN blocks. As opposed to the original work on SPADE [33], where the conditional input of all SPADE layers is the same segmentation map down-sampled to match the spatial size of each layer, we capitalise on visual feature maps of multiple spatial scales 
+h
+¯
+�
+(
+1
+)
+,
+h
+¯
+�
+(
+2
+)
+,
+h
+¯
+�
+(
+3
+)
+, 
+y
+¯
+�
+�
+​
+�
+​
+�
+ as modulation inputs to SPADE blocks. On the contrary, we pass the same audio feature vector 
+h
+�
+(
+�
+)
+ to AdaIN blocks of all spatial scales. The decoder is further equipped with PixelShuffle layers [36] for up-sampling, which contribute to the quality of generated samples.
+
+Discriminators 
+�
+ and 
+�
+�
+. The image Discriminator receives a synthetic pair 
+(
+x
+�
+,
+y
+~
+�
+)
+, or a real one 
+(
+x
+�
+,
+y
+�
+)
+ and learns to distinguish between them. We use a second Discriminator 
+�
+�
+, which focuses on the mouth region. Apart from the real 
+y
+�
+�
+ or generated 
+y
+~
+�
+�
+ cropped mouth area, this network is conditioned on the audio feature vector 
+h
+�
+(
+�
+)
+, which is spatially replicated and then concatenated to the cropped images channel-wise.
+
+Reconstruction	Reenactment
+Method	L1 
+↓
+PSNR 
+↑
+LPIPS 
+↓
+FID 
+↓
+FVD 
+↓
+CSIM 
+↑
+FID 
+↓
+CSIM 
+↑
+ARD 
+↓
+AU-H 
+↓
+X2Face [50] 	13.49	20.69	0.260	130.2	697	0.600	122.1	0.520	4.39	0.346
+fs-vid2vid [48] 	17.15	18.52	0.197	62.8	471	0.542	-	-	-	-
+Bi-layer* [53] 	12.18	20.19	0.152	92.2	394	0.590	172.8	0.563	1.01	0.296
+FOMM [38] 	12.34	20.93	0.153	64.9	338	0.754	63.7	0.765	12.53	0.400
+HeadGAN	11.32	21.46	0.112	36.1	254	0.807	58.0	0.688	1.35	0.326
+Table 1:Quantitative results on the tasks of reconstruction and reenactment for VoxCeleb [32] test set.
+Training Objective. Networks F and R which constitute the Generator are optimised jointly. We train HeadGAN on reconstruction, by applying perceptual and pixel losses 
+ℒ
+�
+�
+​
+�
+​
+�
+,
+ℒ
+�
+�
+​
+�
+​
+�
+ and 
+ℒ
+�
+�
+​
+1
+,
+ℒ
+�
+�
+​
+1
+, both on the warped and generated images, as seen in Fig. 3 (red arrows). A GAN Hinge loss 
+ℒ
+�
+�
+​
+�
+​
+�
+ [29] along with a feature matching loss 
+ℒ
+�
+�
+​
+�
+ [51] further increase the photo-realism of results. An extended discussion on the objective functions and networks architecture can be found in Appendices B and C respectively.
+
+3.4Advantages of 3D face modeling
+The semantic information enclosed within the 3D face representation allows our dense flow network 
+�
+ to learn a precise flow of the facial region, as it provides a dense correspondence of facial points, between the reference and driving images. Compared to scene flow [30, 27] that can be obtained from 3D meshes, our flow field hallucinated by 
+�
+ exists in areas where 3D representation is missing, such as hair and upper body, where warping is equally important. Furthermore, as 3DMMs allow to disentangle identity from expression, our choice to condition the rendering network 
+�
+ on a 3D face extracted from the driving person and adapted to the identity characteristics of the source, enables HeadGAN to tackle the identity preservation problem on the task of reenactment.
+
+Lastly, modeling faces with 3DMMs makes HeadGAN very efficient for video conferencing applications. It enables a ”sender” to efficiently compress a driving frame 
+y
+�
+, in the form of expression parameters 
+p
+�
+�
+​
+�
+​
+�
+∈
+I
+​
+R
+28
+ and camera parameters 
+c
+�
+∈
+I
+​
+R
+7
+, giving a total of 35 floating point values. Then, these parameters can be used by a ”receiver” to render the 3D face and use the Generator to reconstruct the driving frame. A single reference image needs to be sent once in the beginning of the session.
+
+4Experiments
+4.1Implementation details
+3D Face Rendering. Given a set of camera parameters c and a 3D facial shape 
+s
+∈
+I
+​
+R
+3
+​
+�
+ (see Eq. 1), we rasterise the 3D mesh and produce a visibility mask 
+�
+∈
+I
+​
+R
+�
+×
+�
+ in the image plane. Each spatial location of 
+�
+ stores the index of the corresponding visible triangle on the 3D face seen from this pixel. Then, we use the mean shape 
+x
+¯
+ of the 3DMM, in order to find the normalised x-y-z coordinates of the center of each visible triangle. In this way we obtain a 3D face representation 
+x
+∈
+I
+​
+R
+�
+×
+�
+×
+3
+, where each pixel contains three coordinates. These values can be interpreted as colors and therefore texture of the 3D face [57].
+
+Dataset and Training. We train and evaluate HeadGAN on VoxCeleb [32] dataset, which contains over 100,000 videos of 1,251 identities, at 
+256
+×
+256
+ resolution. We maintain the original train and test split. As a pre-processing step, we compute a 3D face image for each video frame in the dataset and extract per-frame audio feature vectors. During training, we perform self-reenactent, as we randomly sample the reference image from the target video. This provides access to ground truth data, enabling us to design reconstruction loss terms to train the Generator. For the optimisation of HeadGAN, we use the ADAM [25] with 
+�
+1
+=
+0.5
+, 
+�
+2
+=
+0.999
+ and learning rate 
+�
+=
+0.0002
+, both for the Generator and Discriminator.
+
+Refer to caption
+Reference
+Driving
+X2Face
+[50]
+fs-vid2vid
+[48]
+Bi-layer
+[53]
+FOMM
+[38]
+HeadGAN
+Figure 4:Qualitative comparison with baselines, on the task of reconstruction (self-reenactment).
+4.2Comparison with baselines
+Reconstruction (self-reenactment). First, we compare our approach with four state-of-the-art methods on the problem of self-reenactment, where the reference identity coincides with the driving one. Here, the task for HeadGAN is to reconstruct the driving video from the 3D face representation sequence, using a single reference image to access appearance information. We perform both qualitative and quantitative comparisons with X2Face [50], few-shot vid2vid [48], Bi-layer Neural Avatars [53] and First Order Motion Model [38]. For [50] and [38], we use the pre-trained models provided by the authors, trained on VoxCeleb. We trained [48] from scratch, since no checkpoint was available. Lastly, we used the model provided by the authors of [53], trained on the larger VoxCeleb2* [10].
+
+For the numerical evaluation of reconstruction we use L1 distance between the generated and ground truth frames, as well as Peak signal-to-noise ratio (PSNR) and Learned Perceptual Image Patch Similarity (LPIPS) [55]. We access the realism of frames with Fréchet Inception Distance (FID) [20] and Fréchet Video Distance (FVD) [46] metrics. We use Cosine Similarity (CSIM) [12] to measure identity preservation. The results are presented in Table 1 and reveal that HeadGAN outperforms all four baselines by a noteworthy margin, in every single metric.
+
+The samples illustrated in Fig. 4 show that our method generates far more realistic images than the baselines with better preserved appearance traits. We urge the reader to visually inspect the video results in our project’s web page.
+
+Refer to caption
+Reference
+Driving
+X2Face
+[50]
+Bi-layer
+[53]
+FOMM-Rel
+[38]
+FOMM-Abs
+[38]
+HeadGAN
+Figure 5:Qualitative comparison with baselines, on the task of reenactment. FOMM-Rel refers to relative key-point coordinates strategy and FOMM-Abs to absolute key-point coordinates, used in First Order Motion Model [38].
+Reenactment. The objective of reenactment is to fully transfer the head pose and facial expressions of the target sequence to the person shown in the source image, while preserving the latter identity, as the driving and reference subjects are now different. To that end, we selected 15 random (video, image) pairs from VoxCeleb test set and performed reenactment, generating around 6K frames in total with each method. Apart from image quality (FID) and identity preservation (CSIM), we further evaluate the pose and expression transferability of systems, with Average Rotation Distance (ARD) in degrees and Action Units Hamming distance (AU-H) [3], respectively. Details on metrics can be found in Appendix E. As can be seen in Table 1, HeadGAN creates superior samples in terms of visual quality. Bi-layer Neural Avatars [53] performs slightly better on the task of facial expression transfer, which could be attributed to the fact that it was trained on the larger VoxCeleb2 [10]. However, it performs poorly on identity preservation, as it conditions synthesis on facial landmarks, which unavoidably pass on identity related information from the driving subject. On the other hand, FOMM [38] uses relative key-point locations to account for the identity preservation problem that seems to increase CSIM. Nonetheless, this comes at the expense of pose transfer, as the model requires the face in the first frame of the driving video to have the same pose with the reference face, which is very rarely the case, also confirmed by the large ARD. When FOMM uses absolute key-point locations instead, in order to accurately transfer pose, the identity preservation problem becomes apparent and CSIM drops to 0.587. This behaviour can be observed visually in Fig. 5, where the head geometry of the driver is reflected in the generated samples of FOMM-abs. Different than the baselines, HeadGAN performs well on all three requirements of successful reenactment (pose, expression transfer and identity preservation). Here we note that we have omitted comparisons with MarioNETte [18] and Warp-guided GANs [15] since the source codes are not publicly available.
+
+Refer to caption
+Input image
+psp
+[34]
+RaR
+[56]
+HeadGAN
+Figure 6:Qualitative comparison on frontalisation.
+Refer to caption
+Input image
+Expression editing (top: positive value, bottom: negative value)
+Rotation editing
+1
+�
+​
+�
+p. c.
+2
+�
+​
+�
+p. c.
+3
+�
+​
+�
+p. c.
+All three p. c.
+Pitch
+Yaw
+Roll
+Figure 7:Expression and Pose Editing. Please note that we use our model’s variation without audio (AdaIN) for this task.
+Frontalisation. Our choice to use a 3D face representation to condition synthesis allows us to set the desired head pose manually, without the need of driving frames. By re-setting the camera parameters to frontal, we are able to generate a frontal view of the reference image. We compare HeadGAN on the task of frontalisation with pixel2style2pixel (pSp) [34] and Rotate-and-Render (RaR) [56]. For that, we randomly select one frame from each video of VoxCeleb test split and frontalise it. Since there is no audio input for this task, we trained a variation of HeadGAN without AdaIN layers for audio features. Then, we measure the photo-realism of generated samples with FID, the identity preservation with CSIM and the Average Rotation Error (ARE) as the deviation from the frontal pose, in degrees. We define frontal pose as zero Euler angles in camera rotation parameters coming from 3DMM fitting. Therefore, ARE is only used for reference here, as a sanity check. The results are displayed in Table 2. HeadGAN performs equally well on CSIM with RaR and surpasses baselines on image quality and frontalisation accuracy. Please see Fig. 6 for a visual comparison.
+
+Method	FID 
+↓
+CSIM 
+↑
+ARE 
+↓
+psp [34] 	147.8	0.130	2.66
+RaR [56] 	88.4	0.753	2.65
+HeadGAN	30.1	0.766	0.76
+Table 2:Quantitative results on frontalisation.
+4.3Image Expression and Pose Editing
+Our model can be further used as an image editing tool. Given a source image 
+y
+�
+​
+�
+​
+�
+ and its shape and camera parameters 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+, 
+p
+�
+​
+�
+​
+�
+�
+​
+�
+​
+�
+ and 
+c
+�
+​
+�
+​
+�
+, first we render the corresponding 3D face representation 
+x
+�
+​
+�
+​
+�
+. Then, we re-adjust the expression or camera parameters manually and render a pseudo-driving 3D face 
+x
+�
+. We pass 
+x
+�
+, 
+y
+�
+​
+�
+​
+�
+, 
+x
+�
+​
+�
+​
+�
+ through the Generator to obtain a synthetic image with a novel expression or pose, reflecting the adjusted parameters. In Fig. 7 we show the results after manipulating the first three principal components (p. c.) of expression and the camera angles.
+
+4.4Ablation Study
+We conducted an ablation study in order to assess 1) the significance of the dense flow network 
+�
+, 2) the advantage of the 3D face representation compared to sketches of 2D landmarks, that is the input used by [48] and [53], 3) the contribution of audio modality. In order to evaluate the importance of 
+�
+, we removed its decoding layers. We kept its encoder, which extracts appearance feature maps from the reference image. Then, instead of warping these features maps and reference image, we passed them directly to the SPADE layers of the rendering network 
+�
+. In addition, we implemented a HeadGAN variation with landmarks, by conditioning synthesis on sketch images, drawn by connecting 2D landmarks with edges [48]. As can be seen in Table 3, the full model outperforms all variations. In terms of scores, we observe that flow network 
+�
+ is an essential component of our system. The use of a 3D face representation (instead of landmarks) alleviates the identity preservation problem and can be better understood visually, in Fig. 8b.
+
+Method	FID 
+↓
+FVD 
+↓
+CSIM 
+↑
+HeadGAN w/o network 
+�
+ 	63.3	473	0.307
+HeadGAN w/ landmarks	55.7	371	0.699
+HeadGAN w/o audio input	55.1	356	0.687
+HeadGAN	50.9	334	0.716
+Table 3:Ablation study numerical results. Please note that we trained models for half epochs in this experiment.
+Refer to caption
+(a)Significance of dense flow network 
+�
+ in image quality.
+Refer to caption
+(b)The identity preservation problem becomes prominent when conditioning on facial landmarks, instead of the 3D face representation.
+Figure 8:The importance of HeadGAN components.
+Lipreading experiment. We further evaluate the contribution of audio input to our system quantitatively, by employing an external lipreading network to classify synthetic videos. To that end, we chose 25 word classes of BBC dataset [11] and trained a lipreading classifier [40] on the default training split. After that, we reconstructed the test split of BBC dataset, using a random frame from the video as reference. We report a lipreading accuracy of 
+97
+%
+ on real test samples, 
+82
+%
+ on samples generated using the the full model and 
+73
+%
+ on synthetic data produced by the variation without considering audio input. These results suggest that the audio modality contributes largely on the generation of more plausible lip movements.
+
+5Conclusion
+We presented HeadGAN, a novel one-shot method for animating heads, driven by 3D facial data and audio features. Compared to SOTA methods, our framework exhibits superior reenactment performance and higher photo-realism. Our method can be further used for reconstruction, pose and facial expression editing, as well as frontalisation.
+
+References
+[1]
+Brandon Amos, Bartosz Ludwiczuk, and Mahadev Satyanarayanan.Openface: A general-purpose face recognition library with mobile applications.Technical report, CMU-CS-16-118, CMU School of Computer Science, 2016.
+[2]
+Hadar Averbuch-Elor, Daniel Cohen-Or, Johannes Kopf, and Michael F. Cohen.Bringing portraits to life.ACM Transactions on Graphics (Proceeding of SIGGRAPH Asia 2017), 36(6):196, 2017.
+[3]
+T. Baltrušaitis, M. Mahmoud, and P. Robinson.Cross-dataset learning and person-specific normalisation for automatic action unit detection.In 2015 11th IEEE International Conference and Workshops on Automatic Face and Gesture Recognition (FG), volume 06, pages 1–6, 2015.
+[4]
+Volker Blanz and Thomas Vetter.A morphable model for the synthesis of 3d faces.In Proceedings of the 26th Annual Conference on Computer Graphics and Interactive Techniques, SIGGRAPH ’99, page 187–194, USA, 1999. ACM Press/Addison-Wesley Publishing Co.
+[5]
+James Booth, Anastasios Roussos, Allan Ponniah, David Dunaway, and Stefanos Zafeiriou.Large scale 3d morphable models.Int. J. Comput. Vision, 126(2–4):233–254, Apr. 2018.
+[6]
+J. Booth, A. Roussos, E. Ververas, E. Antonakos, S. Ploumpis, Y. Panagakis, and S. Zafeiriou.3d reconstruction of “in-the-wild” faces in images and videos.IEEE Transactions on Pattern Analysis and Machine Intelligence, 40(11):2638–2652, 2018.
+[7]
+James Booth, Anastasios Roussos, Stefanos Zafeiriou, Allan Ponniah, and David Dunaway.A 3d morphable model learnt from 10,000 faces.In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2016.
+[8]
+Lele Chen, Ross K Maddox, Zhiyao Duan, and Chenliang Xu.Hierarchical cross-modal talking face generation with dynamic pixel-wise loss.In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 7832–7841, 2019.
+[9]
+Joon Son Chung, Amir Jamaludin, and Andrew Zisserman.You said that?In British Machine Vision Conference, 2017.
+[10]
+J. S. Chung, A. Nagrani, and A. Zisserman.Voxceleb2: Deep speaker recognition.In INTERSPEECH, 2018.
+[11]
+J. S. Chung and A. Zisserman.Lip reading in the wild.In Asian Conference on Computer Vision, 2016.
+[12]
+Jiankang Deng, Jia Guo, Xue Niannan, and Stefanos Zafeiriou.Arcface: Additive angular margin loss for deep face recognition.In CVPR, 2019.
+[13]
+Jiankang Deng, Jia Guo, Evangelos Ververas, Irene Kotsia, and Stefanos Zafeiriou.Retinaface: Single-shot multi-level face localisation in the wild.In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), June 2020.
+[14]
+Michail Christos Doukas, Mohammad Rami Koujan, Viktoriia Sharmanska, Anastasios Roussos, and Stefanos Zafeiriou.Head2head++: Deep facial attributes re-targeting.IEEE Transactions on Biometrics, Behavior, and Identity Science, 3(1):31–43, 2021.
+[15]
+Jiahao Geng, T. Shao, Youyi Zheng, Y. Weng, and K. Zhou.Warp-guided gans for single-photo facial animation.ACM Transactions on Graphics (TOG), 37:1 – 12, 2018.
+[16]
+Partha Ghosh, Pravir Singh Gupta, Roy Uziel, Anurag Ranjan, Michael J. Black, and Timo Bolkart.GIF: Generative interpretable faces.In International Conference on 3D Vision (3DV), pages 868–878, 2020.
+[17]
+Theodoros Giannakopoulos.pyaudioanalysis: An open-source python library for audio signal analysis.PloS one, 10(12), 2015.
+[18]
+Sungjoo Ha, Martin Kersner, Beomsu Kim, Seokjun Seo, and Dongyoung Kim.Marionette: Few-shot face reenactment preserving identity of unseen targets.In Proceedings of the AAAI Conference on Artificial Intelligence, 2020.
+[19]
+Awni Hannun, Carl Case, Jared Casper, Bryan Catanzaro, Greg Diamos, Erich Elsen, Ryan Prenger, Sanjeev Satheesh, Shubho Sengupta, Adam Coates, and Andrew Ng.Deepspeech: Scaling up end-to-end speech recognition.12 2014.
+[20]
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter.Gans trained by a two time-scale update rule converge to a local nash equilibrium.In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 30, pages 6626–6637. Curran Associates, Inc., 2017.
+[21]
+X. Huang and S. Belongie.Arbitrary style transfer in real-time with adaptive instance normalization.In 2017 IEEE International Conference on Computer Vision (ICCV), pages 1510–1519, 2017.
+[22]
+Tero Karras, Samuli Laine, and Timo Aila.A style-based generator architecture for generative adversarial networks.In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), June 2019.
+[23]
+Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten, Jaakko Lehtinen, and Timo Aila.Analyzing and improving the image quality of StyleGAN.In Proc. CVPR, 2020.
+[24]
+Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng Xu, Justus Thies, Matthias Nießner, Patrick Pérez, Christian Richardt, Michael Zollöfer, and Christian Theobalt.Deep video portraits.ACM Transactions on Graphics (TOG), 37(4):163, 2018.
+[25]
+Diederick P Kingma and Jimmy Ba.Adam: A method for stochastic optimization.In International Conference on Learning Representations (ICLR), 2015.
+[26]
+M. Koujan, M. Doukas, A. Roussos, and S. Zafeiriou.Head2head: Video-based neural head synthesis.In 2020 15th IEEE International Conference on Automatic Face and Gesture Recognition (FG 2020) (FG), pages 319–326, Los Alamitos, CA, USA, may 2020. IEEE Computer Society.
+[27]
+M. Koujan, A. Roussos, and S. Zafeiriou.Deepfaceflow: In-the-wild dense 3d facial motion estimation.In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 6617–6626, Los Alamitos, CA, USA, jun 2020. IEEE Computer Society.
+[28]
+C. Ledig, L. Theis, F. Huszár, J. Caballero, A. Cunningham, A. Acosta, A. Aitken, A. Tejani, J. Totz, Z. Wang, and W. Shi.Photo-realistic single image super-resolution using a generative adversarial network.In 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 105–114, 2017.
+[29]
+Jae Hyun Lim and Jong Chul Ye.Geometric gan, 2017.
+[30]
+Xingyu Liu, Charles R Qi, and Leonidas J Guibas.Flownet3d: Learning scene flow in 3d point clouds.CVPR, 2019.
+[31]
+Takeru Miyato, Toshiki Kataoka, Masanori Koyama, and Yuichi Yoshida.Spectral normalization for generative adversarial networks.In International Conference on Learning Representations (ICLR), 2018.
+[32]
+A. Nagrani, J. S. Chung, and A. Zisserman.Voxceleb: a large-scale speaker identification dataset.In INTERSPEECH, 2017.
+[33]
+Taesung Park, Ming-Yu Liu, Ting-Chun Wang, and Jun-Yan Zhu.Semantic image synthesis with spatially-adaptive normalization.In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+[34]
+Elad Richardson, Yuval Alaluf, Or Patashnik, Yotam Nitzan, Yaniv Azar, Stav Shapiro, and Daniel Cohen-Or.Encoding in style: a stylegan encoder for image-to-image translation.arXiv preprint arXiv:2008.00951, 2020.
+[35]
+Maximilian Seitzer.pytorch-fid: FID Score for PyTorch.https://github.com/mseitzer/pytorch-fid, August 2020.Version 0.1.1.
+[36]
+W. Shi, J. Caballero, F. Huszár, J. Totz, A. P. Aitken, R. Bishop, D. Rueckert, and Z. Wang.Real-time single image and video super-resolution using an efficient sub-pixel convolutional neural network.In 2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 1874–1883, 2016.
+[37]
+Aliaksandr Siarohin, Stéphane Lathuilière, Sergey Tulyakov, Elisa Ricci, and Nicu Sebe.Animating arbitrary objects via deep motion transfer.In The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2019.
+[38]
+Aliaksandr Siarohin, Stéphane Lathuilière, Sergey Tulyakov, Elisa Ricci, and Nicu Sebe.First order motion model for image animation.In Conference on Neural Information Processing Systems (NeurIPS), December 2019.
+[39]
+Yang Song, Jingwen Zhu, Dawei Li, Andy Wang, and Hairong Qi.Talking face generation by conditional recurrent adversarial network.In Proceedings of the Twenty-Eighth International Joint Conference on Artificial Intelligence, IJCAI-19, pages 919–925. International Joint Conferences on Artificial Intelligence Organization, 7 2019.
+[40]
+Themos Stafylakis and Georgios Tzimiropoulos.Combining residual networks with lstms for lipreading.CoRR, abs/1703.04105, 2017.
+[41]
+Supasorn Suwajanakorn, Steven Seitz, and Ira Kemelmacher.Synthesizing obama: learning lip sync from audio.ACM Transactions on Graphics, 36:1–13, 07 2017.
+[42]
+Ayush Tewari, Mohamed Elgharib, Gaurav Bharaj, Florian Bernard, Hans-Peter Seidel, Patrick Pérez, Michael Zöllhofer, and Christian Theobalt.Stylerig: Rigging stylegan for 3d control over portrait images, cvpr 2020.In IEEE Conference on Computer Vision and Pattern Recognition (CVPR). IEEE, june 2020.
+[43]
+Justus Thies, Mohamed Elgharib, Ayush Tewari, Christian Theobalt, and Matthias Nießner.Neural voice puppetry: Audio-driven facial reenactment.ECCV 2020, 2020.
+[44]
+J. Thies, M. Zollhöfer, M. Stamminger, C. Theobalt, and M. Nießner.Face2face: Real-time face capture and reenactment of rgb videos.In Proc. Computer Vision and Pattern Recognition (CVPR), IEEE, 2016.
+[45]
+Dmitry Ulyanov, Andrea Vedaldi, and Victor S. Lempitsky.Instance normalization: The missing ingredient for fast stylization.CoRR, abs/1607.08022, 2016.
+[46]
+Thomas Unterthiner, Sjoerd van Steenkiste, Karol Kurach, Raphael Marinier, Marcin Michalski, and Sylvain Gelly.Towards accurate generative models of video: A new metric & challenges.arXiv preprint arXiv:1812.01717, 2018.
+[47]
+Konstantinos Vougioukas, Stavros Petridis, and Maja Pantic.Realistic speech-driven facial animation with gans.International Journal of Computer Vision, 10 2019.
+[48]
+Ting-Chun Wang, Ming-Yu Liu, Andrew Tao, Guilin Liu, Jan Kautz, and Bryan Catanzaro.Few-shot video-to-video synthesis.In Conference on Neural Information Processing Systems (NeurIPS), 2019.
+[49]
+Ting-Chun Wang, Ming-Yu Liu, Jun-Yan Zhu, Guilin Liu, Andrew Tao, Jan Kautz, and Bryan Catanzaro.Video-to-video synthesis.In Advances in Neural Information Processing Systems (NeurIPS), 2018.
+[50]
+Olivia Wiles, A. Sophia Koepke, and Andrew Zisserman.X2face: A network for controlling face generation using images, audio, and pose codes.In Proceedings of the European Conference on Computer Vision (ECCV), September 2018.
+[51]
+Xiangyu Xu, Deqing Sun, Jinshan Pan, Yujin Zhang, Hanspeter Pfister, and Ming-Hsuan Yang.Learning to super-resolve blurry face and text images.In Proceedings of the IEEE international conference on computer vision, pages 251–260, 2017.
+[52]
+Shuo Yang, Ping Luo, Chen Change Loy, and Xiaoou Tang.Wider face: A face detection benchmark.In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016.
+[53]
+Egor Zakharov, Aleksei Ivakhnenko, Aliaksandra Shysheya, and Victor Lempitsky.Fast bi-layer neural synthesis of one-shot realistic head avatars.In European Conference of Computer vision (ECCV), August 2020.
+[54]
+E. Zakharov, Aliaksandra Shysheya, Egor Burkov, and V. Lempitsky.Few-shot adversarial learning of realistic neural talking head models.2019 IEEE/CVF International Conference on Computer Vision (ICCV), pages 9458–9467, 2019.
+[55]
+Richard Yi Zhang, Phillip Isola, Alexei A. Efros, Eli Shechtman, and Oliver Wang.The unreasonable effectiveness of deep features as a perceptual metric.In Proceedings - 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2018, Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition, pages 586–595. IEEE Computer Society, 2018.
+[56]
+Hang Zhou, Jihao Liu, Ziwei Liu, Yu Liu, and Xiaogang Wang.Rotate-and-render: Unsupervised photorealistic face rotation from single-view images.In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2020.
+[57]
+X. Zhu, Z. Lei, X. Liu, H. Shi, and S. Z. Li.Face alignment across large poses: A 3d solution.In 2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 146–155, Los Alamitos, CA, USA, jun 2016. IEEE Computer Society.
+
+Appendix A3DMM fitting
+Given a facial image y, our 3DMM fitting stage recovers shape p and camera c parameters. It relies on dense 3D points of the face, which are regressed with RetinaFace-R501[13] network, pre-trained on WIDER FACE dataset [52]. We use Procrustes analysis to register the regressed points with the mean shape 
+x
+¯
+ of LSFM 3DMM [7].
+
+Input: 3DMM: 
+{
+U
+�
+​
+�
+,
+U
+�
+​
+�
+​
+�
+,
+x
+¯
+}
+, image: y
+/* Regress dense 3D points */
+l = RetinaFace(y)
+/* Align points to mean shape */
+l
+′
+ = Procrustes(
+x
+¯
+,
+l
+)
+/* Merge id. with exp. 3DMM */
+U
+=
+[
+U
+�
+​
+�
+⊤
+;
+U
+�
+​
+�
+​
+�
+⊤
+]
+⊤
+/* Compute Moore-Penrose inverse */
+U
++
+=
+(
+U
+⊤
+​
+U
+)
+−
+1
+​
+U
+⊤
+/* Recover shape parameters */
+p
+=
+U
++
+​
+(
+l
+′
+−
+x
+¯
+)
+/* Compute affine camera matrix */
+P
+=
+ Least_squares (
+l
+ℎ
+​
+�
+​
+�
+​
+�
+​
+�
+,
+x
+¯
+) 
+∈
+I
+​
+R
+3
+×
+4
+/* Recover camera parameters: scale, rotation, translation */
+c
+=
+ P_to_srt(P)
+Result: shape parameters p, camera parameters c
+Algorithm 1 Fit the 3DMM to a given image.
+Appendix BObjective functions - Training
+We train HeadGAN framework, consisting of the Generator 
+�
+ and the two Discriminators 
+�
+ and 
+�
+�
+, using GAN Hinge loss [29]. Therefore, the adversarial loss term for 
+�
+ is given by
+
+ℒ
+�
+�
+​
+�
+​
+�
+=
+−
+E
+�
+�
+​
+�
+​
+�
+​
+�
+​
+[
+�
+​
+(
+x
+�
+,
+y
+~
+�
+)
++
+�
+�
+​
+(
+h
+�
+(
+�
+)
+,
+y
+~
+�
+�
+)
+]
+,
+(3)
+where 
+x
+�
+ is the 3D face representation input, 
+h
+�
+(
+�
+)
+ is the input audio feature vector, 
+y
+~
+�
+ is the ”fake” frame generated by 
+�
+ and 
+y
+~
+�
+�
+ the corresponding cropped mouth area of size 
+64
+×
+64
+. Given that during training we perform self-reenactment, we have access to the ground truth frame 
+y
+�
+. The image Discriminator 
+�
+ is optimised by minimising the loss
+
+ℒ
+�
+�
+​
+�
+​
+�
+=
+−
+E
+�
+�
+​
+�
+​
+�
+​
+�
+[
+min
+(
+0
+,
+−
+1
++
+�
+(
+x
+�
+,
+y
+�
+)
+−
+min
+​
+(
+0
+,
+−
+1
+−
+�
+​
+(
+x
+�
+,
+y
+~
+�
+)
+]
+.
+(4)
+and the mouth Discriminator 
+�
+�
+ using a similar loss
+
+ℒ
+�
+�
+�
+​
+�
+​
+�
+=
+−
+E
+�
+�
+​
+�
+​
+�
+​
+�
+[
+min
+(
+0
+,
+−
+1
++
+�
+�
+(
+x
+�
+,
+y
+�
+�
+)
+−
+min
+​
+(
+0
+,
+−
+1
+−
+�
+�
+​
+(
+x
+�
+,
+y
+~
+�
+�
+)
+]
+.
+(5)
+The generative network 
+�
+ is trained by minimising also a reconstruction loss term between the generated and ground frames, in the image pixel space
+
+ℒ
+�
+�
+​
+1
+=
+E
+�
+�
+​
+�
+​
+�
+​
+�
+​
+[
+‖
+y
+~
+�
+−
+y
+�
+‖
+1
+]
+,
+(6)
+as well as the feature space, using feature maps extracted by a pre-trained VGG network [28]:
+
+ℒ
+�
+�
+​
+�
+​
+�
+=
+E
+�
+�
+​
+�
+​
+�
+​
+�
+​
+[
+∑
+�
+‖
+�
+​
+�
+​
+�
+�
+​
+(
+y
+~
+�
+)
+−
+�
+​
+�
+​
+�
+�
+​
+(
+y
+�
+)
+‖
+1
+]
+.
+(7)
+Similarly to VGG loss, we use the two Discriminators to compute visual features from both real and synthetic frames and compute a feature matching loss 
+ℒ
+�
+�
+​
+�
+ that was originally proposed in [51] and has been proven very effective at increasing the photo-realism of generated samples.
+
+In addition, we apply both 
+�
+​
+1
+ and VGG losses on the warped image 
+y
+¯
+�
+�
+​
+�
+​
+�
+, in order to force the dense flow network 
+�
+ to learn a correct flow from the reference image to the desired head pose, obtaining the loss terms 
+ℒ
+�
+�
+​
+1
+ and 
+ℒ
+�
+�
+​
+�
+​
+�
+.
+
+To sum up, the overall objective for 
+�
+ is given as:
+
+ℒ
+�
+=
+ℒ
+�
+�
+​
+�
+​
+�
++
+�
+�
+​
+1
+​
+ℒ
+�
+�
+​
+1
++
+�
+�
+​
+�
+​
+�
+​
+ℒ
+�
+�
+​
+�
+​
+�
++
+�
+�
+​
+�
+​
+ℒ
+�
+�
+​
+�
++
+�
+�
+​
+1
+​
+ℒ
+�
+�
+​
+1
++
+�
+�
+​
+�
+​
+�
+​
+ℒ
+�
+�
+​
+�
+​
+�
+,
+(8)
+with 
+�
+�
+​
+1
+=
+50
+ and 
+�
+�
+​
+�
+​
+�
+=
+�
+�
+​
+�
+=
+10
+. The Discriminators are optimised under their corresponding adversarial loss terms
+
+ℒ
+�
+=
+ℒ
+�
+�
+​
+�
+​
+�
+,
+ℒ
+�
+�
+=
+ℒ
+�
+�
+�
+​
+�
+​
+�
+.
+(9)
+Appendix CArchitecture Details
+C.1Generator 
+�
+Dense flow network 
+�
+ (Table 4). The dense flow network consists of an encoding and a decoding part. Its encoder is made up from three convolutional layers, each one with instance normalization units [45] and ReLU activation functions. The last two convolutions are performed with a stride of 2, for down-sampling the input twice. The decoder is equipped with SPADE blocks [33], which are used to ”inject” the 3D face representation 
+x
+�
+−
+�
+:
+�
+ (modulation input). Here we down-sample 
+x
+�
+−
+�
+:
+�
+ to match it with the spatial size of each SPADE layer, similarly to the original work [33]. We employ two Pixel Shuffle [36] layers, for up-sampling. Finally, dense flow is calculated with a 
+7
+×
+7
+ convolutional output layer.
+
+Block		Output size
+Input		
+(
+256
+,
+256
+,
+6
+)
+7
+×
+7
+ conv-32	Inst. Norm.	ReLU	
+(
+256
+,
+256
+,
+32
+)
+3
+×
+3
+ conv-128	Inst. Norm.	ReLU	
+(
+128
+,
+128
+,
+128
+)
+3
+×
+3
+ conv-512	Inst. Norm.	ReLU	
+(
+64
+,
+64
+,
+512
+)
+SPADE Block		
+(
+64
+,
+64
+,
+512
+)
+SPADE Block		
+(
+64
+,
+64
+,
+512
+)
+SPADE Block		
+(
+64
+,
+64
+,
+512
+)
+Pixel Shuffle		
+(
+128
+,
+128
+,
+128
+)
+SPADE Block		
+(
+128
+,
+128
+,
+128
+)
+Pixel Shuffle		
+(
+256
+,
+256
+,
+32
+)
+7
+×
+7
+ conv-2		
+(
+256
+,
+256
+,
+2
+)
+Table 4:Architecture of dense flow network 
+�
+.
+Block		Output size
+Input		
+(
+256
+,
+256
+,
+9
+)
+7
+×
+7
+ conv-32	Inst. Norm.	ReLU	
+(
+256
+,
+256
+,
+32
+)
+3
+×
+3
+ conv-128	Inst. Norm.	ReLU	
+(
+128
+,
+128
+,
+128
+)
+3
+×
+3
+ conv-512	Inst. Norm.	ReLU	
+(
+64
+,
+64
+,
+512
+)
+SPADE Block		
+(
+64
+,
+64
+,
+512
+)
+AdaIN Block		
+(
+64
+,
+64
+,
+512
+)
+Pixel Shuffle		
+(
+128
+,
+128
+,
+128
+)
+SPADE Block		
+(
+128
+,
+128
+,
+128
+)
+AdaIN Block		
+(
+128
+,
+128
+,
+128
+)
+Pixel Shuffle		
+(
+256
+,
+256
+,
+32
+)
+SPADE Block		
+(
+256
+,
+256
+,
+32
+)
+AdaIN Block		
+(
+256
+,
+256
+,
+32
+)
+SPADE Block		
+(
+256
+,
+256
+,
+32
+)
+LReLU	
+7
+×
+7
+ conv-3	
+tanh
+(
+256
+,
+256
+,
+3
+)
+Table 5:Architecture of rendering network 
+�
+.
+Rendering network 
+�
+ (Table 5). Our rendering network has an encoder-decoder architecture as well. Its encoder has a similar structure to the encoder of 
+�
+. The decoder is built from alternating SPADE and AdaIN blocks, which are used to condition synthesis on our multi-scale visual feature maps and audio feature vectors respectively. We use Pixel Shuffle layers for up-sampling, since we noticed it performs better than simple up-sampling operations (e.g. nearest neighbor, linear, bi-linear). After the last decoding block, a convolutional layer is placed for the computation of the synthetic RGB image.
+
+Refer to caption
+(a)SPADE Block architecture.
+Refer to caption
+(b)AdaIN Block architecture
+Figure 9:Our SPADE and AdaIN blocks are based on the SPADE Resnet blocks proposed in [33], but without a residual component, as we always keep the same number of input channels F at the output, both on SPADE and AdaIN blocks.
+C.2Discriminators 
+�
+ and 
+�
+�
+Both 
+�
+ and 
+�
+�
+ have a similar architecture to the discriminator presented in [33]. We apply Spectral Normalisation [31] to all normalisation layers of the Discriminators.
+
+Appendix DAdditional results
+In Fig. 10 and Fig. 11 we present a few more generated samples using VoxCeleb test set [32]. Here, we also include the predicted flow and warped image in the results.
+
+Refer to caption
+Figure 10:Reconstruction. From left to right: reference, reference 3D face, driving 3D face, flow, warped, generated, driving.
+Refer to caption
+Figure 11:Reenactment. From left to right: reference, reference 3D face, driving 3D face, flow, warped, generated, driving.
+Appendix EEvaluation metrics
+We quantitatively compare HeadGAN with the baselines, using the metrics described below.
+
+L1 distance (L1). We evaluate the reconstructive ability of models by computing the mean 
+�
+​
+1
+-distance, between the synthesised and ground truth frames. We average the distance across channels, pixel locations and frames in the test set, to obtain the L1 metric. Please note that RGB channels are in the range [0, 255].
+
+Peak signal-to-noise ratio (PSNR). This is another metric to measure the quality of reconstructed videos. PSNR is the ratio between the maximum possible power of a signal and the power of noise that affects the fidelity of its representation, defined as: 
+20
+⋅
+log
+10
+⁡
+(
+𝑀𝐴𝑋
+�
+)
+−
+10
+⋅
+log
+10
+⁡
+𝑀𝑆𝐸
+. Here, 
+𝑀𝐴𝑋
+�
+=
+255
+ and 
+𝑀𝑆𝐸
+ denotes the mean squared error, computed across color channels, spatial locations and frames. PSNR is expressed in dBs.
+
+Learned Perceptual Image Patch Similarity (LPIPS). Perceptual metrics such as PSNR are simple shallow functions that are not able to account for many nuances of human perception. LPIPS [55] uses a neural network that is trained to solve challenging visual prediction and modeling tasks as a feature extractor, since the network learns a representation that correlates well with perceptual judgments. Then, a similarity score between two images is calculated based on visual features.
+
+Fréchet Inception Distance (FID). We employ FID [20, 35] as a measure of similarity between the dataset of real images and the dataset of images generated by the models. This score provides a useful insight into the photo-realism of synthetic frames.
+
+Fréchet Video Distance (FVD). Given that we handle video data, it is important to evaluate the generative performance of models using a metric which takes into account the temporal coherence between frames. To that end, we calculate the FVD score [46] of generated sequences, which has shown to correlate well with the human judgment on visual quality of generated videos.
+
+Cosine Similarity (CSIM). Cosine similarity is a widely-used metric, which measures identity preservation in synthetic frames. We use ArcFace [12] as an identity recognition network, in order to compute pairs of embedding vectors from the driving and corresponding generated images. Then, we calculate the cosine similarity between all pairs of embedding vectors in the dataset and report its average value. During reenactment, where no ground truth images are available, we extract the embedding vector from the reference image and compare it with the embeddings coming from synthetic frames. This leads to smaller CSIM values in reenactment, as the poses of the source and generated images do not match and the identity recognition network’s output is not completely unaffected by a person’s pose.
+
+Action Units Hamming distance (AU-H). In order to measure the facial expression transferability of models, we use OpenFace [1] and more specifically [3], for the detection of Action Units (AU) in driving and generated images. Facial Action Coding System (FACS) is a system to taxonomise human facial movements by their appearance on the face. Using FACS it is possible to code nearly any anatomically possible facial expression, deconstructing it into the specific AUs that produced the expression. It is a common standard to objectively describe facial expressions. We use OpenFace to recognise if a set of AUs is present in a facial image or not, calculating a boolean vector of AUs. Then, we compute the Hamming distance 
+∈
+[
+0
+,
+1
+]
+ between AU boolean vectors, extracted from the corresponding driving and synthetic frames, and average across all frames.
+
+Average Rotation Distance (ARD). This metric evaluates pose transfer. We use the camera parameters from 3D face reconstruction to compute the Euler angles that correspond to head poses in the driving and generated frames. Then, the average 
+�
+​
+1
+-distance of Euler angles across all frames is determined, in terms of degrees.
+
+Average Rotation Error (ARE). This is a metric similar to ARD, but measures the average 
+�
+​
+1
+-distance of Euler angles from the frontal pose (zero degrees), across all images.
+
+◄ ar5iv homepage Feeling
+lucky? Conversion
+report Report
+an issue View original
+on arXiv►
+Copyright Privacy Policy Generated on Sat Mar 9 04:20:52 2024 by LaTeXMLMascot Sammy

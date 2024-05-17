@@ -373,8 +373,16 @@ class WarpGenerator(nn.Module):
         self.conv2 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
 
         
+        # (s)Source / (d)Driving
+        # Rs: Rotation parameters
+        # ts: Translation parameters
+        # zs: Latent expression descriptors
+        # es: Appearance embeddings
     def forward(self, Rs, ts, zs, es, Rd, td, zd):
         # Compute rotation and translation grid (w_rt) 
+        # Rotation/Translation Warping (w_s2c_rt and w_c2d_rt):
+        # Removes source motion by mapping features into a canonical coordinate space.
+        # Applies driver motion to canonical features.
         w_s2c_rt = compute_rt_warp(Rs, ts, invert=True)  
         print(f"w_s2c_rt shape: {w_s2c_rt.shape}")
 
@@ -382,6 +390,8 @@ class WarpGenerator(nn.Module):
         print(f"w_c2d_rt shape: {w_c2d_rt.shape}")
 
         # Compute emotion warping (w_em)
+        # Emotion Warping (w_s2c_em and w_c2d_em):
+        # Encodes and applies facial expressions.
         w_s2c_em = self.warp_from_emotion(zs, es)
         print(f"w_s2c_em shape: {w_s2c_em.shape}")
 
@@ -389,6 +399,7 @@ class WarpGenerator(nn.Module):
         print(f"w_c2d_em shape: {w_c2d_em.shape}")
 
         # Combine rotation/translation and emotion warpings
+        # The final warp field is obtained by combining the rotation/translation and emotion warp fields.
         w_s2c = w_s2c_rt + w_s2c_em 
         print(f"w_s2c shape: {w_s2c.shape}")
 

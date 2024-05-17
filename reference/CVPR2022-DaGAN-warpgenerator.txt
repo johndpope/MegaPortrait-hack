@@ -1,0 +1,1508 @@
+Depth-Aware Generative Adversarial Network for Talking Head Video Generation
+Fa-Ting Hong1
+Longhao Zhang2
+Li Shen2
+Dan Xu1
+Corresponding author
+1Department of Computer Science and Engineering, HKUST 2Alibaba Cloud
+fhongac@cse.ust.hk, longhao.zlh@alibaba-inc.com, lshen.lsh@gmail.com, danxu@cse.ust.hk
+Abstract
+Talking head video generation aims to produce a synthetic human face video that contains the identity and pose information respectively from a given source image and a driving video. Existing works for this task heavily rely on 2D representations (e.g. appearance and motion) learned from the input images. However, dense 3D facial geometry (e.g. pixel-wise depth) is extremely important for this task as it is particularly beneficial for us to essentially generate accurate 3D face structures and distinguish noisy information from the possibly cluttered background. Nevertheless, dense 3D geometry annotations are prohibitively costly for videos and are typically not available for this video generation task. In this paper, we first introduce a self-supervised geometry learning method to automatically recover the dense 3D geometry (i.e. depth) from the face videos without the requirement of any expensive 3D annotation data. Based on the learned dense depth maps, we further propose to leverage them to estimate sparse facial keypoints that capture the critical movement of the human head. In a more dense way, the depth is also utilized to learn 3D-aware cross-modal (i.e. appearance and depth) attention to guide the generation of motion fields for warping source image representations. All these contributions compose a novel depth-aware generative adversarial network (DaGAN) for talking head generation. Extensive experiments conducted demonstrate that our proposed method can generate highly realistic faces, and achieve significant results on the unseen human faces. 1
+
+1Introduction
+In this paper, we target the task of generating a realistic talking head video of a person using a source image of that person and a driving video, possibly derived from another person [30, 31, 33]. In the real world, a wide range of practical applications can be benefited from this task such as role-playing video games and virtual anchors.
+
+Refer to caption
+Figure 1:Qualitative results of the learned depth maps (Fig. 1b) of the face images (Fig. 1a) using a self-supervised manner, and dense depth-aware attention maps (Fig. 1c), which can attend to important semantic parts of the face such as eyes.
+Rapid progress has been achieved on talking head video generation in terms of both quality and robustness in recent years, using generative adversarial networks (GANs) [5]. A successful direction for the task in the literature focuses on decoupling identity and pose information from the face images [24, 27, 33]. For instance, pioneering works [24, 27] propose to model relative poses between two face images based on estimated sparse facial keypoints, and the poses are further used to generate dense motion fields, which warps the feature maps of the source image to drive the image generation. Similarly, Eurkov et al. [1] aimed to specifically learn two latent codes for the pose and the identity, and then input them into a designed generator network for face video synthesis. More than that, data augmentation strategies [1, 40] are also explored to more effectively perform the disentanglement of the pose and identity information. Although these methods show highly promising performance on the task, they still pay large attention to learning more representative 2D appearance and motion features from the input images. However, for face video generation, 3D dense geometry is critically important for the task while rarely investigated in the existing methods.
+
+The dense 3D geometry (e.g. pixel-level depth) can bring several significant benefits for the talking-head video generation. First, as the video captures the moving heads in a realistic 3D physical world, the 3D geometry can greatly facilitate an accurate recovery of 3D face structures, and the model capability of maintaining a realistic 3D face structure is a key factor for generating high-fidelity face videos. Second, the dense geometry can also help the model to robustly distinguish the noisy background information for generation especially under cluttered background conditions. Finally, the dense geometry is also particularly useful for the model to identify expression-related micro-movements on the faces. However, a severe issue of utilizing the 3D dense geometry to significantly boost the generation is that the 3D geometry annotations are highly expensive and typically not available for this task.
+
+To address this problem, in this paper, we first propose to learn the pixel-wise depth map (see Fig. 1b) via geometric warping and photometric consistency in a self-supervised manner, to automatically recover dense 3D facial geometry from the training face videos, without requiring any expensive 3D geometry annotations. Based on the learned dense facial depth maps, we further propose two mechanisms to effectively leverage the depth information for better talking-head video generation. The first mechanism is depth-guided facial keypoint detection. The facial keypoints estimated by the network should well reflect the structure of the face, as they are further used to produce the motion field for feature warping, while the depth map explicitly indicates the 3D structure of the face. Thus, we combine geometry representations learned from the input depth maps with the appearance representations learned from the input images, to predict more accurate facial keypoints. The second mechanism is a cross-modal attention mechanism to guide the learning of the motion field. The motion field may contain noisy information from the cluttered background, and cannot effectively capture the expression-related micro-movements as they are generated from sparse facial keypoints. Therefore, we propose to learn depth-aware attention to have pixel-wise 3D geometry constraint on the motion field (see Fig. 1c), to drive the generation with more fine-grained details of facial structure and movements.
+
+All the above-illustrated contributions compose a Depth-aware Generative Adversarial Network (DaGAN) to advance talking head video generation. Extensive experiments are conducted to qualitatively and quantitatively evaluate the proposed DaGAN model on two different datasets, i.e. VoxCeleb1 [20] and CelebV [30]. The experimental results show that our proposed self-supervised depth learning strategy can produce accurate depth maps on both the source and the target human face images. Our DaGAN model can also generate higher-quality face images compared with state-of-the-art methods. More specifically, our model is able to better preserve facial details, yielding a synthesized face with a more accurate expression and pose.
+
+In summary, the main contribution is three-fold:
+
+• To the best of our knowledge, we are the first to introduce a self-supervised learning method to recover explicit dense 3D geometry (i.e. depth maps) from face videos for talking head video generation, and utilize the learned depth to boost the performance.
+• We propose a novel depth-aware generative adversarial network for talking head generation, which effectively incorporates the depth information into the generation network via two carefully designed mechanisms, i.e. depth-guided facial keypoint estimation, and cross-modal (i.e. depth and image) attention learning.
+• Extensive experimental results show accurate depth recovery of face images and also achieve superior generation performance compared with state-of-the-arts.
+2Related Works
+Generative Adversarial Networks. The generative adversarial network (GAN) was introduced by Goodfellow et al. [5] to produce realistic images under certain conditions. GANs have attracted substantial attention and has been studied in many tasks [17], such as image synthesis [21, 13, 14, 5], text-to-image translation [22, 36], and image inpainting [16, 11, 15]. In this work, we focus on talking head video generation with GAN guided by 3D facial depth maps learned without any ground-truth depths.
+
+Refer to caption
+Figure 2:An illustration of the proposed DaGAN approach, which can be mainly divided into three sub-networks: (1) a self-supervised depth learning sub-network 
+ℱ
+�
+. We learn pixel-wise face depth maps in a self-supervised manner to recover the dense 3D facial geometry from the training face videos. (2) a depth-guided facial keypoints detection sub-network 
+ℱ
+�
+​
+�
+. In this part, we combine both the geometry representations from depth maps with the appearance representations from the images to predict more accurate facial keypoints. (3) a cross-modal (i.e. depth and rgb image) attention learning sub-network. We learn dense depth-aware attention map using depth maps to constrain the motion field, to obtain a more accurate generation of fine-grained details of facial structure and movements.
+Depth Estimation. Many works have been proposed to tackle the problem of depth estimation from stereo images or video sequences [18, 4, 3, 41, 7]. Zhou et al. [41] use an end-to-end learning approach with view synthesis as the supervisory signal to estimate the depth map in monocular video sequences in an unsupervised manner. Based on [41], Clement et al. [4] gain a significant improvement using a minimum reprojection loss to deal with occlusions between frames and an auto-masking loss to ignore confusing stationary pixels. Gordon et al. [6] tried to learn camera intrinsics for every two consecutive frames to make the model able to perform inference in the wild.
+
+However, our work aims to learn facial depth maps in an unsupervised manner for the talking head generation task with only video images required. The depth map can provide dense 3D geometric information for the keypoint detection and can serve as an important cue to guide the model to focus on fine-grained critical parts of the human face (e.g. eyes, and mouth) during image generation.
+
+Talking Head Video Generation. Talking head video generation can be divided into three major strategies according to its driven-modality, i.e. image-driving methods [27, 24, 29, 37, 1, 33], landmark-driving methods [35, 34, 38, 8] and audio-driving methods [39, 25, 2, 40]. To exclude the driving face’s identity information, several image-driving methods [24, 27] tried to predict keypoints of both the source image and driving image, and model local motion using changes in the positions of corresponding keypoints. Using facial landmarks instead of pure images to encode the pose information is an intuitive method. The fs-vid2vid [35] models person appearance by decomposing it into two layers, i.e. a pose-dependent coarse image and a pose-independent texture image. Zhao et al. [38] not only model global motions using full facial landmarks, but also use local landmarks to enforce the model to focus on local regions. The audio-driving method is a more popular way to perform face reenactment since the audio does not contain identity information, which can enable the model to more easily obtain a latent code of pose information from the audio. In [39], the encoder disentangles the pose information from identity information assisted by the audio modality.
+
+In contrast to these existing works, we learn explicit pixel-wise depth map in a self-supervised manner, to provide highly beneficial 3D dense geometry information of the human faces, which allows the proposed model to accurately perceive 3D structures of the faces, and generate more fine-grained details of face spatial structures.
+
+3The proposed DaGAN Approach
+Generating talking head videos is a technically challenging task as it requires the preserving of the identity information while imitating the facial motion from the driving faces. In this work, under the same setting as utilized in previous works [24, 33], we propose a depth-aware generative adversarial network, termed as DaGAN, for talking head video generation. It learns a depth estimation network in a self-supervised manner from training face videos, without requiring any expensive 3D geometry data as input. Thus, we can recover reliable face depth maps for both the input source and driving images to capture accurate 3D face structures and the expression-related micro-movements for higher-quality talking-head video generation.
+
+3.1Overview
+Our proposed DaGAN approach consists of a generator and a discriminator. The core network architecture of our generator is depicted in Fig. 2, while the implementation of the discriminator is directly inspired from FOMM [24]. Our generation network can be split into three parts: (i) a self-supervised depth learning sub-network 
+ℱ
+�
+. The face depth network 
+ℱ
+�
+ first learns depth estimation using two consecutive frames (i.e. 
+𝐈
+�
+ and 
+𝐈
+�
++
+1
+) from a face video in a self-supervised manner. Then the whole deep framework is jointly trained while with 
+ℱ
+�
+ fixed. (ii) a depth-guided sparse keypoints detection sub-network 
+ℱ
+�
+​
+�
+. Given a source image 
+𝐈
+�
+ and a driving image 
+𝐈
+�
+ from the driving video, we exploit 
+ℱ
+�
+ to produce depth maps (
+𝐃
+�
+ and 
+𝐃
+�
+) for each image. These depth maps and their RGB images are concatenated to learn geometry and appearance features for detecting face keypoints (i.e. 
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+ and 
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+), which can be used to generate relative motion fields of the human faces; (iii) the feature warping module accepts the keypoints as input to generate motion fields, which are used to warp the source-image feature map to fuse the motion with the appearance information, resulting in a warped feature 
+𝐅
+�
+. To enforce the model to focus on fine-grained details of face structures and micro-expression movements, we further learn a dense depth-aware attention map using the source depth map 
+𝐃
+�
+ and the warped feature 
+𝐅
+�
+. The depth-aware attention map can be used to refine the warped feature to produce a refined feature 
+𝐅
+�
+, resulting in a better generated image 
+𝐈
+�
+.
+
+Refer to caption
+Figure 3:The training process of our face depth network. In addition to the face depth network, we use a pose network to estimate the relative camera poses [
+𝐑
+�
+�
+→
+�
+�
++
+1
+,
+𝐭
+�
+�
+→
+�
+�
++
+1
+]
+ and the camera intrinsic matrix 
+𝐊
+�
+�
+→
+�
+�
++
+1
+. The symbol 
+c
+ represents the concatenated operation.
+3.2Self-supervised Face Depth Learning
+In this part, we elaborate the technical details of the proposed self-supervised facial depth learning network, which can automatically recover dense face depth maps from the input source and driving images. Although SfM-Learner [41] previously proposed to learn outdoor scene depth in an unsupervised manner in an autonomous driving scenario, while in this work, we extend the method to learn face depths specifically for talking head video generation. Since the facial videos contain relatively larger-area dynamic motion (moving head dominating on the image) compared to the outdoor scenes, unsupervised facial depth estimation is a challenging problem in our task.
+
+We optimize the depth network using available training face videos. Specifically, given two consecutive video frames 
+𝐈
+�
+ and 
+𝐈
+�
++
+1
+ from a face video, with 
+𝐈
+�
++
+1
+ as a source image and 
+𝐈
+�
+ as a target image, we aim to learn several geometric elements, including a depth map 
+𝐃
+�
+�
+ for the target image 
+𝐈
+�
+, a camera intrinsic matrix 
+𝐊
+�
+�
+→
+�
+�
++
+1
+, and a relative camera pose 
+𝐑
+�
+�
+→
+�
+�
++
+1
+ with translation 
+𝐭
+�
+�
+→
+�
+�
++
+1
+ between the two images. It should be noted that the camera intrinsic 
+𝐊
+�
+�
+→
+�
+�
++
+1
+ is also not available in our training face video dataset, which is clearly different from [41] directly using provided camera intrinsic parameters for geometric warping. 
+𝐊
+�
+�
+→
+�
+�
++
+1
+ is input-video-clip specifically learned in our method, as each face video can be possibly captured by any camera. So the input of our method only requires video frames.
+
+The depth map 
+𝐃
+�
+�
+ can be produced using the depth network 
+ℱ
+�
+​
+(
+⋅
+)
+. The pose 
+𝐑
+�
+�
+→
+�
+�
++
+1
+, the translation 
+𝐭
+�
+�
+→
+�
+�
++
+1
+, and the camera intrinsic matrix 
+𝐊
+�
+�
+→
+�
+�
++
+1
+ are predicted from the same pose network 
+ℱ
+�
+​
+(
+⋅
+)
+ as follows:
+
+𝐃
+�
+�
+=
+ℱ
+�
+​
+(
+𝐈
+�
+)
+,
+(1)
+[
+𝐑
+�
+�
+→
+�
+�
++
+1
+,
+𝐭
+�
+�
+→
+�
+�
++
+1
+]
+,
+𝐊
+�
+�
+→
+�
+�
++
+1
+=
+ℱ
+�
+(
+𝐈
+�
+|
+|
+𝐈
+�
++
+1
+)
+,
+(2)
+where the symbol 
+|
+|
+ indicates a concatenation of the two images. Then, we can warp the source image 
+𝐈
+�
++
+1
+ to the view of the target image 
+𝐈
+�
+ as follows:
+
+𝐪
+�
+∼
+𝐊
+�
+�
+→
+�
+�
++
+1
+​
+[
+𝐑
+�
+�
+→
+�
+�
++
+1
+|
+𝐭
+�
+�
+→
+�
+�
++
+1
+]
+​
+𝐃
+�
+�
+​
+(
+𝐩
+�
+)
+​
+𝐊
+�
+−
+1
+​
+𝐩
+�
+,
+(3)
+𝐈
+~
+�
+=
+ℬ
+ℐ
+​
+(
+𝐈
+�
++
+1
+,
+{
+𝐪
+�
+}
+�
+=
+1
+�
+)
+,
+(4)
+where 
+𝐪
+�
+ and 
+𝐩
+�
+ denote the warped pixel on the source image 
+𝐈
+�
++
+1
+ and an original pixel on the target image 
+𝐈
+�
+; 
+�
+ is the overall number of pixels of the image; 
+ℬ
+ℐ
+​
+(
+⋅
+)
+ is a differentiable bilinear interpolation function; 
+𝐈
+~
+�
+ is a reconstructed image at the source view. Therefore, we can construct a photometric consistency error 
+�
+​
+�
+​
+(
+⋅
+,
+⋅
+)
+ between 
+𝐈
+~
+�
+ and 
+𝐈
+�
+ to train our depth network in a self-supervised manner. Following [4], we use L1 and SSIM [28] to construct the photometric consistency error 
+�
+​
+�
+ as:
+
+�
+​
+�
+​
+(
+𝐈
+�
+,
+𝐈
+~
+�
+)
+=
+�
+​
+(
+1
+−
+�
+​
+�
+​
+�
+​
+�
+​
+(
+𝐈
+�
+,
+𝐈
+~
+�
+)
+)
++
+(
+1
+−
+�
+)
+​
+‖
+𝐈
+�
+−
+𝐈
+~
+�
+‖
+,
+(5)
+where 
+�
+ is set to 0.8 which shows better optimization in our experiments. After training the framework, we only utilize the face depth network 
+ℱ
+�
+ in DaGAN to estimate the depth maps of input face images, which are further employed by our proposed mechanisms for talking head generation.
+
+3.3Motion Modeling by Sparse Keypoints
+After we obtain the depth map from the face depth network, we concatenate the RGB image and its corresponding depth map produced by 
+ℱ
+�
+. Then, the keypoints estimator 
+ℱ
+�
+​
+�
+ accepts the concatenated appearance (i.e. 
+𝐈
+�
+) and geometry (i.e. 
+𝐃
+�
+) information as inputs to more accurately predict a set of sparse keypoints of the human face:
+
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+=
+ℱ
+�
+​
+�
+(
+𝐈
+�
+|
+|
+𝐃
+�
+)
+,
+�
+∈
+{
+�
+,
+�
+}
+,
+(6)
+where 
+�
+ is the number of the detected face keypoint, and the subscript 
+�
+ indicates a source image or a driving image; 
+|
+|
+ denotes a concatenation operation. We follow the design of [24] to implement our keypoints detector.
+
+We adopt a feature warping strategy to capture head movements between the source and the target images, and implement a proposed feature warping module. Firstly, we compute a set of initial 2D offsets 
+{
+𝐎
+�
+}
+�
+=
+1
+�
+ for all the keypoints as follows:
+
+{
+𝐎
+�
+}
+�
+=
+1
+�
+=
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+−
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+.
+(7)
+Then, we generate a 2D dense coordinate map 
+�
+ similar to [24]. After that, a dense 2D motion field 
+𝐰
+�
+ is generated by adding the 
+�
+ offsets 
+{
+𝐎
+�
+}
+�
+=
+1
+�
+ into the 2D coordinate map at the corresponding coordinates of the 
+�
+ keypoints.
+
+As shown in Fig. 4, we first utilize the dense 2D motion field 
+𝐰
+�
+ to warp the downsampled image to produce an initial warped feature map. After that, an occlusion estimator 
+𝒯
+ take as input the initial warped feature map to predict a motion flow mask 
+𝐌
+�
+ and an occlusion map 
+𝐌
+�
+ [33]. The motion flow mask 
+𝐌
+�
+ assigns different confidence values for the estimated dense 2D motion field 
+𝐰
+�
+, resulting in masked motion field, while the occlusion map 
+𝐌
+�
+ aims to mask out the feature map regions that should be inpainted since the head has varying rotations. we utilize the masked motion field to warp the appearance feature map learned from the source image 
+𝐈
+�
+ extracted by the feature encoder 
+ℰ
+�
+. Then, they are fused with the occlusion map 
+𝐌
+�
+ to produce the warped soruce-image feature 
+𝐅
+�
+ as follows:
+
+𝐅
+�
+=
+𝐌
+�
+∗
+𝒲
+�
+​
+(
+ℰ
+ℐ
+​
+(
+𝐈
+�
+)
+,
+𝐌
+�
+∗
+𝐰
+�
+)
+,
+(8)
+where 
+𝒲
+�
+ denotes the warping function. By so doing, the warped features 
+𝐅
+�
+ can better preserve the identity of the source image while maintaining the head motion information between two faces.
+
+Refer to caption
+Figure 4:The illustration of our feature warping module. Here, 
+D
+ is the downsampling operation, 
+w
+ is the warping operation, 
+⨀
+ is the element-wise multiplication. The 
+⨁
+ and 
+−
+ represent the addition and subtraction operation, respectively.
+3.4Cross-Modal Attention Module
+To effectively embed the learned depth maps to boost the generation in a more dense way, we propose a cross-modal (i.e. depth and image) attention mechanism to enable the model to better preserve the facial structure and generate for expression-related micro facial movements, as the depth can provide us dense 3D geometry, which is essentially beneficial for maintaining the facial structure and identifying the critical movements when performing the generation. More specifically, we develop a cross-modal attention module to produce a dense depth-aware attention map to guide the warped feature 
+𝐅
+�
+ for face generation.
+
+As shown in Fig. 5, a depth encoder 
+ℰ
+�
+ take a source depth map 
+𝐃
+�
+ as input to encode a depth feature map 
+𝐅
+�
+, and we perform linear projection on 
+𝐅
+�
+ and the warped source-image feature 
+𝐅
+�
+ into three latent feature maps 
+𝐅
+�
+, 
+𝐅
+�
+ and 
+𝐅
+�
+ by three different 
+1
+×
+1
+ convolutional layers with kernels 
+𝐖
+�
+, 
+𝐖
+�
+, and 
+𝐖
+�
+, respectively. The 
+𝐅
+�
+, 
+𝐅
+�
+ and 
+𝐅
+�
+ can respectively represent the query, key and value in the self-attention mechanism. Thus, the geometry-related query feature 
+𝐅
+�
+ produced by the depth map can be fused with the appearance-related key feature 
+𝐅
+�
+ to generate dense guidance for the human face generation. We obtain the final refined features 
+𝐅
+�
+ for generation:
+
+𝐅
+�
+=
+Softmax
+​
+(
+(
+𝐖
+�
+​
+𝐅
+�
+)
+​
+(
+𝐖
+�
+​
+𝐅
+�
+)
+�
+)
+×
+(
+𝐖
+�
+​
+𝐅
+�
+)
+,
+(9)
+where 
+Softmax
+​
+(
+⋅
+)
+ represents a softmax normalization function which outputs the dense depth-aware attention map 
+𝒜
+ in Fig. 5. The 
+𝒜
+ contains important 3D geometric guidance for generating the faces with more fine-grained details of facial structure and micro-movements. Finally, the decoder takes as input the refined warped features 
+𝐅
+�
+ to produce the final synthesized image 
+𝐈
+�
+.
+
+Refer to caption
+Figure 5:The illustration of our cross-modal attention module. Here, 
+1
+×
+1
+ convolutional layers do not share the parameters with each other, and the symbol 
+⨂
+ represents the matrix multiplication.
+3.5Training
+In the training stage, the identities of the source and the driving image are the same, while they can be different in the inference stage. Following the previous works [24, 27], we train the proposed DaGAN in a self-supervised manner by minimizing the following loss:
+
+ℒ
+=
+�
+�
+​
+ℒ
+�
+​
+(
+𝐈
+�
+,
+𝐈
+�
+)
++
+�
+�
+​
+ℒ
+�
+​
+(
+𝐈
+�
+,
+𝐈
+�
+)
+(10)
++
+�
+�
+​
+ℒ
+�
+​
+(
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+)
++
+�
+�
+​
+(
+ℒ
+�
+​
+(
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+)
++
+ℒ
+�
+​
+(
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+)
+)
+.
+Perceptual loss 
+ℒ
+�
+. We minimize the perceptual loss [12] between the driving image 
+𝐈
+�
+ and the generated image 
+𝐈
+�
+, which has been effectively demonstrated being able to produce visually sharp outputs [24]. Moreover, we create an image pyramid for the driving image 
+𝐈
+�
+ and the generated image 
+𝐈
+�
+ to compute a pyramid perceptual loss.
+
+GAN loss 
+ℒ
+�
+. We adopt the least-squares loss [19] as our adversarial loss. We use the discriminator to compute feature maps of different scales from the input image, and perform 
+ℒ
+�
+ on multiple levels as 
+ℒ
+�
+. We also minimize the discriminator feature matching loss [27].
+
+Equivariance loss 
+ℒ
+�
+. For a valid keypoint, when applying a 2D transformation to the image, the predicted keypoint should change according to the applied transformation [24]. Thus, we utilize an equivariance loss 
+ℒ
+�
+ to ensure the consistency of image-specific keypoints.
+
+Keypoints distance loss 
+ℒ
+�
+. In order to make the detected facial keypoints aovid crowded around a small neighbourhood, we employ a keypoints distance loss to penalize the model if the distance of two corresponding keypoints falls below a predefined threshold.
+
+Overall, the first two terms ensure the generated image being similar to the ground-truth. The third one enforces the predicted keypoints to be consistent, while the last one constrains the keypoints not to be clustered together. The 
+�
+�
+, 
+�
+�
+, 
+�
+�
+ and 
+�
+�
+ are the hyper-parameters to allow for a balanced learning from those losses. More details about the losses are presented in the Supplementary Material.
+
+4Experiments
+In this section, we conduct extensive experiments on two talking face datasets to evaluate our proposed method. More additional experiments results and video samples are reported in the Supplementary Material.
+
+4.1Dataset and Metrics
+Dataset. We mainly conduct experiments on two talking head generation datasets (i.e. VoxCeleb1 [20] dataset and CelebV [30] dataset) in this work. We follow the test set sampling strategy of MarioNETte [8].
+
+Metrics. In this work, several metrics are utilized to evaluate the quality of the generated images. Specifically, we use structured similarity (SSIM) and peak signal-to-noise ratio (PSNR) to evaluate the low-level similarity between the generated image and the driving image. Also, we adopt other three metrics, i.e. 
+ℒ
+1
+, Average Keypoint Distance (AKD), and Average Euclidean Distance (AED) proposed in [23] to evaluate the keypoint-based methods.
+
+In cross-identity reenacting experiments, following the previous work [8], we adopt the CSIM to evaluate the quality of identity preservation between source images and generated images. PRMSE is utilized to evaluate the head poses, while AUCON for expression evaluation.
+
+4.2Implementation Details
+The structure of the keypoints estimator is an hourglass network [32]. We use similar architectures as in [4] for implementing our depth and pose networks, while the decoder in the generator is the same as in [24]. The details of the structures of each sub-network in the proposed DaGAN is elaborated in Supplementary Material. For the optimization losses, we set 
+�
+�
+ = 10, 
+�
+�
+ =1, 
+�
+�
+ = 10, and 
+�
+�
+ = 10. We set the number of keypoints in DaGAN as 
+15
+. In the training stage, we first train our face depth network using consecutive frames from videos in VoxCeleb1, and we fix it during the training of the whole deep generation framework.
+
+4.3Comparison with State-of-the-art Methods
+Model	CSIM 
+↑
+SSIM
+↑
+PSNR
+↑
+PRMSE 
+↓
+AUCON
+↑
+X2face [29] 	0.689	0.719	22.537	3.26	0.813
+NeuralHead-FF [35] 	0.229	0.635	20.818	3.76	0.719
+MarioNETte [8] 	0.755	0.744	23.244	3.13	0.825
+FOMM [24] 	0.813	0.723	30.394	3.20	0.886
+MeshG [33] 	0.822	0.739	30.394	3.20	0.887
+OSFV [27] 	0.895	0.761	30.695	1.64	0.921
+DaGAN (ours)	0.899	0.804	31.220	1.22	0.939
+Table 1:Comparisons with state-of-the-art methods on the self-reenactment on the VoxCeleb1 dataset [20]. 
+↑
+ indicates larger is better, while 
+↓
+ indicates smaller is better.
+Model	
+ℒ
+1
+ 
+↓
+AKD 
+↓
+AED
+↓
+X2face [29] 	0.078	7.687	0.405
+Monkey-Net [23] 	0.049	1.878	0.199
+FOMM [24] 	0.043	1.294	0.140
+OSFV [27] 	0.043	1.620	0.153
+DaGAN (ours)	0.036	1.279	0.117
+Table 2:Comparisons with keypoint-based methods on self-reenactment on the VoxCeleb1 dataset [20]. 
+↓
+ smaller is better.
+Refer to caption
+Figure 6:Qualitative comparisons of cross-identity reenactment on the VoxCeleb1 dataset [20].
+Self-reenactment. We first compare the face synthesis results where the source and driving images are of the same person, and report the results in Tab. 1. It can be observed that our DaGAN achieves the best results among all the compared methods. With a comparison to the other two keypoint-driven methods, i.e. FOMM [24] and OSFV [27], our DaGAN model obtains the most accurate head movements (1.22 of ours vs. 3.20 of FOMM, resulting in 1.64 point improvement on the PRMSE metric), which verifies that our depth-guided facial-keypoints estimation can better capture the motion of human heads. Regarding the facial expression, our method still obtains the highest score (i.e. 
+0.939
+ on AUCON), meaning that our method can recover more fine-grained details of the face structures and micro-expression movements of the face. Also, our method produces the highest scores in both SSIM and PSNR, which demonstrates that our method can produce more realistic images compared with the most competitive methods. Additionally, we report the results on other three metrics proposed by [23] in Tab. 2. Our method obtains the best scores in these three metrics, clearly confirming our initial motivation that introducing the 3D depth maps can greatly benefit the keypoint-based generation.
+
+Model	CSIM
+↑
+PRMSE 
+↓
+AUCON
+↑
+X2face [29] 	0.450	3.62	0.679
+NeuralHead-FF [35] 	0.108	3.30	0.722
+marioNETte [8] 	0.520	3.41	0.710
+FOMM [24] 	0.462	3.90	0.667
+MeshG [33] 	0.635	3.41	0.709
+OSFV [27] 	0.791	3.15	0.805
+DaGAN (ours)	0.723	2.33	0.873
+Table 3:Comparisons with state-of-the-art methods on cross-identity reenactment on CelebV dataset [30].
+Refer to caption
+Figure 7:Qualitative comparisons of cross-identity reenactment on the CelebV dataset [30].
+Cross-identity reenactment. We also perform experiments on the CelebV dataset to exploit the cross-identity motion transfer, where the source and driving images are from different persons. We report the experimental results in Table 3. As we can observe that the PRMSE and AUCON of our DaGAN method remain the best among all methods, achieving 2.33 for PRMSE and 0.873 for AUCON. We also present several generated examples in Fig 6 and 7. As some methods do not release their code, we only show the results of those methods with available codes (e.g. FOMM and OSFV). For the seen faces in Fig. 6, our method produces face images with more fine-grained details than the others. For instance, the mouth and eyes regions in three rows. It verifies that the utilization of depth maps enables the model to identify micro-expression movements of the human faces. For the unseen targets in the CelebV dataset, we also show some generated samples in Fig. 7. Our method can also produce visually natural results for unseen targets. Notably, the generated images of OSFV in the first row is almost the same as the source image as it cannot detect the subtle motion on the face, which is also part of the reason why it outperforms our method in terms of CSIM in Tab. 3.
+
+Refer to caption
+Figure 8:Qualitative ablation studies. Depth map and depth attention module can obtain improvements compared with baseline, while our full method produce the most realistic image.
+Model	CSIM
+↑
+PRMSE 
+↓
+AUCON
+↑
+Baseline	0.688	5.39	0.657
+Baseline w/ FDN	0.710	2.69	0.852
+Baseline w/ CAM	0.698	2.56	0.838
+Ours (SA)	0.681	5.18	0.832
+DaGAN (ours)	0.723	2.33	0.873
+FOMM	0.462	3.90	0.667
+FOMM w/ FDN	0.695	2.81	0.812
+FOMM w/ CAM	0.669	2.36	0.821
+FOMM w/ FDN+CAM	0.716	2.28	0.865
+Table 4:Ablation study. “Baseline” demotes the simplest model trained without the face depth network and cross-modal attention module. “Baseline w/ CAM” indicates that the baseline employs the cross-modal attention module after feature warping module, while “Baseline w/ FDN” combines the face depth network to estimate facial keypoints.
+4.4Ablation study
+In this section, we conduct ablation studies to demonstrate the effectiveness of the proposed self-supervised face depth learning method and the proposed two mechanisms for talking head generation. We report results of ablation studies in Tab. 4, and show several qualitative examples of the generation results in Fig. 8 and Fig. 10. Here, our baseline is the simplest model trained without the depth map and depth attention module.
+
+Refer to caption
+Figure 9:Visualization of estimated face depths and point clouds.
+Dense face geometry recovery. We first show recovered depth maps for human faces from the proposed face depth network. Since we do not have any ground-truth depths for the face images, it is tricky to directly evaluate the depth estimation quantitatively. Thus, we visualize the learned face depth maps and their corresponding 3d point clouds in Fig. 9. These visualization results strongly demonstrate that our proposed depth learning network is able to effectively recover the dense 3D geometry of human faces. The learned dense 3D facial structures are clearly very beneficial, and directly embedded in the proposed model to learn both sparse facial keypoints and global pixel-wise dense attention for the warping of features for generation, leading to a significant improvement on the generation.
+
+Effectiveness of depth-guided keypionts. We aim to explore the impact of depth map on keypoints detection and report the related results in Tab. 4. From Tab. 4, we can easily recognize that the depth-guided keypoints helps our model gain significant gain in PRMSE and AUCON, which indicate that the depth map really plays a significant role in the talking head generation task. From Fig. 8, the “Baseline w/ FDN” predicts more accurate head orientation than “Baseline”, which can also be observed in Tab. 4, i.e. 2.69 vs. 5.39, on the PRMSE metric. This indicates that the proposed depth-guided facial-keypoints estimator models more accurate motions of the human heads.
+
+Refer to caption
+Figure 10:Visualizing the dense depth-aware attention map in cross-modal attention module. In the last three columns, the red mark “
+×
+” indicates the query location.
+Effectiveness of cross-modal attention module. From the Tab. 4 and Fig. 8, the cross-modal attention module (CAM) can clearly improve the generation quality of expression-related micro-movements of human faces. In Fig. 8, we can observe that the generated face results with the proposed CAM module (i.e. “Baseline w/ CAM”) have more vivid expression (e.g. at eye regions) than that of “Baseline w/ FDN” and “Baseline”. It verifies that the proposed CAM enables the model to capture the expression-related micro-movements at important facial regions (e.g., eyes and mouth). Additionally, the variance “Baseline w/ CAM” outperform “Baseline” by 0.181 in AUCON. The results in Tab. 4 and Fig. 8 verify that our proposed depth attention module can effectively utilize the depth map to enable model focus on micro-movement of the human face to boost the quality of the generated image.
+
+Additionally, we visualize the dense depth-aware attention maps in Fig. 10. The high activation areas of each query point are mainly located in the expression-related parts of the human face, (e.g. eyes, nose, and mouth). These visualization results indicate that our designed cross-modal (i.e. depth and RGB) attention module can indeed address the micro-movements of the human face to produce more vivid expression in generation.
+
+Plug-and-play experiments. Additionally, we also plug our proposed face depth network and depth-aware cross-modal attention module into FOMM [24], i.e., using FOMM as a strong baseline, as our proposed modules can be flexibly deployed into existing video generation methods. The results are reported in Tab. 4. It is obvious that FOMM with the proposed modules can further achieve a significant improvement. These results fully demonstrate the effectiveness of learning dense 3D facial geometry (i.e. depth) for the talking head video generation task.
+
+5Conclusions
+In this work, we proposed a depth-aware generative adversarial network (DaGAN) for talking head generation. DaGAN learns pixel-wise face depth maps in a self-supervised manner to recover dense 3D facial geometry. We also design two mechanisms to better leverage the depth for the generation. First, we combine the geometry from depth maps and appearance from RGB images to predict more accurate facial keypoints. Second, we design a cross-modal (i.e. depth and RGB) attention mechanism to capture the expression-related micro movements to produce more fine-grained details of facial structures. Ablation studies clearly show that depth maps can benefit the motion transfer between two faces. Our DaGAN also produces more realistic and natural-looking results compared to state-of-the-arts.
+
+References
+[1]Egor Burkov, Igor Pasechnik, Artur Grigorev, and Victor Lempitsky.Neural head reenactment with latent pose descriptors.In CVPR, pages 13786–13795, 2020.
+[2]Yu Deng, Jiaolong Yang, Dong Chen, Fang Wen, and Xin Tong.Disentangled and controllable face image generation via 3d imitative-contrastive learning.In CVPR, 2020.
+[3]Huan Fu, Mingming Gong, Chaohui Wang, Kayhan Batmanghelich, and Dacheng Tao.Deep ordinal regression network for monocular depth estimation.In CVPR, 2018.
+[4]Clément Godard, Oisin Mac Aodha, Michael Firman, and Gabriel J. Brostow.Digging into self-supervised monocular depth prediction.In ICCV, 2019.
+[5]Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio.Generative adversarial nets.In NIPS, 2014.
+[6]Ariel Gordon, Hanhan Li, Rico Jonschkowski, and Anelia Angelova.Depth from videos in the wild: Unsupervised monocular depth learning from unknown cameras.In ICCV, 2019.
+[7]Hyowon Ha, Sunghoon Im, Jaesik Park, Hae-Gon Jeon, and In So Kweon.High-quality depth from uncalibrated small motion clip.In CVPR, 2016.
+[8]Sungjoo Ha, Martin Kersner, Beomsu Kim, Seokjun Seo, and Dongyoung Kim.Marionette: Few-shot face reenactment preserving identity of unseen targets.In AAAI, 2020.
+[9]Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.Deep residual learning for image recognition.In CVPR, 2016.
+[10]Xun Huang and Serge Belongie.Arbitrary style transfer in real-time with adaptive instance normalization.In ICCV, 2017.
+[11]Jireh Jam, Connah Kendrick, Vincent Drouard, Kevin Walker, Gee-Sern Hsu, and Moi Hoon Yap.R-mnet: A perceptual adversarial network for image inpainting.In WACV, 2021.
+[12]Justin Johnson, Alexandre Alahi, and Li Fei-Fei.Perceptual losses for real-time style transfer and super-resolution.In ECCV, 2016.
+[13]Tero Karras, Samuli Laine, and Timo Aila.A style-based generator architecture for generative adversarial networks.In CVPR, 2019.
+[14]Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten, Jaakko Lehtinen, and Timo Aila.Analyzing and improving the image quality of stylegan.In CVPR, 2020.
+[15]Ang Li, Jianzhong Qi, Rui Zhang, and Ramamohanarao Kotagiri.Boosted gan with semantically interpretable information for image inpainting.In IJCNN. IEEE, 2019.
+[16]Hongyu Liu, Ziyu Wan, Wei Huang, Yibing Song, Xintong Han, and Jing Liao.Pd-gan: Probabilistic diverse gan for image inpainting.In CVPR, 2021.
+[17]Ming-Yu Liu, Xun Huang, Jiahui Yu, Ting-Chun Wang, and Arun Mallya.Generative adversarial networks for image and video synthesis: Algorithms and applications.Proceedings of the IEEE, 2021.
+[18]Xuan Luo, Jia-Bin Huang, Richard Szeliski, Kevin Matzen, and Johannes Kopf.Consistent video depth estimation.TOG, 2020.
+[19]Xudong Mao, Qing Li, Haoran Xie, Raymond YK Lau, Zhen Wang, and Stephen Paul Smolley.Least squares generative adversarial networks.In ICCV, 2017.
+[20]Arsha Nagrani, Joon Son Chung, and Andrew Zisserman.Voxceleb: a large-scale speaker identification dataset.arXiv preprint arXiv:1706.08612, 2017.
+[21]Alec Radford, Luke Metz, and Soumith Chintala.Unsupervised representation learning with deep convolutional generative adversarial networks.arXiv preprint arXiv:1511.06434, 2015.
+[22]Scott Reed, Zeynep Akata, Xinchen Yan, Lajanugen Logeswaran, Bernt Schiele, and Honglak Lee.Generative adversarial text to image synthesis.In ICML, 2016.
+[23]Aliaksandr Siarohin, Stéphane Lathuilière, Sergey Tulyakov, Elisa Ricci, and Nicu Sebe.Animating arbitrary objects via deep motion transfer.In CVPR, 2019.
+[24]Aliaksandr Siarohin, Stéphane Lathuilière, Sergey Tulyakov, Elisa Ricci, and Nicu Sebe.First order motion model for image animation.NeurIPS, 2019.
+[25]Suzhen Wang, Lincheng Li, Yu Ding, Changjie Fan, and Xin Yu.Audio2head: Audio-driven one-shot talking-head generation with natural head motion.arXiv preprint arXiv:2107.09293, 2021.
+[26]Ting-Chun Wang, Ming-Yu Liu, Jun-Yan Zhu, Andrew Tao, Jan Kautz, and Bryan Catanzaro.High-resolution image synthesis and semantic manipulation with conditional gans.In CVPR, 2018.
+[27]Ting-Chun Wang, Arun Mallya, and Ming-Yu Liu.One-shot free-view neural talking-head synthesis for video conferencing.In CVPR, 2021.
+[28]Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli.Image quality assessment: from error visibility to structural similarity.TIP, 2004.
+[29]Olivia Wiles, A Koepke, and Andrew Zisserman.X2face: A network for controlling face generation using images, audio, and pose codes.In ECCV, 2018.
+[30]Wayne Wu, Yunxuan Zhang, Cheng Li, Chen Qian, and Chen Change Loy.Reenactgan: Learning to reenact faces via boundary transfer.In ECCV, 2018.
+[31]Runze Xu, Zhiming Zhou, Weinan Zhang, and Yong Yu.Face transfer with generative adversarial network.arXiv preprint arXiv:1710.06090, 2017.
+[32]Jing Yang, Qingshan Liu, and Kaihua Zhang.Stacked hourglass network for robust facial landmark localisation.In CVPR Workshops, 2017.
+[33]Guangming Yao, Yi Yuan, Tianjia Shao, and Kun Zhou.Mesh guided one-shot face reenactment using graph convolutional networks.In ACM MM, 2020.
+[34]Egor Zakharov, Aleksei Ivakhnenko, Aliaksandra Shysheya, and Victor Lempitsky.Fast bi-layer neural synthesis of one-shot realistic head avatars.In ECCV, 2020.
+[35]Egor Zakharov, Aliaksandra Shysheya, Egor Burkov, and Victor Lempitsky.Few-shot adversarial learning of realistic neural talking head models.In ICCV, 2019.
+[36]Han Zhang, Tao Xu, Hongsheng Li, Shaoting Zhang, Xiaogang Wang, Xiaolei Huang, and Dimitris N Metaxas.Stackgan: Text to photo-realistic image synthesis with stacked generative adversarial networks.In ICCV, 2017.
+[37]Yunxuan Zhang, Siwei Zhang, Yue He, Cheng Li, Chen Change Loy, and Ziwei Liu.One-shot face reenactment.arXiv preprint arXiv:1908.03251, 2019.
+[38]Ruiqi Zhao, Tianyi Wu, and Guodong Guo.Sparse to dense motion transfer for face image animation.In ICCV, 2021.
+[39]Hang Zhou, Yu Liu, Ziwei Liu, Ping Luo, and Xiaogang Wang.Talking face generation by adversarially disentangled audio-visual representation.In AAAI, 2019.
+[40]Hang Zhou, Yasheng Sun, Wayne Wu, Chen Change Loy, Xiaogang Wang, and Ziwei Liu.Pose-controllable talking face generation by implicitly modularized audio-visual representation.In CVPR, 2021.
+[41]Tinghui Zhou, Matthew Brown, Noah Snavely, and David G Lowe.Unsupervised learning of depth and ego-motion from video.In CVPR, 2017.
+Appendix
+Appendix AAdditional Network and Training Details
+A.1Loss details
+Perceptual loss 
+ℒ
+�
+. To ensure that the generated images are similar to their corresponding ground truths, we use a multi-scale implementation introduced by FOMM [24]. Specifically, we first downsample the ground truth and the output image to 4 different resolutions (i.e. 
+256
+×
+256
+, 
+128
+×
+128
+, 
+64
+×
+64
+ and 
+32
+×
+32
+). We denote 
+�
+1
+,
+�
+2
+,
+�
+3
+,
+�
+4
+ as the generated images, and 
+�
+1
+,
+�
+2
+,
+�
+3
+,
+�
+4
+ as the corresponding ground truths of the four different resolutions, respectively. Then a pre-trained VGG network is used to extract features from both these downsampled ground truths and the output images. We compute the 
+ℒ
+1
+ distance between the ground truth and output image in different resolutions:
+
+ℒ
+�
+=
+∑
+�
+=
+1
+4
+ℒ
+1
+​
+(
+�
+�
+,
+�
+�
+)
+(11)
+GAN loss 
+ℒ
+�
+. Given the ground truths and the generated images in 
+256
+×
+256
+ resolution, we adopt an adversarial learning objective function consisting of a least square loss and a feature matching loss introduced in the pix2pixHD [26] to train our DaGAN. Single-scale discriminators are used for training 
+256
+×
+256
+ images.
+
+Equivariance loss 
+ℒ
+�
+. This loss is utilized to ensure the consistency of the estimated keypoints, which is also adopted by FOMM [24]. Given an image 
+𝐈
+ and one of its detected keypoint 
+𝐱
+�
+, we perform a known spatial transformation 
+𝐓
+ on image 
+𝐈
+, resulting in a transformed image 
+𝐈
+𝐓
+. Therefore, the detected keypoints 
+𝐱
+𝐓
+​
+(
+�
+)
+ on this transformed image 
+𝐈
+𝐓
+ should be transformed in the same way. Thus, for the 
+�
+ detected keypoints from image 
+𝐈
+, we have:
+
+ℒ
+�
+=
+∑
+�
+=
+1
+�
+‖
+𝐱
+�
+−
+𝐓
+−
+1
+​
+(
+𝐱
+𝐓
+​
+(
+�
+)
+)
+‖
+1
+(12)
+Keypoints distance loss 
+ℒ
+�
+. To make the detected facial keypoints much less crowded around a small neighbourhood, we employ a keypoints distance loss to penalize the model if the distance between two corresponding keypoints falls below a pre-defined threshold. For every two keypoints 
+𝐱
+�
+ and 
+𝐱
+�
+ in an image, we thus have:
+
+ℒ
+�
+=
+∑
+�
+=
+1
+�
+∑
+�
+=
+1
+�
+(
+1
+−
+𝐬𝐢𝐠𝐧
+​
+(
+‖
+𝐱
+�
+−
+𝐱
+�
+‖
+1
+−
+�
+)
+)
+,
+�
+≠
+�
+,
+(13)
+where 
+𝐬𝐢𝐠𝐧
+​
+(
+⋅
+)
+ is a sign function, and the 
+�
+ is the threshold of distance. It is set to 0.2 in our work, which shows good performance in our practice.
+
+Refer to caption
+Figure 11:Architecture details of each components in our model. The “DownBlock2d” (Fig. 11d) contains a convolutional layer with 
+3
+×
+3
+ kernel, a batch normalization layer, a ReLU activation layer, and an average pooling layer that downsamples the input. The interpolation layer in “UpBlock2d” (Fig. 11d) is utilized to upsample the image. The symbol “/2” in other sub-networks indicates an average pooling layer to downsample the input.
+A.2Network architecture details of DaGAN
+The implementation details of the sub-networks in our model are shown in Fig. 11 and described below.
+
+Face depth network 
+ℱ
+�
+. Our face depth network consists of an encoder and a decoder. The encoder is a ResNet18 network [9] without the final fully connected and pooling layers. The structure of the decoder is illustrated in Fig. 11a, which predicts a depth map with a size of 
+1
+×
+256
+×
+256
+.
+
+Keypoint estimator 
+ℱ
+�
+​
+�
+. In the training process, we concatenate the RGB image and its corresponding depth map to form an RGB-D input with a size of 
+4
+×
+256
+×
+256
+, while the ouputs are 
+�
+ keypoints 
+{
+𝐱
+�
+,
+�
+}
+�
+=
+1
+�
+,
+𝐱
+�
+,
+�
+∈
+ℝ
+1
+×
+2
+. The detailed structure of the keypoint estimator is shown in Fig. 11b.
+
+Occlusion estimator 
+𝒯
+. We utilize the occlusion estimator to predict an occlusion map to filter out the regions that should be inpainted, and a motion flow mask for weighting the motion field. As illustrated in Fig. 11c, there are two heads at the end to predict these two parts.
+
+Feature encoder 
+ℰ
+�
+. In Fig. 11f, to preserve low-level texture of the image, we only apply two DownBlocks to construct the feature encoder 
+ℰ
+�
+ in the feature warping module.
+
+Depth encoder 
+ℰ
+�
+. The architecture of our depth encoder 
+ℰ
+�
+ in the cross-modal attention module is shown in Fig. 11g. The structure is the same as 
+ℰ
+�
+, and thus we can make the features learned from both modalities with the same level of representation power.
+
+Discriminator 
+𝒟
+. The architecture of our discriminator (Fig. 11h) is inspired by FOMM [24]. The input image is first down-sampled four times, and then passed through a convolutional layer with a kernel size of 
+1
+×
+1
+, and we finally output a prediction map with a size of 
+512
+×
+26
+×
+26
+. Moreover, we collect the intermediate feature maps and feed them into the GAN loss 
+ℒ
+�
+.
+
+Appendix BAdditional Experiment Details
+B.1Dataset Details
+• VoxCeleb1 dataset contains videos of 1,251 different identities with a resolution of 
+256
+×
+256
+. We extract frames for each video and utilized the test split of VoxCeleb1 for evaluating self-reenactment. Following [33, 8], we created the test set by sampling 2,083 image sets from randomly selected 100 videos of the VoxCeleb1 test split.
+• CelebV dataset contains videos of five different celebrities with widely varying characteristics, which are utilize to evaluate the performance of the models for reenacting unseen targets, similar to the in-the-wild scenarios. Moreover, we uniformly sampled 2000 image sets from CelebV to perform the experiments.
+B.2Compare methods
+• X2Face [29]. X2Face utilizes a simple framework to warp the image directly. We obtain its results on VoxCeleb1 from a previous work [8].
+• NeuralHead [35]. NeuralHead adopts an important component from style transfer [13, 10], i.e. AdaIN layers [10]. Since a reference implementation is absent, we directly report the replicated results from [8].
+• MarioNETte [8]. MarioNETte utilizes three components (i.e. image attention block, target feature alignment, and landmark transformer) to address the identity preservation problem. We compare with it based on the results reported in the original paper.
+• FOMM [24]. FOMM propose a paradigm that aims to detect the keypoints of the face image and model the motion between two images using detected keypoints.
+• MeshG [33]. MeshG aims to generate a dense face mesh to model a dense motion map using graph convolutional network. As there is no official code available, we only report the its results from the original paper.
+• OSFV [27]. OSFV provides a novel keypoint generation method. We reimplemented this method according to its published paper and train it on the VoxCeleb1 dataset to compare with the proposed method.
+B.3More results
+Refer to caption
+Figure 12:Visualization of attention maps of different methods.
+More explanation of depth-aware attention. Each learned 3D spatial depth point is inherently used as a query for calculating a global self-attention, which is thus depth-aware. Here, we disable the depth in the cross-modal attention module, which then becomes a standard self-attention module, termed as Ours (SA). A qualitative comparison in Fig. 12 shows the difference of using and not using depth for the attention learning. Our cross-modal attention can effectively learn to attend to key foreground facial regions (e.g. expression-related keypoint regions), comparing to the one without depth (i.e. Ours (SA)) which also attends to cluttered backgrounds, further confirming the advantage of dense 3D geometry for overcoming noisy background in generation.
+
+More qualitative results. We show more samples in Fig. 13 and Fig. 14. The visualization shows that our DaGAN can produce more natural-looking faces than the other comparison methods. More than that, we also present our generated depth maps of the source images and the driving images. We can observe that our estimated depth maps can effectively distinguish the face foreground area of an image from the background. These robustly predicted depth maps can also verify the effectiveness of our method for self-supervised dense geometry recovery.
+
+Video generation demo. We also provide a video generation demonstration to show a more detailed comparison qualitatively with the most competitive methods in the literature, including FOMM [24] and OSFV [27]. The demo is attached together with this supplement document.
+
+Refer to caption
+Figure 13:Qualitative comparisons of different methods on cross-identity face reenactment. We also show the predicted face depth maps and detected keypoints of source images and driving images.
+Refer to caption
+Figure 14:Qualitative comparisons of different methods on cross-identity face reenactment. We also show the predicted face depth maps and detected keypoints of source images and driving images.
+◄ ar5iv homepage Feeling
+lucky? Conversion
+report Report
+an issue View original
+on arXiv►
+Copyright Privacy Policy Generated on Mon Mar 11 09:18:52 2024 by LaTeXMLMascot Sammy

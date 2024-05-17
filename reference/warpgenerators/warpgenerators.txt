@@ -1,0 +1,6 @@
+Neural Head Reenactment with Latent Pose Descriptors (Egor Burkov et al., 2020) - Reference [3]
+HeadGAN: One-shot Neural Head Synthesis and Editing (Michail Christos Doukas et al., 2021) - Reference [8]
+Dynamic Neural Radiance Fields for Monocular 4D Facial Avatar Reconstruction (Guy Gafni et al., 2021) - Reference [10]
+MarioNETte: Few-shot Face Reenactment Preserving Identity of Unseen Targets (Sungjoo Ha et al., 2020) - Reference [12]
+Deep video portraits (Hyeongwoo Kim et al., 2018) - Reference [17]
+Face2Face: real-time face capture and reenactment of RGB videos (Justus Thies et al., 2019) - Reference [30]
