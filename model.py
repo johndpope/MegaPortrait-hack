@@ -789,7 +789,9 @@ class Emtn(nn.Module):
         self.head_pose_net.fc = nn.Linear(512, 6)  # 6 corresponds to rotation and translation parameters
         
         self.expression_net = resnet18(pretrained=False,num_classes=2048)  # 50 corresponds to the dimensions of expression vector
+        self.expression_net.fc = nn.Identity # remove fully connected layer 
 
+        
     def forward(self, xs, xd):
         # Process source image
         source_head_pose = self.head_pose_net(xs)
