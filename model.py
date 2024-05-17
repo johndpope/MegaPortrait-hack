@@ -90,30 +90,30 @@ class ResBlock_Custom(nn.Module):
         return out
 
 # TODO - collapse these 2 ResBlock_Custom
-class CustomResNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
-        super(CustomResNetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+class ResBlock_Custom_ResNet50(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, dimension=2):
+        super(ResBlock_Custom_ResNet50, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
+        self.gn1 = nn.GroupNorm(32, out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.gn2 = nn.GroupNorm(32, out_channels)
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels:
+        if stride != 1 or in_channels != out_channels * 4:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels)
+                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride),
+                nn.GroupNorm(32, out_channels * 4)
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
+        out = self.relu(self.gn1(self.conv1(x)))
+        out = self.gn2(self.conv2(out))
         if self.shortcut:
             out += self.shortcut(x)
         else:
             out += x
-        out = F.relu(out)
+        out = self.relu(out)
         return out
-
     
 class CustomResNet50(nn.Module):
     def __init__(self, repeat, in_channels=3, outputs=256):
@@ -127,10 +127,10 @@ class CustomResNet50(nn.Module):
 
         filters = [64, 256, 512, 1024, 2048]
 
-        self.layer1 = self._make_layer(CustomResNetBlock, filters[0], filters[1], repeat[0], stride=1)
-        self.layer2 = self._make_layer(CustomResNetBlock, filters[1], filters[2], repeat[1], stride=2)
-        self.layer3 = self._make_layer(CustomResNetBlock, filters[2], filters[3], repeat[2], stride=2)
-        self.layer4 = self._make_layer(CustomResNetBlock, filters[3], filters[4], repeat[3], stride=2)
+        self.layer1 = self._make_layer(ResBlock_Custom_ResNet50, filters[0], filters[1], repeat[0], stride=1)
+        self.layer2 = self._make_layer(ResBlock_Custom_ResNet50, filters[1], filters[2], repeat[1], stride=2)
+        self.layer3 = self._make_layer(ResBlock_Custom_ResNet50, filters[2], filters[3], repeat[2], stride=2)
+        self.layer4 = self._make_layer(ResBlock_Custom_ResNet50, filters[3], filters[4], repeat[3], stride=2)
 
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(filters[4], outputs)
