@@ -42,6 +42,8 @@ class Conv3D_WS(nn.Conv3d):
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
+
+
 class ResBlock_Custom(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=2):
         super(ResBlock_Custom, self).__init__()
@@ -90,6 +92,38 @@ class ResBlock_Custom(nn.Module):
         return out
 
 # TODO - collapse these 2 ResBlock_Custom
+'''
+Based on the provided code and diagram, the ResBlock_Custom_ResNet50 class corresponds to the Resblock (c) block in the diagram.
+
+The ResBlock_Custom_ResNet50 class consists of the following components:
+
+1. conv1: A 2D convolutional layer with kernel size 1 and stride equal to the provided stride argument. This corresponds to the first 3x3-Conv(n)D_WS-x block in the diagram.
+
+2. gn1: A group normalization layer (nn.GroupNorm) with 32 groups applied to the output of conv1. This corresponds to the first GN block in the diagram.
+
+3. relu: A ReLU activation function applied after gn1. This corresponds to the first ReLU block in the diagram.
+
+4. conv2: Another 2D convolutional layer with kernel size 3, stride 1, and padding 1. This corresponds to the second 3x3-Conv(n)D_WS-x block in the diagram.
+
+5. gn2: A group normalization layer applied to the output of conv2. This corresponds to the second GN block in the diagram.
+
+6. shortcut: A sequential block that applies a 1x1 convolutional layer (with stride equal to the provided stride argument) followed by a group normalization layer if the input and output channels are different or the stride is not 1. This shortcut connection aligns with the arrow connecting the input directly to the output in the diagram.
+
+In the forward method of ResBlock_Custom_ResNet50:
+
+1. The input x is passed through conv1, gn1, and relu sequentially, which aligns with the upper path in the diagram.
+
+2. The output is then passed through conv2 and gn2, corresponding to the second 3x3-Conv(n)D_WS-x and GN blocks in the diagram.
+
+3. If the shortcut block exists (i.e., input and output channels are different or stride is not 1), the input x is passed through the shortcut block.
+
+4. The output of the main path (conv2 and gn2) is added to the output of the shortcut block, which aligns with the addition operation in the diagram.
+
+5. Finally, a ReLU activation function is applied to the sum, producing the final output of the ResBlock_Custom_ResNet50.
+
+The code implementation of ResBlock_Custom_ResNet50 closely follows the structure and components shown in the Resblock (c) diagram, with the convolutional layers, group normalization, ReLU activations, and the shortcut connection matching the diagram's layout.
+'''
+
 class ResBlock_Custom_ResNet50(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResBlock_Custom_ResNet50, self).__init__()
@@ -99,17 +133,17 @@ class ResBlock_Custom_ResNet50(nn.Module):
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.gn2 = nn.GroupNorm(32, out_channels)
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels * 4:
+        if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride),
-                nn.GroupNorm(32, out_channels * 4)
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.GroupNorm(32, out_channels)
             )
 
     def forward(self, x):
         out = self.relu(self.gn1(self.conv1(x)))
         out = self.gn2(self.conv2(out))
         if self.shortcut:
-            out += self.shortcut(x)
+            out += self.shortcut(x) # blowing up
         else:
             out += x
         out = self.relu(out)
@@ -150,8 +184,8 @@ class CustomResNet50(nn.Module):
         pretrained_layers = [pretrained_resnet50.conv1, pretrained_resnet50.bn1, pretrained_resnet50.relu, pretrained_resnet50.maxpool,
                              pretrained_resnet50.layer1, pretrained_resnet50.layer2, pretrained_resnet50.layer3, pretrained_resnet50.layer4]
 
-        self.layer0[0].weight.data.copy_(pretrained_layers[0].weight.data)
-        self.layer0[2].weight.data.copy_(pretrained_layers[1].weight.data)
+        self.layer0[0].weight.data.copy_(pretrained_layers[0].weight.data) # pretrained_resnet50.conv1
+        self.layer0[2].weight.data.copy_(pretrained_layers[1].weight.data) # pretrained_resnet50.bn1
         self.layer0[2].bias.data.copy_(pretrained_layers[1].bias.data)
 
         # Initialize custom blocks with corresponding pretrained weights
@@ -175,9 +209,9 @@ class CustomResNet50(nn.Module):
                     custom_block.shortcut[1].bias.data.copy_(pretrained_block.downsample[1].bias.data)
 
     def forward(self, input):
-        print("input.shape:",input.shape)
+        print("input.shape:",input.shape) # input.shape: torch.Size([1, 3, 256, 256])
         input = self.layer0(input)
-        print("input.shape:",input.shape)
+        print("input.shape:",input.shape) # input.shape: torch.Size([1, 64, 64, 64])
         input = self.layer1(input)
         print("layer1 > input.shape:",input.shape)
         input = self.layer2(input)
