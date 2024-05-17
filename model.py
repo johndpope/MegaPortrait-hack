@@ -127,26 +127,34 @@ The code implementation of ResBlock_Custom_ResNet50 closely follows the structur
 class ResBlock_Custom_ResNet50(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResBlock_Custom_ResNet50, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
+        
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False) 
         self.gn1 = nn.GroupNorm(32, out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.gn2 = nn.GroupNorm(32, out_channels)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels * 4: # or in_channels != out_channels * 4 - github issue - 24790aff5d2592a52ba09e94c794b8eb10f6ccc4
+        self.relu = nn.ReLU(inplace=True)
+        
+        if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                 nn.GroupNorm(32, out_channels)
             )
-
-    def forward(self, x):
-        out = self.relu(self.gn1(self.conv1(x)))
-        out = self.gn2(self.conv2(out))
-        if self.shortcut:
-            out += self.shortcut(x) # blowing up
         else:
-            out += x
+            self.shortcut = nn.Identity()
+        
+    def forward(self, x):
+        identity = self.shortcut(x)
+        
+        out = self.conv1(x)
+        out = self.gn1(out) 
         out = self.relu(out)
+        
+        out = self.conv2(out)
+        out = self.gn2(out)
+        
+        out += identity
+        out = self.relu(out)
+        
         return out
     
 class CustomResNet50(nn.Module):
