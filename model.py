@@ -161,13 +161,11 @@ class CustomResNet50(nn.Module):
     def __init__(self, in_channels=3):
         super(CustomResNet50, self).__init__()
         
-        # self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False) - original
-        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=1, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
         self.gn1 = nn.GroupNorm(32, 64)
         self.relu = nn.ReLU(inplace=True)
-        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1) - original # stride=2 =  256 -> 128
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1) 
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1) 
         
         self.layer1 = self._make_layer(64, 64, 3)
         self.layer2 = self._make_layer(256, 128, 4, stride=2)
