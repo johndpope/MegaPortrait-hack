@@ -193,8 +193,11 @@ class CustomResNet50(nn.Module):
         assert x.size(1) == 64, f"Expected channels after conv1: 64, got: {x.size(1)}"
         
         x = self.gn1(x)
+        print("gn1 > x.shape:",x.shape) 
         x = self.relu(x)
+        print("relu > x.shape:",x.shape) 
         x = self.maxpool(x)
+        print("maxpool > x.shape:",x.shape) 
         
         x = self.layer1(x)
         assert x.size(1) == 256, f"Expected channels after layer1: 256, got: {x.size(1)}"
