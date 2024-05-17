@@ -91,7 +91,7 @@ class ResBlock_Custom(nn.Module):
 
 # TODO - collapse these 2 ResBlock_Custom
 class ResBlock_Custom_ResNet50(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, dimension=2):
+    def __init__(self, in_channels, out_channels, stride=1):
         super(ResBlock_Custom_ResNet50, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
         self.gn1 = nn.GroupNorm(32, out_channels)
@@ -257,7 +257,7 @@ class Eapp(nn.Module):
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
-        assert vs.shape[1:] == (96, 16, out.size(2), out.size(3)), f"Expected vs shape (_, 96, 16, _, _), got {vs.shape}"
+        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
         
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
@@ -265,6 +265,7 @@ class Eapp(nn.Module):
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
+
         es = self.custom_resnet50(x)
         es = es.view(es.size(0), -1)  # Flatten the output
 
