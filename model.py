@@ -228,7 +228,9 @@ class Eapp(nn.Module):
         self.resblock3D_96_2 = ResBlock_Custom(in_channels=96, out_channels=96, dimension=3)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
-        self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
+        # Adjusted AvgPool to reduce spatial dimensions effectively
+        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
+
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
