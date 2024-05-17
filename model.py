@@ -228,13 +228,14 @@ class Eapp(nn.Module):
         self.avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # Second part: producing global descriptor es
+        # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
         self.custom_resnet50 = CustomResNet50(repeat=[3, 4, 6, 3], in_channels=3, outputs=2048)
 
     def forward(self, x):
         # First part
         out = self.conv(x)
         assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
-        
+        print("out.shape:",out.shape)
         out = self.resblock_128(out)
         assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
         out = self.avgpool(out)
