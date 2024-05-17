@@ -42,9 +42,9 @@ class Conv3D_WS(nn.Conv3d):
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
-class BROKENResBlock_Custom(nn.Module):
+class ResBlock_Custom(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=2):
-        super(BROKENResBlock_Custom, self).__init__()
+        super(ResBlock_Custom, self).__init__()
 
         if dimension == 2:
             self.conv1 = Conv2d_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
@@ -90,27 +90,27 @@ class BROKENResBlock_Custom(nn.Module):
         return out
 
 
-class ResBlock_Custom(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, dimension=2):
-        super(ResBlock_Custom, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
-        self.gn1 = nn.GroupNorm(32, out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.gn2 = nn.GroupNorm(32, out_channels)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels * 4:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride),
-                nn.GroupNorm(32, out_channels * 4)
-            )
+# class ResBlock_Custom(nn.Module):
+#     def __init__(self, in_channels, out_channels, stride=1, dimension=2):
+#         super(ResBlock_Custom, self).__init__()
+#         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride)
+#         self.gn1 = nn.GroupNorm(32, out_channels)
+#         self.relu = nn.ReLU(inplace=True)
+#         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+#         self.gn2 = nn.GroupNorm(32, out_channels)
+#         self.shortcut = nn.Sequential()
+#         if stride != 1 or in_channels != out_channels * 4:
+#             self.shortcut = nn.Sequential(
+#                 nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride),
+#                 nn.GroupNorm(32, out_channels * 4)
+#             )
 
-    def forward(self, x):
-        out = self.relu(self.gn1(self.conv1(x)))
-        out = self.gn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = self.relu(out)
-        return out
+#     def forward(self, x):
+#         out = self.relu(self.gn1(self.conv1(x)))
+#         out = self.gn2(self.conv2(out))
+#         out += self.shortcut(x)
+#         out = self.relu(out)
+#         return out
     
 class CustomResNet50(nn.Module):
     def __init__(self, repeat, in_channels=3, outputs=256):
@@ -235,7 +235,7 @@ class Eapp(nn.Module):
         # First part
         out = self.conv(x)
         assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
-        print("out.shape:",out.shape)
+        print("out.shape:",out.shape)  # out.shape: torch.Size([1, 64, 256, 256])
         out = self.resblock_128(out)
         assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
         out = self.avgpool(out)
