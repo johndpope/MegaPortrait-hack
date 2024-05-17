@@ -198,34 +198,36 @@ class ResNet50(nn.Module):
     def _initialize_weights(self):
         pretrained_resnet50 = models.resnet50(pretrained=True)
         
-        # Initialize conv1 and gn1 weights
-        self.conv1.weight.data = pretrained_resnet50.conv1.weight.data
-        self.gn1.weight.data = pretrained_resnet50.bn1.weight.data
-        self.gn1.bias.data = pretrained_resnet50.bn1.bias.data
+        self.conv1.weight.data = pretrained_resnet50.conv1.weight.data.clone()
+        self.bn1.weight.data = pretrained_resnet50.bn1.weight.data.clone()
+        self.bn1.bias.data = pretrained_resnet50.bn1.bias.data.clone()
         
-        # Initialize layer1 to layer4 weights
         for i in range(1, 5):
             layer = getattr(self, f'layer{i}')
             pretrained_layer = getattr(pretrained_resnet50, f'layer{i}')
             self._initialize_layer_weights(layer, pretrained_layer)
         
-        # Initialize fc weights - remove fully connected weights
-        # self.fc.weight.data = pretrained_resnet50.fc.weight.data
-        # self.fc.bias.data = pretrained_resnet50.fc.bias.data
+        # Comment out the following lines if you don't want to copy the FC layer weights
+        # self.fc.weight.data = pretrained_resnet50.fc.weight.data.clone()
+        # self.fc.bias.data = pretrained_resnet50.fc.bias.data.clone()
 
     def _initialize_layer_weights(self, layer, pretrained_layer):
         for block, pretrained_block in zip(layer, pretrained_layer):
-            block.conv1.weight.data = pretrained_block.conv1.weight.data
-            block.gn1.weight.data = pretrained_block.bn1.weight.data
-            block.gn1.bias.data = pretrained_block.bn1.bias.data
-            block.conv2.weight.data = pretrained_block.conv2.weight.data
-            block.gn2.weight.data = pretrained_block.bn2.weight.data
-            block.gn2.bias.data = pretrained_block.bn2.bias.data
-            
-            if hasattr(block.shortcut, 'conv'):
-                block.shortcut.conv.weight.data = pretrained_block.downsample[0].weight.data
-                block.shortcut.gn.weight.data = pretrained_block.downsample[1].weight.data
-                block.shortcut.gn.bias.data = pretrained_block.downsample[1].bias.data
+            block.conv1.weight.data = pretrained_block.conv1.weight.data.clone()
+            block.bn1.weight.data = pretrained_block.bn1.weight.data.clone()
+            block.bn1.bias.data = pretrained_block.bn1.bias.data.clone()
+            block.conv2.weight.data = pretrained_block.conv2.weight.data.clone()
+            block.bn2.weight.data = pretrained_block.bn2.weight.data.clone()
+            block.bn2.bias.data = pretrained_block.bn2.bias.data.clone()
+            if isinstance(block, Bottleneck):
+                block.conv3.weight.data = pretrained_block.conv3.weight.data.clone()
+                block.bn3.weight.data = pretrained_block.bn3.weight.data.clone()
+                block.bn3.bias.data = pretrained_block.bn3.bias.data.clone()
+            if block.downsample is not None:
+                block.downsample[0].weight.data = pretrained_block.downsample[0].weight.data.clone()
+                block.downsample[1].weight.data = pretrained_block.downsample[1].weight.data.clone()
+                block.downsample[1].bias.data = pretrained_block.downsample[1].bias.data.clone()
+
 
     def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
                     stride: int = 1, dilate: bool = False) -> nn.Sequential:
