@@ -170,6 +170,7 @@ class ResNet50(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.fc = nn.Linear(512 * block.expansion, n_class)
+        self.fc = nn.Linear(512 * block.expansion, 512)  # Reduce to 512 dimensions
 
         # rot_classifier for Remix Match
         self.is_remix = is_remix
@@ -268,6 +269,7 @@ class ResNet50(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
+        x = self.fc(x)  # Reduce to 512 dimensions
         # out = self.fc(x) # Comment out this line if you don't want to use the FC layer
         if self.is_remix:
             rot_output = self.rot_classifier(x)
