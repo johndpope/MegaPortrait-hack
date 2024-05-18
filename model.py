@@ -846,8 +846,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp() # resnet 18
         self.motionEncoder = Emtn()
-        self.warp_generator_s = WarpGenerator(in_channels=518) 
-        self.warp_generator_d = WarpGenerator(in_channels=518)
+        self.warp_generator_s = WarpGenerator(in_channels=2048 + 512 + 3 + 3 ) 
+        self.warp_generator_d = WarpGenerator(in_channels=2048 + 512 + 3 + 3 ) 
         self.G3d = G3d(in_channels=96) #3D Convolutional Network (G3D): Processes canonical volumetric features.
         self.G2d = G2d(in_channels=96)
 
