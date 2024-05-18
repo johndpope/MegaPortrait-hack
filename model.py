@@ -341,7 +341,15 @@ class WarpGenerator(nn.Module):
             nn.Tanh()
         )
 
+    # zs: Latent expression descriptors
+    # es: Appearance embeddings
     def forward(self, zs, es):
+        zs = zs.view(-1, 512, 1, 1)
+        es = es.view(-1, 512, 1, 1) #  512 is the number of channels in the appearance embeddings
+
+        print(f"expression > zs shape: {zs.shape}")
+        print(f"appearance embeddings > es shape: {es.shape}")
+
         # Concatenate the expression and appearance descriptors
         x = torch.cat((zs, es), dim=1)
         
@@ -703,9 +711,15 @@ class Emtn(nn.Module):
         self.head_pose_net = resnet18(pretrained=True)
         self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6)  # 6 corresponds to rotation and translation parameters
         
-        self.expression_net = resnet18(pretrained=False,num_classes=2048)  # 50 corresponds to the dimensions of expression vector
+        self.expression_net = resnet18(pretrained=False,num_classes=512)  # 50 corresponds to the dimensions of expression vector
         self.expression_net.fc = nn.Identity() # remove fully connected layer 
 
+        # why 512? 
+        # Example input image of size (batch_size, channels, height, width)
+        # input_image = torch.randn(1, 3, 224, 224)
+        # Extract feature maps
+        # feature_maps = resnet18(input_image)
+        # print(feature_maps.shape)  # Should print: torch.Size([1, 512, 7, 7])
 
     def forward(self, x):
         # Forward pass through head pose network
@@ -717,6 +731,7 @@ class Emtn(nn.Module):
         
         # Forward pass through expression network
         expression = self.expression_net(x)
+        print("self.expression_net shape Should print: torch.Size([1, 512, 7, 7]):",expression.shape)
         
         return rotation, translation, expression
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
@@ -787,8 +802,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
-        self.warp_generator_s2c = WarpGenerator(in_channels=512 + 2048) # source-to-canonical
-        self.warp_generator_c2d = WarpGenerator(in_channels=512 + 2048) # canonical-to-driving 
+        self.warp_generator_s2c = WarpGenerator(in_channels=512 + 512) # source-to-canonical
+        self.warp_generator_c2d = WarpGenerator(in_channels=512 + 512) # canonical-to-driving 
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
