@@ -814,10 +814,9 @@ class Gbase(nn.Module):
         # Sum es with zs and zd respectively
         
         # Expand and reshape zs to match the spatial dimensions of zs and zd
-        zs = zs.view(zs.size(0), zs.size(1), 1, 1, 1)
-        zs = zs.expand(-1, -1, es.size(2), es.size(3), es.size(4))
+        # Convert to shape (1, 512, 1, 1)
+        zs = zs.unsqueeze(-1).unsqueeze(-1)
 
-        # Adjust es channels to match zs and zd channels
         zs = self.zs_conv(zs)
         zs_sum = zs + es
         zd = self.zs_conv(zd)
