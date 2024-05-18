@@ -790,7 +790,6 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
-        # self.zs_conv = nn.Conv3d(512, 2048, kernel_size=1)  # Adjust channels of zs to 2048
         self.warp_generator_s2c = WarpGenerator() # source-to-canonical
         self.warp_generator_c2d = WarpGenerator() # canonical-to-driving 
         self.G3d = G3d(in_channels=96)
@@ -807,14 +806,8 @@ class Gbase(nn.Module):
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True)
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False)
         
-        # Compute expression warping
-        # in the diagram
-
         # "inputs we use sums z𝑠 + e𝑠 and z𝑑 + e𝑠 respectively."
         # Sum es with zs and zd respectively
-        
-        # Expand and reshape zs to match the spatial dimensions of zs and zd
-        # Convert to shape (1, 512, 1, 1)
 
         # zs = self.zs_conv(zs)
         zs_sum = zs + es
