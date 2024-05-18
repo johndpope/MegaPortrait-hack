@@ -327,7 +327,7 @@ class WarpGenerator(nn.Module):
         self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
         
         self.reshape = nn.Sequential(
-            nn.Conv3d(128, 512, kernel_size=1),
+            nn.Conv3d(2048, 512, kernel_size=1),
             nn.PixelShuffle(2)
         )
         
