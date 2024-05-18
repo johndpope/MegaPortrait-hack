@@ -345,8 +345,8 @@ class WarpGenerator(nn.Module):
     # zs: Latent expression descriptors
     # es: Appearance embeddings
     def forward(self, zs, es):
-        zs = zs.view(-1, 512, 1, 1)
-        es = es.view(-1, 512, 1, 1) #  512 is the number of channels in the appearance embeddings
+        # zs = zs.view(-1, 512, 1, 1)
+        # es = es.view(-1, 512, 1, 1) #  512 is the number of channels in the appearance embeddings
 
         print(f"expression > zs shape: {zs.shape}")
         print(f"appearance embeddings > es shape: {es.shape}")
