@@ -815,12 +815,13 @@ class Gbase(nn.Module):
         
         # Expand and reshape zs to match the spatial dimensions of zs and zd
         # Convert to shape (1, 512, 1, 1)
-        zs = zs.unsqueeze(-1).unsqueeze(-1)
 
         # zs = self.zs_conv(zs)
         zs_sum = zs + es
         # zd = self.zs_conv(zd)
         zd_sum = zd + es
+
+        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
 
         w_em_s2c = self.warp_generator_s2c(zs_sum) # # produce a 3D warping field w𝑠→
         w_em_c2d = self.warp_generator_c2d(zd_sum)
