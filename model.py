@@ -387,9 +387,15 @@ class WarpGenerator(nn.Module):
     # zs: Latent expression descriptors
     # es: Appearance embeddings
     def forward(self, Rs, ts, zs, es):
+
         # Concatenate the source rotation, translation, expression, and appearance embeddings
+        print(f"rotation > Rs shape: {Rs.shape}")
+        print(f"translation >ts shape: {ts.shape}")
+        print(f"expression > zs shape: {zs.shape}")
+        print(f"appearance embeddings > es shape: {es.shape}")
+
         x = torch.cat((Rs, ts, zs, es), dim=1)
-        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64])
+        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
         
