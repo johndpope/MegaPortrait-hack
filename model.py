@@ -183,7 +183,7 @@ class Eapp(nn.Module):
         es = self.custom_resnet50(x)
         # es = es.view(es.size(0), -1)  # Flatten the output
         print("es global descriptor:",es.shape)
-
+        print("vs volumetric features:",vs.shape)
         return vs, es
 
 
