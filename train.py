@@ -113,7 +113,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             print("🌸")
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
-            keypoints = batch['keypoints']
+            # keypoints = batch['keypoints']
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
@@ -123,7 +123,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 # Get the size of the image
                 print("source_frame.shape:",source_frame.shape)
                 driving_frame = driving_frames[idx]
-                keypoint = keypoints[idx]
+                # keypoint = keypoints[idx]
 
                 # Train generator
                 optimizer_G.zero_grad()
@@ -133,7 +133,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 loss_perceptual = perceptual_loss_fn(output_frame, driving_frame)
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
-                loss_gaze = gaze_loss_fn(output_frame, driving_frame, keypoint)
+                loss_gaze = gaze_loss_fn(output_frame, driving_frame)
                 loss_G = (
                     cfg.training.lambda_perceptual * loss_perceptual
                     + cfg.training.lambda_adversarial * loss_adversarial
