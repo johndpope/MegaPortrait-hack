@@ -394,6 +394,11 @@ class WarpGenerator(nn.Module):
         print(f"expression > zs shape: {zs.shape}")
         print(f"appearance embeddings > es shape: {es.shape}")
 
+        # rotation > Rs shape: torch.Size([1, 3])
+        # translation >ts shape: torch.Size([1, 3])
+        # expression > zs shape: torch.Size([1, 512])
+        # appearance embeddings > es shape: torch.Size([1, 2048])
+
         x = torch.cat((Rs, ts, zs, es), dim=1)
         print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
         # Pass through the 1x1 convolution
@@ -406,6 +411,8 @@ class WarpGenerator(nn.Module):
         w_s_to_c = self.blocks(x)
         
         return w_s_to_c # produce a 3D warping field w𝑠→
+    #         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
+
     
     
 
@@ -833,7 +840,7 @@ Finally, the projected features (vc2d_projected) are passed through the 2D convo
 class Gbase(nn.Module):
     def __init__(self):
         super(Gbase, self).__init__()
-        self.Eapp = Eapp()
+        self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
         self.warp_generator_s = WarpGenerator(in_channels=518) 
         self.warp_generator_d = WarpGenerator(in_channels=518)
@@ -841,7 +848,9 @@ class Gbase(nn.Module):
         self.G2d = G2d(in_channels=96)
 
     def forward(self, xs, xd):
-        vs, es = self.Eapp(xs)
+        vs, es = self.appearanceEncoder(xs)
+        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
+
         Rs, ts, zs = self.motionEncoder(xs)
         Rd, td, zd = self.motionEncoder(xd)
         
