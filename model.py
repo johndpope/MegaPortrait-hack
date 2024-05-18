@@ -181,7 +181,8 @@ class Eapp(nn.Module):
         # Second part
 
         es = self.custom_resnet50(x)
-        es = es.view(es.size(0), -1)  # Flatten the output
+        # es = es.view(es.size(0), -1)  # Flatten the output
+        print("es global descriptor:",es.shape)
 
         return vs, es
 
