@@ -404,13 +404,15 @@ class WarpGenerator(nn.Module):
         # appearance embeddings > es shape: torch.Size([1, 2048])
 
         x = torch.cat((Rs, ts, zs, es), dim=1)
-        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
+        print("x.shape:",x.shape) # x.shape: torch.Size([1, 2566, 1, 1])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
+        print("conv_1x1 > x.shape:",x.shape)
         
         # Reshape and upsample
         x = self.reshape(x)
-        
+        print(" reshape > x.shape:",x.shape)
+
         # Pass through the ResBlock3D blocks
         w_s_to_c = self.blocks(x)
         
