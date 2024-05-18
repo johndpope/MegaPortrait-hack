@@ -324,44 +324,33 @@ class WarpGenerator(nn.Module):
     def __init__(self, in_channels):
         super(WarpGenerator, self).__init__()
         
-        # self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
-        
-        self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
+        self.conv1x1 = nn.Conv3d(2048, 2048, kernel_size=1)
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
-        self.blocks = nn.Sequential(
-            ResBlock3D_Adaptive(512, 256, upsample=False, scale_factors=(2, 2, 2)),
-            ResBlock3D_Adaptive(256, 128, upsample=False, scale_factors=(2, 2, 2)),
-            ResBlock3D_Adaptive(128, 64, upsample=True, scale_factors=(2, 2, 2)),
-            ResBlock3D_Adaptive(64, 32, upsample=True, scale_factors=(2, 2, 2)),
-            nn.GroupNorm(num_groups=32, num_channels=32),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 3, kernel_size=3, padding=1),
-            nn.Tanh()
-        )
-
-    # (s)Source / (d)Driving
-    # zs: Latent expression descriptors
-
-    # The source tuple (R𝑠 , t𝑠 , z𝑠 , e𝑠 ) is then input into a warping generator W𝑠→ to produce a 3D warping field w𝑠→, 
-    # which removes the motion data from the volumetric features v𝑠 by mapping them into a canonical coordinate space
-    def forward(self,  zs):
-        zs = zs.view(-1, 512, 1, 1)
-
-        # Concatenate the source rotation, translation, expression, and appearance embeddings
+        self.resblock1 = ResBlock3D_Adaptive(512, 256)
+        self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
+        self.resblock2 = ResBlock3D_Adaptive(256, 128)
+        self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2))
+        self.resblock3 = ResBlock3D_Adaptive(128, 64)
+        self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2))
+        self.resblock4 = ResBlock3D_Adaptive(64, 32)
+        self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2))
+        self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
+        self.gn = nn.GroupNorm(1, 3)
+        self.tanh = nn.Tanh()
+    
+    def forward(self, zs):
         print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 512])        
-
-        # Pass through the 1x1 convolution
         x = self.conv1x1(zs)
-        
-        # Reshape and upsample
         x = self.reshape_layer(x)
-        
-        # Pass through the ResBlock3D blocks
-        w_s_to_c = self.blocks(x)
-        
-        return w_s_to_c # produce a 3D warping field w𝑠→
-        # The output of the WarpGenerator should be a 3D warping field of shape [B, 3, D, H, W], where B is the batch size, D, H, W are the depth, height, and width dimensions. 
-        # The final Conv3d layer outputs 3 channels, corresponding to the 3D warp field.
+        x = self.upsample1(self.resblock1(x))
+        x = self.upsample2(self.resblock2(x))
+        x = self.upsample3(self.resblock3(x))
+        x = self.upsample4(self.resblock4(x))
+        x = self.conv3x3x3(x)
+        x = self.gn(x)
+        x = F.relu(x)
+        return self.tanh(x) # produce a 3D warping field w𝑠→
+    
     
 
 '''
