@@ -324,13 +324,10 @@ class WarpGenerator(nn.Module):
     def __init__(self, in_channels):
         super(WarpGenerator, self).__init__()
         
-        self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
+        # self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
         
-        self.reshape = nn.Sequential(
-            nn.Conv3d(2048, 512, kernel_size=1),
-            nn.PixelShuffle(2)
-        )
-        
+        self.conv1x1 = nn.Conv3d(2048, 2048, kernel_size=1)
+        self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
         self.blocks = nn.Sequential(
             ResBlock3D_Adaptive(512, 256, upsample=False, scale_factors=(2, 2, 2)),
             ResBlock3D_Adaptive(256, 128, upsample=False, scale_factors=(2, 2, 2)),
@@ -357,7 +354,7 @@ class WarpGenerator(nn.Module):
         x = self.conv_1x1(zs)
         
         # Reshape and upsample
-        x = self.reshape(x)
+        x = self.reshape_layer(x)
         
         # Pass through the ResBlock3D blocks
         w_s_to_c = self.blocks(x)
