@@ -348,9 +348,10 @@ class WarpGenerator(nn.Module):
     # The source tuple (R𝑠 , t𝑠 , z𝑠 , e𝑠 ) is then input into a warping generator W𝑠→ to produce a 3D warping field w𝑠→, 
     # which removes the motion data from the volumetric features v𝑠 by mapping them into a canonical coordinate space
     def forward(self,  zs):
+        zs = zs.view(-1, 512, 1, 1)
 
         # Concatenate the source rotation, translation, expression, and appearance embeddings
-        print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 2560])        
+        print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 512])        
 
         # Pass through the 1x1 convolution
         x = self.conv_1x1(zs)
@@ -800,8 +801,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
-        self.warp_generator_s2c = WarpGenerator(in_channels=2048) # source-to-canonical
-        self.warp_generator_c2d = WarpGenerator(in_channels=2048) # canonical-to-driving 
+        self.warp_generator_s2c = WarpGenerator(in_channels=512) # source-to-canonical
+        self.warp_generator_c2d = WarpGenerator(in_channels=512) # canonical-to-driving 
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
