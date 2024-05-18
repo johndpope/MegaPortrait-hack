@@ -821,6 +821,7 @@ class Gbase(nn.Module):
         # zd = self.zs_conv(zd)
         zd_sum = zd + es
 
+        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1) # [1,512] -> [1,512,1,1]
         zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
 
         w_em_s2c = self.warp_generator_s2c(zs_sum) # # produce a 3D warping field w𝑠→
