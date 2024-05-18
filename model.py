@@ -365,7 +365,7 @@ class WarpGenerator(nn.Module):
         x = torch.cat((zs, es), dim=1)
         # x = torch.cat((Rs, ts, zs, es), dim=1) - 🤷‍♂️ 
         # The diagram.jpeg shows the inputs to the warping generators are zs+es (expression + appearance) for source-to-canonical, and zd+es for canonical-to-driving. However, the code is concatenating Rs, ts, zs, es (rotation, translation, expression, appearance).
-        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
+        print("x.shape:",x.shape) # x.shape: torch.Size([1, 2566 / 512 + 2048])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
         
@@ -814,8 +814,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
-        self.warp_generator_s2c = WarpGenerator(in_channels=512 + 512) # source-to-canonical
-        self.warp_generator_c2d = WarpGenerator(in_channels=512 + 512) # canonical-to-driving 
+        self.warp_generator_s2c = WarpGenerator(in_channels=512 + 2048) # source-to-canonical
+        self.warp_generator_c2d = WarpGenerator(in_channels=512 + 2048) # canonical-to-driving 
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
