@@ -351,7 +351,7 @@ class WarpGenerator(nn.Module):
         print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 512])        
 
         # Pass through the 1x1 convolution
-        x = self.conv_1x1(zs)
+        x = self.conv1x1(zs)
         
         # Reshape and upsample
         x = self.reshape_layer(x)
