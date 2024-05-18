@@ -857,20 +857,25 @@ class Gbase(nn.Module):
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.warp_generator_s(Rs, ts, zs, es) # # produce a 3D warping field w𝑠→
         v_canonical  = apply_warping_field(vs, ws2c)
-        
+        print("v_canonical.shape:",v_canonical.shape)
+
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(v_canonical)
+        print("vc2d.shape:",vc2d.shape)
         
         # Process canonical volume
         v_canonical_processed = self.conv3d(v_canonical)
-
+        print("v_canonical_processed.shape:",v_canonical_processed.shape)
+        
         # Warp vc2d using wc2d to impose driving motion
         wc2d = self.warp_generator_d(Rd, td, zd, es) # produce a 3D warping field W→𝑑 
         v_driver = apply_warping_field(v_canonical_processed, wc2d)
+        print("v_driver.shape:",v_driver.shape)
         
         # Perform orthographic projection (denoted as P in the paper)
-        vc2d_projected = torch.mean(v_driver, dim=2)  # Average along the depth dimension
-        
+        vc2d_projected = torch.nn.functional.avg_pool3d(v_driver, kernel_size=(1, 1, v_driver.size(4))).squeeze(4)
+        print("vc2d_projected.shape:",vc2d_projected.shape)
+
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
         
