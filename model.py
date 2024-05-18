@@ -140,7 +140,7 @@ class Eapp(nn.Module):
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
         self.custom_resnet50 = ResNet50()
-        self.custom_resnet50.fc = nn.Identity # remove fully connected layer
+        # self.custom_resnet50.fc = nn.Identity # remove fully connected layer
 
     def forward(self, x):
         # First part
