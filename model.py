@@ -339,8 +339,8 @@ class WarpGenerator(nn.Module):
         self.tanh = nn.Tanh()
     
     def forward(self, zs):
-        assert x.shape[1] == 2048, f"Expected input channels to be 2048, but got {x.shape[1]}"
-        assert x.shape[2] == 2 and x.shape[3] == 2 and x.shape[4] == 2, f"Expected input shape to be (N, 2048, 2, 2, 2), but got {x.shape}"
+        # assert x.shape[1] == 2048, f"Expected input channels to be 2048, but got {x.shape[1]}"
+        # assert x.shape[2] == 2 and x.shape[3] == 2 and x.shape[4] == 2, f"Expected input shape to be (N, 2048, 2, 2, 2), but got {x.shape}"
         
         print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 512])        
         x = self.conv1x1(zs)
