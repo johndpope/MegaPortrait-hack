@@ -353,7 +353,7 @@ class WarpGenerator(nn.Module):
         print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 2560])        
 
         # Pass through the 1x1 convolution
-        x = self.conv_1x1(x)
+        x = self.conv_1x1(zs)
         
         # Reshape and upsample
         x = self.reshape(x)
@@ -839,7 +839,7 @@ class Gbase(nn.Module):
         xhat = self.G2d(vc2d_projected)
 
         # 🤷‍♂️  from warp diagram only the zs is passed into warpgenerator  - but what to do with global descriptor - es
-        
+
         
         return xhat
 
