@@ -364,6 +364,7 @@ class WarpGenerator(nn.Module):
         # Concatenate expression and appearance
         x = torch.cat((zs, es), dim=1)
         # x = torch.cat((Rs, ts, zs, es), dim=1) - 🤷‍♂️ 
+        # The diagram.jpeg shows the inputs to the warping generators are zs+es (expression + appearance) for source-to-canonical, and zd+es for canonical-to-driving. However, the code is concatenating Rs, ts, zs, es (rotation, translation, expression, appearance).
         print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
