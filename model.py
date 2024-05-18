@@ -381,10 +381,15 @@ class WarpGenerator(nn.Module):
             nn.Tanh()
         )
 
+    # (s)Source / (d)Driving
+    # Rs: Rotation parameters
+    # ts: Translation parameters
+    # zs: Latent expression descriptors
+    # es: Appearance embeddings
     def forward(self, Rs, ts, zs, es):
         # Concatenate the source rotation, translation, expression, and appearance embeddings
         x = torch.cat((Rs, ts, zs, es), dim=1)
-        
+        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
         
@@ -394,7 +399,7 @@ class WarpGenerator(nn.Module):
         # Pass through the ResBlock3D blocks
         w_s_to_c = self.blocks(x)
         
-        return w_s_to_c
+        return w_s_to_c # produce a 3D warping field w𝑠→
     
     
 
@@ -849,7 +854,7 @@ class Gbase(nn.Module):
         v_driver = apply_warping_field(v_canonical_processed, wc2d)
         
         # Perform orthographic projection (denoted as P in the paper)
-        vc2d_projected = torch.mean(vc2d, dim=2)  # Average along the depth dimension
+        vc2d_projected = torch.mean(v_driver, dim=2)  # Average along the depth dimension
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
