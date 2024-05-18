@@ -840,7 +840,7 @@ Finally, the projected features (vc2d_projected) are passed through the 2D convo
 class Gbase(nn.Module):
     def __init__(self):
         super(Gbase, self).__init__()
-        self.appearanceEncoder = Eapp()
+        self.appearanceEncoder = Eapp() # resnet 18
         self.motionEncoder = Emtn()
         self.warp_generator_s = WarpGenerator(in_channels=518) 
         self.warp_generator_d = WarpGenerator(in_channels=518)
@@ -851,11 +851,11 @@ class Gbase(nn.Module):
         vs, es = self.appearanceEncoder(xs)
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
 
-        Rs, ts, zs = self.motionEncoder(xs)
+        Rs, ts, zs = self.motionEncoder(xs) # This encoder outputs head rotations R𝑠/𝑑 , translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
         Rd, td, zd = self.motionEncoder(xd)
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
-        ws2c = self.warp_generator_s(Rs, ts, zs, es)
+        ws2c = self.warp_generator_s(Rs, ts, zs, es) # # produce a 3D warping field w𝑠→
         v_canonical  = apply_warping_field(vs, ws2c)
         
         # Process canonical volume (vc) using G3d to obtain vc2d
@@ -865,7 +865,7 @@ class Gbase(nn.Module):
         v_canonical_processed = self.conv3d(v_canonical)
 
         # Warp vc2d using wc2d to impose driving motion
-        wc2d = self.warp_generator_d(Rd, td, zd, es)
+        wc2d = self.warp_generator_d(Rd, td, zd, es) # produce a 3D warping field W→𝑑 
         v_driver = apply_warping_field(v_canonical_processed, wc2d)
         
         # Perform orthographic projection (denoted as P in the paper)
