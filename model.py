@@ -324,7 +324,7 @@ class WarpGenerator(nn.Module):
     def __init__(self):
         super(WarpGenerator, self).__init__()
         
-        self.conv1x1 = nn.Conv3d(2048, 2048, kernel_size=1)
+        self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
         self.resblock1 = ResBlock3D_Adaptive(512, 256)
         self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
