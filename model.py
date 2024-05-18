@@ -343,29 +343,15 @@ class WarpGenerator(nn.Module):
         )
 
     # (s)Source / (d)Driving
-    # Rs: Rotation parameters
-    # ts: Translation parameters
     # zs: Latent expression descriptors
-    # es: Appearance embeddings
 
     # The source tuple (R𝑠 , t𝑠 , z𝑠 , e𝑠 ) is then input into a warping generator W𝑠→ to produce a 3D warping field w𝑠→, 
     # which removes the motion data from the volumetric features v𝑠 by mapping them into a canonical coordinate space
-    def forward(self, Rs, ts, zs, es):
+    def forward(self,  zs):
 
         # Concatenate the source rotation, translation, expression, and appearance embeddings
-        print(f"rotation > Rs shape: {Rs.shape}") # rotation > Rs shape: torch.Size([1, 3])
-        print(f"translation >ts shape: {ts.shape}") # translation >ts shape: torch.Size([1, 3])
-        print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 2560])
-        print(f"appearance embeddings > es shape: {es.shape}") # appearance embeddings >  torch.Size([4, 512, 1, 1])
+        print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 2560])        
 
-
-
-
-        # Concatenate expression and appearance
-        x = torch.cat((zs, es), dim=1)
-        # x = torch.cat((Rs, ts, zs, es), dim=1) - 🤷‍♂️ 
-        # The diagram.jpeg shows the inputs to the warping generators are zs+es (expression + appearance) for source-to-canonical, and zd+es for canonical-to-driving. However, the code is concatenating Rs, ts, zs, es (rotation, translation, expression, appearance).
-        print("x.shape:",x.shape) # x.shape: torch.Size([1, 2566 / 512 + 2048])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
         
@@ -814,8 +800,8 @@ class Gbase(nn.Module):
         super(Gbase, self).__init__()
         self.appearanceEncoder = Eapp()
         self.motionEncoder = Emtn()
-        self.warp_generator_s2c = WarpGenerator(in_channels=512 + 2048) # source-to-canonical
-        self.warp_generator_c2d = WarpGenerator(in_channels=512 + 2048) # canonical-to-driving 
+        self.warp_generator_s2c = WarpGenerator(in_channels=2048) # source-to-canonical
+        self.warp_generator_c2d = WarpGenerator(in_channels=2048) # canonical-to-driving 
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
@@ -831,8 +817,9 @@ class Gbase(nn.Module):
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False)
         
         # Compute expression warping
-        w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es) # # produce a 3D warping field w𝑠→
-        w_em_c2d = self.warp_generator_c2d(Rd,td,zd, es)
+        # in the diagram
+        w_em_s2c = self.warp_generator_s2c(zs) # # produce a 3D warping field w𝑠→
+        w_em_c2d = self.warp_generator_c2d(zd)
         
         # Warp volumetric features (vs) using w_s2c to obtain canonical volume (vc)
         w_s2c = w_rt_s2c + w_em_s2c
@@ -850,6 +837,9 @@ class Gbase(nn.Module):
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
+
+        # 🤷‍♂️  from warp diagram only the zs is passed into warpgenerator  - but what to do with global descriptor - es
+        
         
         return xhat
 
