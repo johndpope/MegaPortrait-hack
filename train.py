@@ -181,14 +181,14 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
         for batch in dataloader_hr:
             source_frames = batch['source_frames'].to(device)
             driving_frames = batch['driving_frames'].to(device)
-            keypoints = batch['keypoints'].to(device)
+            # keypoints = batch['keypoints'].to(device)
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for idx in range(num_frames):
                 source_frame = source_frames[idx]
                 driving_frame = driving_frames[idx]
-                keypoint = keypoints[idx]
+                # keypoint = keypoints[idx]
 
                 # Generate output frame using pre-trained base model
                 with torch.no_grad():
@@ -202,7 +202,7 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
                 loss_supervised = Genh.supervised_loss(xhat_hr, driving_frame)
                 loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
                 loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frame)
-                loss_gaze = gaze_loss_fn(xhat_hr, driving_frame, keypoint)
+                loss_gaze = gaze_loss_fn(xhat_hr, driving_frame)
                 loss_G = (
                     cfg.training.lambda_supervised * loss_supervised
                     + cfg.training.lambda_unsupervised * loss_unsupervised
