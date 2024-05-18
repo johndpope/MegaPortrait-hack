@@ -762,6 +762,32 @@ class Emtn(nn.Module):
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
 
 
+# Function to apply the 3D warping field
+def apply_warping_field(v, warp_field):
+    B, C, D, H, W = v.size()
+    device = v.device
+
+    # Create a meshgrid for the canonical coordinates
+    d = torch.linspace(-1, 1, D, device=device)
+    h = torch.linspace(-1, 1, H, device=device)
+    w = torch.linspace(-1, 1, W, device=device)
+    grid_d, grid_h, grid_w = torch.meshgrid(d, h, w, indexing='ij')
+    grid = torch.stack((grid_w, grid_h, grid_d), dim=-1)  # Shape: [D, H, W, 3]
+
+    # Add batch dimension and repeat the grid for each item in the batch
+    grid = grid.unsqueeze(0).repeat(B, 1, 1, 1, 1)  # Shape: [B, D, H, W, 3]
+
+    # Apply the warping field to the grid
+    warped_grid = grid + warp_field.permute(0, 2, 3, 4, 1)  # Shape: [B, D, H, W, 3]
+
+    # Normalize the grid to the range [-1, 1]
+    warped_grid = 2.0 * warped_grid / torch.tensor([W-1, H-1, D-1], device=device) - 1.0
+
+    # Apply grid sampling
+    v_canonical = F.grid_sample(v, warped_grid, mode='bilinear', padding_mode='border', align_corners=True)
+
+    return v_canonical
+
 '''
 The main changes made to align the code with the training stages are:
 
@@ -797,27 +823,30 @@ class Gbase(nn.Module):
     def __init__(self):
         super(Gbase, self).__init__()
         self.Eapp = Eapp()
-        self.Emtn = Emtn()
-        self.Ws2c = WarpGenerator(in_channels=256) #https://github.com/johndpope/MegaPortrait-hack/issues/5
-        self.Wc2d = WarpGenerator(in_channels=256)
-        self.G3d = G3d(in_channels=96)
+        self.motionEncoder = Emtn()
+        self.warp_generator_s = WarpGenerator(in_channels=518) 
+        self.warp_generator_d = WarpGenerator(in_channels=518)
+        self.G3d = G3d(in_channels=96) #3D Convolutional Network (G3D): Processes canonical volumetric features.
         self.G2d = G2d(in_channels=96)
 
     def forward(self, xs, xd):
         vs, es = self.Eapp(xs)
-        Rs, ts, zs = self.Emtn(xs)
-        Rd, td, zd = self.Emtn(xd)
+        Rs, ts, zs = self.motionEncoder(xs)
+        Rd, td, zd = self.motionEncoder(xd)
         
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
-        ws2c = self.Ws2c(Rs, ts, zs, es)
-        vc = torch.nn.functional.grid_sample(vs, ws2c)
+        ws2c = self.warp_generator_s(Rs, ts, zs, es)
+        v_canonical  = apply_warping_field(vs, ws2c)
         
         # Process canonical volume (vc) using G3d to obtain vc2d
-        vc2d = self.G3d(vc)
+        vc2d = self.G3d(v_canonical)
         
+        # Process canonical volume
+        v_canonical_processed = self.conv3d(v_canonical)
+
         # Warp vc2d using wc2d to impose driving motion
-        wc2d = self.Wc2d(Rd, td, zd, es)
-        vc2d = torch.nn.functional.grid_sample(vc2d, wc2d)
+        wc2d = self.warp_generator_d(Rd, td, zd, es)
+        v_driver = apply_warping_field(v_canonical_processed, wc2d)
         
         # Perform orthographic projection (denoted as P in the paper)
         vc2d_projected = torch.mean(vc2d, dim=2)  # Average along the depth dimension
