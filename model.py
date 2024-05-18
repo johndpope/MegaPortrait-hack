@@ -387,8 +387,12 @@ class WarpGenerator(nn.Module):
     # zs: Latent expression descriptors
     # es: Appearance embeddings
     def forward(self, Rs, ts, zs, es):
-
         # Concatenate the source rotation, translation, expression, and appearance embeddings
+        Rs = Rs.view(-1, 3, 1, 1)
+        ts = ts.view(-1, 3, 1, 1)
+        zs = zs.view(-1, 512, 1, 1)
+        es = es.view(-1, 2048, 1, 1) # 2048 is the number of channels in the appearance embeddings
+    
         print(f"rotation > Rs shape: {Rs.shape}")
         print(f"translation >ts shape: {ts.shape}")
         print(f"expression > zs shape: {zs.shape}")
@@ -854,6 +858,8 @@ class Gbase(nn.Module):
         Rs, ts, zs = self.motionEncoder(xs) # This encoder outputs head rotations R𝑠/𝑑 , translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
         Rd, td, zd = self.motionEncoder(xd)
         
+            # Reshape input tensors to 4D tensors
+    
         # Warp volumetric features (vs) using ws2c to obtain canonical volume (vc)
         ws2c = self.warp_generator_s(Rs, ts, zs, es) # # produce a 3D warping field w𝑠→
         v_canonical  = apply_warping_field(vs, ws2c)
