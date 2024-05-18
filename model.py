@@ -140,7 +140,7 @@ class Eapp(nn.Module):
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
         self.custom_resnet50 = ResNet50()
-        # self.custom_resnet50.fc = nn.Identity # remove fully connected layer
+        self.custom_resnet50.fc = nn.Identity # remove fully connected layer
 
     def forward(self, x):
         # First part
@@ -182,8 +182,8 @@ class Eapp(nn.Module):
 
         es = self.custom_resnet50(x)
         # es = es.view(es.size(0), -1)  # Flatten the output
-        print("es global descriptor:",es.shape)
-        print("vs volumetric features:",vs.shape)
+        print("🌎 es global descriptor:",es.shape)
+        print("🎸 vs volumetric features:",vs.shape)
         return vs, es
 
 
@@ -712,15 +712,9 @@ class Emtn(nn.Module):
         self.head_pose_net = resnet18(pretrained=True)
         self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6)  # 6 corresponds to rotation and translation parameters
         
-        self.expression_net = resnet18(pretrained=False,num_classes=512)  # 50 corresponds to the dimensions of expression vector
+        self.expression_net = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         self.expression_net.fc = nn.Identity() # remove fully connected layer 
 
-        # why 512? 
-        # Example input image of size (batch_size, channels, height, width)
-        # input_image = torch.randn(1, 3, 224, 224)
-        # Extract feature maps
-        # feature_maps = resnet18(input_image)
-        # print(feature_maps.shape)  # Should print: torch.Size([1, 512, 7, 7])
 
     def forward(self, x):
         # Forward pass through head pose network
@@ -730,6 +724,10 @@ class Emtn(nn.Module):
         rotation = head_pose[:, :3]
         translation = head_pose[:, 3:]
         
+        print("👤 head_pose shape Should print: torch.Size([1, 6]):",head_pose.shape)
+        print("📐 rotation shape Should print: torch.Size([1, 3]):",rotation.shape)
+        print("📷 translation shape Should print: torch.Size([1, 3]):",translation.shape)
+
         # Forward pass through expression network
         expression = self.expression_net(x)
         print("self.expression_net shape Should print: torch.Size([1, 512, 7, 7]):",expression.shape)
