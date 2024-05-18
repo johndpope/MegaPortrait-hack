@@ -342,28 +342,38 @@ class WarpGenerator(nn.Module):
             nn.Tanh()
         )
 
+    # (s)Source / (d)Driving
+    # Rs: Rotation parameters
+    # ts: Translation parameters
     # zs: Latent expression descriptors
     # es: Appearance embeddings
-    def forward(self, zs, es):
-        # zs = zs.view(-1, 512, 1, 1)
-        # es = es.view(-1, 512, 1, 1) #  512 is the number of channels in the appearance embeddings
 
-        print(f"expression > zs shape: {zs.shape}")
-        print(f"appearance embeddings > es shape: {es.shape}")
+    # The source tuple (R𝑠 , t𝑠 , z𝑠 , e𝑠 ) is then input into a warping generator W𝑠→ to produce a 3D warping field w𝑠→, 
+    # which removes the motion data from the volumetric features v𝑠 by mapping them into a canonical coordinate space
+    def forward(self, Rs, ts, zs, es):
 
-        # Concatenate the expression and appearance descriptors
-        x = torch.cat((zs, es), dim=1)
+        # Concatenate the source rotation, translation, expression, and appearance embeddings
+        print(f"rotation > Rs shape: {Rs.shape}") # rotation > Rs shape: torch.Size([1, 3])
+        print(f"translation >ts shape: {ts.shape}") # translation >ts shape: torch.Size([1, 3])
+        print(f"expression > zs shape: {zs.shape}") # expression > zs shape: torch.Size([1, 2560])
+        print(f"appearance embeddings > es shape: {es.shape}") # appearance embeddings >  torch.Size([4, 512, 1, 1])
+
+
         
+
+
+        x = torch.cat((Rs, ts, zs, es), dim=1)
+        print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
         
         # Reshape and upsample
         x = self.reshape(x)
-
-        # Pass through the ResBlock3D_Adaptive blocks
-        w_em = self.blocks(x)
         
-        return w_em# produce a 3D warping field w𝑠→
+        # Pass through the ResBlock3D blocks
+        w_s_to_c = self.blocks(x)
+        
+        return w_s_to_c # produce a 3D warping field w𝑠→
 
     
 
@@ -818,8 +828,8 @@ class Gbase(nn.Module):
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False)
         
         # Compute expression warping
-        w_em_s2c = self.warp_generator_s2c(zs, es)
-        w_em_c2d = self.warp_generator_c2d(zd, es)
+        w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es) # # produce a 3D warping field w𝑠→
+        w_em_c2d = self.warp_generator_c2d(Rd,td,zd, es)
         
         # Warp volumetric features (vs) using w_s2c to obtain canonical volume (vc)
         w_s2c = w_rt_s2c + w_em_s2c
