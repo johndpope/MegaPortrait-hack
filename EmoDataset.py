@@ -122,12 +122,12 @@ class EMODataset(Dataset):
             frame = Image.fromarray(video_reader[frame_idx].numpy())
 
 
-            # Detect keypoints using face_alignment
-            keypoints = self.face_alignment.get_landmarks(video_reader[frame_idx].numpy())
-            if keypoints is not None:
-                keypoints_list.append(keypoints[0])
-            else:
-                keypoints_list.append(None)
+            # Detect keypoints using face_alignment - NOT USED BY Megaportraits
+            # keypoints = self.face_alignment.get_landmarks(video_reader[frame_idx].numpy())
+            # if keypoints is not None:
+            #     keypoints_list.append(keypoints[0])
+            # else:
+            #     keypoints_list.append(None)
 
             # Transform the frame
             state = torch.get_rng_state()
