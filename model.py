@@ -359,10 +359,11 @@ class WarpGenerator(nn.Module):
         print(f"appearance embeddings > es shape: {es.shape}") # appearance embeddings >  torch.Size([4, 512, 1, 1])
 
 
-        
 
 
-        x = torch.cat((Rs, ts, zs, es), dim=1)
+        # Concatenate expression and appearance
+        x = torch.cat((zs, es), dim=1)
+        # x = torch.cat((Rs, ts, zs, es), dim=1) - 🤷‍♂️ 
         print("x.shape:",x.shape) # x.shape: torch.Size([1, 96, 16, 64, 64]) #x.shape: torch.Size([1, 2566])
         # Pass through the 1x1 convolution
         x = self.conv_1x1(x)
@@ -374,7 +375,8 @@ class WarpGenerator(nn.Module):
         w_s_to_c = self.blocks(x)
         
         return w_s_to_c # produce a 3D warping field w𝑠→
-
+        # The output of the WarpGenerator should be a 3D warping field of shape [B, 3, D, H, W], where B is the batch size, D, H, W are the depth, height, and width dimensions. 
+        # The final Conv3d layer outputs 3 channels, corresponding to the 3D warp field.
     
 
 '''
