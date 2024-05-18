@@ -326,7 +326,7 @@ class WarpGenerator(nn.Module):
         
         # self.conv_1x1 = nn.Conv2d(in_channels, 2048, kernel_size=1)
         
-        self.conv1x1 = nn.Conv3d(2048, 2048, kernel_size=1)
+        self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
         self.blocks = nn.Sequential(
             ResBlock3D_Adaptive(512, 256, upsample=False, scale_factors=(2, 2, 2)),
