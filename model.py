@@ -42,51 +42,41 @@ class Conv3D_WS(nn.Conv3d):
 
 
 class ResBlock_Custom(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True, dimension=2):
-        super(ResBlock_Custom, self).__init__()
-
+    def __init__(self, dimension, input_channels, output_channels):
+        super().__init__()
+        self.dimension = dimension
+        self.input_channels = input_channels
+        self.output_channels = output_channels
         if dimension == 2:
-            self.conv1 = Conv2d_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-            self.conv2 = Conv2d_WS(out_channels, out_channels, kernel_size, 1, padding, dilation, groups, bias)
-        else:
-            self.conv1 = Conv3D_WS(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-            self.conv2 = Conv3D_WS(out_channels, out_channels, kernel_size, 1, padding, dilation, groups, bias)
+            self.conv_res = nn.Conv2d(self.input_channels, self.output_channels, 3, padding= 1)
+            self.conv_ws = Conv2d_WS(in_channels = self.input_channels,
+                                  out_channels= self.output_channels,
+                                  kernel_size = 3,
+                                  padding = 1)
+            self.conv = nn.Conv2d(self.output_channels, self.output_channels, 3, padding = 1)
+        elif dimension == 3:
+            self.conv_res = nn.Conv3d(self.input_channels, self.output_channels, 3, padding=1)
+            self.conv_ws = Conv3D_WS(in_channels=self.input_channels,
+                                     out_channels=self.output_channels,
+                                     kernel_size=3,
+                                     padding=1)
+            self.conv = nn.Conv3d(self.output_channels, self.output_channels, 3, padding=1)
 
-        self.gn1 = nn.GroupNorm(32, out_channels)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.gn2 = nn.GroupNorm(32, out_channels)
-
-        if in_channels != out_channels or stride != 1:
-            if dimension == 2:
-                self.shortcut = nn.Sequential(
-                    Conv2d_WS(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                    nn.GroupNorm(32, out_channels)
-                )
-            else:
-                self.shortcut = nn.Sequential(
-                    Conv3D_WS(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                    nn.GroupNorm(32, out_channels)
-                )
-        else:
-            self.shortcut = nn.Identity()
 
     def forward(self, x):
-        residual = x
+        out2 = self.conv_res(x)
 
-        out = self.conv1(x)
-        out = self.gn1(out)
-        out = self.relu1(out)
+        out1 = F.group_norm(x, num_groups=32)
+        out1 = F.relu(out1)
+        out1 = self.conv_ws(out1)
+        out1 = F.group_norm(out1, num_groups=32)
+        out1 = F.relu(out1)
+        out1 = self.conv(out1)
 
-        out = self.conv2(out)
-        out = self.gn2(out)
+        output = out1 + out2
 
-        if isinstance(self.shortcut, nn.Sequential):
-            residual = self.shortcut(x)
+        return output
 
-        out += residual
-        out = nn.ReLU(inplace=True)(out)
-
-        return out
 
 
 
