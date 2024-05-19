@@ -42,25 +42,25 @@ class Conv3D_WS(nn.Conv3d):
 
 
 class ResBlock_Custom(nn.Module):
-    def __init__(self, dimension, input_channels, output_channels):
+    def __init__(self, dimension, in_channels, out_channels):
         super().__init__()
         self.dimension = dimension
-        self.input_channels = input_channels
-        self.output_channels = output_channels
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         if dimension == 2:
-            self.conv_res = nn.Conv2d(self.input_channels, self.output_channels, 3, padding= 1)
-            self.conv_ws = Conv2d_WS(in_channels = self.input_channels,
-                                  out_channels= self.output_channels,
+            self.conv_res = nn.Conv2d(self.in_channels, self.out_channels, 3, padding= 1)
+            self.conv_ws = Conv2d_WS(in_channels = self.in_channels,
+                                  out_channels= self.out_channels,
                                   kernel_size = 3,
                                   padding = 1)
-            self.conv = nn.Conv2d(self.output_channels, self.output_channels, 3, padding = 1)
+            self.conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding = 1)
         elif dimension == 3:
-            self.conv_res = nn.Conv3d(self.input_channels, self.output_channels, 3, padding=1)
-            self.conv_ws = Conv3D_WS(in_channels=self.input_channels,
-                                     out_channels=self.output_channels,
+            self.conv_res = nn.Conv3d(self.in_channels, self.out_channels, 3, padding=1)
+            self.conv_ws = Conv3D_WS(in_channels=self.in_channels,
+                                     out_channels=self.out_channels,
                                      kernel_size=3,
                                      padding=1)
-            self.conv = nn.Conv3d(self.output_channels, self.output_channels, 3, padding=1)
+            self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
 
 
     def forward(self, x):
@@ -305,13 +305,13 @@ class WarpGenerator(nn.Module):
         
         self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
-        self.resblock1 = ResBlock_Custom(dimension=3, input_channels=512, output_channels=256)
+        self.resblock1 = ResBlock_Custom(dimension=3, in_channels=512, out_channels=256)
         self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock2 = ResBlock_Custom(dimension=3, input_channels=256, output_channels=128)
+        self.resblock2 = ResBlock_Custom(dimension=3, in_channels=256, out_channels=128)
         self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock3 =  ResBlock_Custom(dimension=3, input_channels=128, output_channels=64)
+        self.resblock3 =  ResBlock_Custom(dimension=3, in_channels=128, out_channels=64)
         self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2))
-        self.resblock4 = ResBlock_Custom(dimension=3, input_channels=64, output_channels=32)
+        self.resblock4 = ResBlock_Custom(dimension=3, in_channels=64, out_channels=32)
         self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2))
         self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
         self.gn = nn.GroupNorm(1, 3)
