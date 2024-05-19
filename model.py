@@ -114,11 +114,11 @@ class Eapp(nn.Module):
         
         # First part: producing volumetric features vs
         self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
-        self.resblock_128 = ResBlock_Custom(in_channels=64, out_channels=128, dimension=2)
-        self.resblock_256 = ResBlock_Custom(in_channels=128, out_channels=256, dimension=2)
-        self.resblock_512 = ResBlock_Custom(in_channels=256, out_channels=512, dimension=2)
-        self.resblock3D_96 = ResBlock_Custom(in_channels=96, out_channels=96, dimension=3)
-        self.resblock3D_96_2 = ResBlock_Custom(in_channels=96, out_channels=96, dimension=3)
+        self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
+        self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
+        self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
+        self.resblock3D_96 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
+        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
@@ -136,7 +136,6 @@ class Eapp(nn.Module):
         # First part
         out = self.conv(x)
         assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
-        print("out.shape:",out.shape)  # out.shape: torch.Size([1, 64, 256, 256])
         out = self.resblock_128(out)
         assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
         out = self.avgpool(out)
@@ -147,19 +146,12 @@ class Eapp(nn.Module):
         
         out = self.resblock_512(out)
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
-        print("self.resblock_512(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
-        # self.resblock_512(out) > out.shape: torch.Size([1, 512, 64, 64])
         out = self.idk_avgpool(out)
-        print("self.idk_avgpool(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         out = F.group_norm(out, num_groups=32)
-        print("F.group_norm(out, num_groups=32) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         out = F.relu(out)
-        print("F.relu(out) > out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
-        out = self.conv_1(out) # self.conv_1 is a 2D convolutional layer with a kernel size of 1x1 and 1536 output channels.
-        print("self.conv_1(out)  > out.shape:",out.shape)
+        out = self.conv_1(out)
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
-        print("out.shape:",out.shape) # out.shape: torch.Size([1, 1536, 32, 32])
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
         
@@ -169,11 +161,8 @@ class Eapp(nn.Module):
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
         # Second part
-
         es = self.custom_resnet50(x)
-        # es = es.view(es.size(0), -1)  # Flatten the output
-        print("🌎 es global descriptor:",es.shape)
-        print("🎸 vs volumetric features:",vs.shape)
+        
         return vs, es
 
 
