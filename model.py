@@ -114,11 +114,11 @@ class Eapp(nn.Module):
         
         # First part: producing volumetric features vs
         self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
-        self.resblock_128 = ResBlock_Custom(dimension=2, input_channels=64, output_channels=128)
-        self.resblock_256 = ResBlock_Custom(dimension=2, input_channels=128, output_channels=256)
-        self.resblock_512 = ResBlock_Custom(dimension=2, input_channels=256, output_channels=512)
-        self.resblock3D_96 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
-        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, input_channels=96, output_channels=96)
+        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
+        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
+        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
+        self.resblock3D_96 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
+        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
