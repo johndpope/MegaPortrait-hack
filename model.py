@@ -800,6 +800,9 @@ class Gbase(nn.Module):
         w_em_c2d = self.warp_generator_c2d(zd_sum)
         
         # Warp volumetric features (vs) using w_s2c to obtain canonical volume (vc)
+
+        print("w_rt_s2c shape:):",w_rt_s2c.shape)
+        print("w_em_s2c shape:):",w_em_s2c.shape)
         w_s2c = w_rt_s2c + w_em_s2c
         vc = apply_warping_field(vs, w_s2c)
         
