@@ -1,0 +1,124 @@
+REFERENCES
+[1] Volker Blanz and Thomas Vetter. 1999. A morphable model for the synthesis of
+3D faces. In SIGGRAPH ’99.
+[2] Adrian Bulat and Georgios Tzimiropoulos. 2017. How Far are We from Solving
+the 2D & 3D Face Alignment Problem? (and a Dataset of 230,000 3D Facial
+Landmarks). 2017 IEEE International Conference on Computer Vision (ICCV) (2017),
+1021–1030.
+[3] Egor Burkov, I. Pasechnik, Artur Grigorev, and Victor S. Lempitsky. 2020. Neural
+Head Reenactment with Latent Pose Descriptors. 2020 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR) (2020), 13783–13792.
+[4] Joon Son Chung, Arsha Nagrani, and Andrew Zisserman. 2018. VoxCeleb2: Deep
+Speaker Recognition. In INTERSPEECH.
+[5] Kevin Cortacero, Tobias Fischer, and Yiannis Demiris. 2019. RT-BENE: A Dataset
+and Baselines for Real-Time Blink Estimation in Natural Environments. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+Workshops.
+[6] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, K. Li, and Li Fei-Fei. 2009. ImageNet:
+A large-scale hierarchical image database. In CVPR.
+[7] Jiankang Deng, J. Guo, Evangelos Ververas, Irene Kotsia, Stefanos Zafeiriou, and
+InsightFace FaceSoft. 2020. RetinaFace: Single-Shot Multi-Level Face Localisation
+in the Wild. 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR) (2020), 5202–5211.
+[8] Michail Christos Doukas, Stefanos Zafeiriou, and Viktoriia Sharmanska. 2021.
+HeadGAN: One-shot Neural Head Synthesis and Editing. 2021 IEEE/CVF International Conference on Computer Vision (ICCV).
+[9] Tobias Fischer, Hyung Jin Chang, and Y. Demiris. 2018. RT-GENE: Real-Time
+Eye Gaze Estimation in Natural Environments. In ECCV.
+[10] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias Nießner. 2021. Dynamic
+Neural Radiance Fields for Monocular 4D Facial Avatar Reconstruction. 2021
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 8645–
+8654.
+[11] Ke Gong, Yiming Gao, Xiaodan Liang, Xiaohui Shen, M. Wang, and Liang Lin.
+2019. Graphonomy: Universal Human Parsing via Graph Transfer Learning. 2019
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (2019),
+7442–7451.
+[12] Sungjoo Ha, Martin Kersner, Beomsu Kim, Seokjun Seo, and Dongyoung Kim.
+2020. MarioNETte: Few-shot Face Reenactment Preserving Identity of Unseen
+Targets. In AAAI.
+[13] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and
+Sepp Hochreiter. 2017. GANs Trained by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium. In Advances in Neural Information Processing
+Systems.
+[14] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. 2016. Perceptual Losses for
+Real-Time Style Transfer and Super-Resolution. In ECCV.
+[15] Tero Karras, Samuli Laine, and Timo Aila. 2019. A Style-Based Generator Architecture for Generative Adversarial Networks. 2019 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 4396–4405.
+[16] Zhanghan Ke, Jiayu Sun, Kaican Li, Qiong Yan, and Rynson W.H. Lau. 2022.
+MODNet: Real-Time Trimap-Free Portrait Matting via Objective Decomposition.
+In AAAI.
+[17] Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng Xu, Justus Thies,
+Matthias Nießner, Patrick Pérez, Christian Richardt, Michael Zollhöfer, and Christian Theobalt. 2018. Deep video portraits. ACM Transactions on Graphics (TOG)
+37 (2018), 1 – 14.
+[18] Stephen Lombardi, Jason M. Saragih, Tomas Simon, and Yaser Sheikh. 2018. Deep
+appearance models for face rendering. ACM Transactions on Graphics (TOG) 37
+(2018), 1 – 13.
+[19] Stephen Lombardi, Tomas Simon, Jason M. Saragih, Gabriel Schwartz, Andreas M.
+Lehrmann, and Yaser Sheikh. 2019. Neural volumes. ACM Transactions on
+Graphics (TOG) 38 (2019), 1 – 14.
+[20] Ilya Loshchilov and Frank Hutter. 2019. Decoupled Weight Decay Regularization.
+In ICLR.
+[21] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi
+Ramamoorthi, and Ren Ng. 2020. NeRF: Representing Scenes as Neural Radiance
+Fields for View Synthesis. In ECCV.
+[22] Keunhong Park, U. Sinha, Jonathan T. Barron, Sofien Bouaziz, Dan B. Goldman,
+Steven M. Seitz, and Ricardo Martin-Brualla. 2021. Nerfies: Deformable Neural
+Radiance Fields. 2021 IEEE/CVF International Conference on Computer Vision
+(ICCV).
+[23] Keunhong Park, U. Sinha, Peter Hedman, Jonathan T. Barron, Sofien Bouaziz,
+Dan B. Goldman, Ricardo Martin-Brualla, and Steven M. Seitz. 2021. HyperNeRF:
+A Higher-Dimensional Representation for Topologically Varying Neural Radiance
+Fields. ArXiv.
+[24] Omkar M. Parkhi, Andrea Vedaldi, and Andrew Zisserman. 2015. Deep Face
+Recognition. In BMVC.
+[25] Aliaksandr Siarohin, Stéphane Lathuilière, S. Tulyakov, Elisa Ricci, and N. Sebe.
+2019. Animating Arbitrary Objects via Deep Motion Transfer. 2019 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR) (2019), 2372–2381.
+[26] Aliaksandr Siarohin, Stéphane Lathuilière, S. Tulyakov, Elisa Ricci, and N. Sebe.
+2019. First Order Motion Model for Image Animation. ArXiv abs/2003.00196
+(2019).
+[27] Karen Simonyan and Andrew Zisserman. 2015. Very Deep Convolutional Networks for Large-Scale Image Recognition. CoRR abs/1409.1556 (2015).
+[28] Shaolin Su, Qingsen Yan, Yu Zhu, Cheng Zhang, Xin Ge, Jinqiu Sun, and Yanning
+Zhang. 2020. Blindly Assess Image Quality in the Wild Guided by a Self-Adaptive
+Hyper Network. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+[29] Roman Suvorov, Elizaveta Logacheva, Anton Mashikhin, Anastasia Remizova,
+Arsenii Ashukha, Aleksei Silvestrov, Naejin Kong, Harshith Goka, Kiwoong Park,
+and Victor Lempitsky. 2021. Resolution-robust Large Mask Inpainting with
+Fourier Convolutions. arXiv preprint arXiv:2109.07161 (2021).
+[30] Justus Thies, Michael Zollhöfer, Marc Stamminger, Christian Theobalt, and
+Matthias Nießner. 2019. Face2Face: real-time face capture and reenactment
+of RGB videos. ArXiv abs/2007.14808 (2019).
+[31] H. Wang, Yitong Wang, Zheng Zhou, Xing Ji, Zhifeng Li, Dihong Gong, Jin
+Zhou, and Wenyu Liu. 2018. CosFace: Large Margin Cosine Loss for Deep
+Face Recognition. 2018 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (2018), 5265–5274.
+[32] Ting-Chun Wang, Ming-Yu Liu, Jun-Yan Zhu, Guilin Liu, Andrew Tao, Jan Kautz,
+and Bryan Catanzaro. 2018. Video-to-Video Synthesis. In Advances in Neural
+Information Processing Systems (NeurIPS).
+[33] Ting-Chun Wang, Ming-Yu Liu, Jun-Yan Zhu, Andrew Tao, Jan Kautz, and Bryan
+Catanzaro. 2018. High-Resolution Image Synthesis and Semantic Manipulation
+with Conditional GANs. In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition.
+[34] Ting-Chun Wang, Arun Mallya, and Ming-Yu Liu. 2021. One-Shot Free-View Neural Talking-Head Synthesis for Video Conferencing. 2021 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR).MM ’22, October 10–14, 2022, Lisboa, Portugal Nikita Drobyshev et al.
+[35] Zhou Wang, Alan Conrad Bovik, Hamid R. Sheikh, and Eero P. Simoncelli. 2004.
+Image quality assessment: from error visibility to structural similarity. IEEE
+Transactions on Image Processing 13 (2004), 600–612.
+[36] Gengshan Yang, Minh Vo, Natalia Neverova, Deva Ramanan, Andrea Vedaldi,
+and Hanbyul Joo. 2021. BANMo: Building Animatable 3D Neural Models from
+Many Casual Videos. ArXiv.
+[37] Lingbo Yang, C. Liu, P. Wang, Shanshe Wang, P. Ren, Siwei Ma, and W. Gao. 2020.
+HiFaceGAN: Face Renovation via Collaborative Suppression and Replenishment.
+Proceedings of the 28th ACM International Conference on Multimedia (2020).
+[38] Egor Zakharov, Aleksei Ivakhnenko, Aliaksandra Shysheya, and Victor S. Lempitsky. 2020. Fast Bi-layer Neural Synthesis of One-Shot Realistic Head Avatars.
+In ECCV.
+[39] Egor Zakharov, Aliaksandra Shysheya, Egor Burkov, and Victor S. Lempitsky.
+2019. Few-Shot Adversarial Learning of Realistic Neural Talking Head Models.
+2019 IEEE/CVF International Conference on Computer Vision (ICCV).
+[40] Richard Zhang, Phillip Isola, Alexei A. Efros, Eli Shechtman, and Oliver Wang.
+2018. The Unreasonable Effectiveness of Deep Features as a Perceptual Metric.
+2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition (2018),
+586–595.
+[41] Shifeng Zhang, Xiangyu Zhu, Zhen Lei, Hailin Shi, Xiaobo Wang, and S. Li.
+2017. S3FD: Single Shot Scale-Invariant Face Detector. 2017 IEEE International
+Conference on Computer Vision (ICCV) (2017), 192–201.
+[42] Jun-Yan Zhu, Taesung Park, Phillip Isola, and Alexei A. Efros. 2017. Unpaired
+Image-to-Image Translation Using Cycle-Consistent Adversarial Networks. 2017
+IEEE International Conference on Computer Vision (ICCV) (2017), 2242–2251.
