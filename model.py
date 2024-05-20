@@ -768,23 +768,17 @@ class WarpGeneratorS2C(nn.Module):
         super(WarpGeneratorS2C, self).__init__()
         self.warpfield = WarpField()
 
-    def forward(self, Rs, ts,zs,es):
-        # "inputs we use sums z𝑠 + e𝑠 and z𝑑 + e𝑠 respectively."
-        # Sum es with zs and zd respectively
+    def forward(self, Rs, ts, zs, es):
+        # Sum es with zs
         zs_sum = zs + es
-        # zd_sum = zd + es
-
-        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1) # [1,512] -> [1,512,1,1]
-        # zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
+        
+        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1)
 
         w_em_s2c = self.warpfield(zs_sum)
-        print("w_em_s2c shape:):",w_em_s2c.shape)
 
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
 
-        print("w_rt_s2c shape:):",w_rt_s2c.shape)
-        print("w_em_s2c shape:):",w_em_s2c.shape)
         w_s2c = w_rt_s2c + w_em_s2c
         return w_s2c
 
@@ -794,22 +788,17 @@ class WarpGeneratorC2D(nn.Module):
         super(WarpGeneratorC2D, self).__init__()
         self.warpfield = WarpField()
 
-    def forward(self, Rd, td,zd,es):
-        # "inputs we use sums z𝑠 + e𝑠 and z𝑑 + e𝑠 respectively."
-        # Sum es with zs and zd respectively
+    def forward(self, Rd, td, zd, es):
+        # Sum es with zd
         zd_sum = zd + es
-        # zd_sum = zd + es
-
-        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1) # [1,512] -> [1,512,1,1]
-        # zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
+        
+        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
 
         w_em_c2d = self.warpfield(zd_sum)
-        print("w_em_c2d shape:):",w_em_c2d.shape)
 
-        # Compute rotation/translation warping
+        # Compute rotation/translation warping 
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
 
-        print("w_rt_c2d shape:):",w_rt_c2d.shape)
         w_c2d = w_rt_c2d + w_em_c2d
         return w_c2d
 
@@ -830,16 +819,18 @@ class Gbase(nn.Module):
         Rs, ts, zs = self.motionEncoder(xs)
         Rd, td, zd = self.motionEncoder(xd)
 
-
-        w_s2c = self.warp_generator_s2c(Rs, ts, zs,es) # # produce a 3D warping field w𝑠→
-        w_em_c2d = self.warp_generator_c2d(Rd, td, zd,es)
+        w_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         
-        vc = apply_warping_field(vs, w_s2c) # why here? the warpgenerator doesn't get the vs passed in...
+        # Warp vs using w_s2c to obtain canonical volume vc
+        vc = apply_warping_field(vs, w_s2c)
+        
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
         
+        # Generate warping field w_c2d
+        w_c2d = self.warp_generator_c2d(Rd, td, zd, es)
+        
         # Warp vc2d using w_c2d to impose driving motion
-        w_c2d = w_rt_c2d + w_em_c2d
         vc2d_warped = apply_warping_field(vc2d, w_c2d)
         
         # Perform orthographic projection (P)
@@ -847,8 +838,6 @@ class Gbase(nn.Module):
         
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
-
-
         
         return xhat
 
