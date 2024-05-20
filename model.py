@@ -741,7 +741,7 @@ class WarpGeneratorS2C(nn.Module):
         # assert w_em_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_em_s2c shape (batch_size, 3, 16, 16, 16), got {w_em_s2c.shape}"
 
         # Compute rotation/translation warping
-        w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=16)
+        w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
 
         # Assert shape of w_rt_s2c
         # assert w_rt_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_rt_s2c shape (batch_size, 3, 16, 16, 16), got {w_rt_s2c.shape}"
@@ -787,7 +787,7 @@ class WarpGeneratorC2D(nn.Module):
         assert w_em_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_em_c2d shape (batch_size, 3, 16, 16, 16), got {w_em_c2d.shape}"
 
         # Compute rotation/translation warping
-        w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=16)
+        w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
 
         # Assert shape of w_rt_c2d
         assert w_rt_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_rt_c2d shape (batch_size, 3, 16, 16, 16), got {w_rt_c2d.shape}"
