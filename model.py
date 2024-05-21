@@ -48,12 +48,12 @@ class ResBlock_Custom(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         if dimension == 2:
-            self.conv_res = nn.Conv2d(self.in_channels, self.out_channels, 3, padding= 1)
-            self.conv_ws = Conv2d_WS(in_channels = self.in_channels,
-                                  out_channels= self.out_channels,
-                                  kernel_size = 3,
-                                  padding = 1)
-            self.conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding = 1)
+            self.conv_res = nn.Conv2d(self.in_channels, self.out_channels, 3, padding=1)
+            self.conv_ws = Conv2d_WS(in_channels=self.in_channels,
+                                     out_channels=self.out_channels,
+                                     kernel_size=3,
+                                     padding=1)
+            self.conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1)
         elif dimension == 3:
             self.conv_res = nn.Conv3d(self.in_channels, self.out_channels, 3, padding=1)
             self.conv_ws = Conv3D_WS(in_channels=self.in_channels,
@@ -61,7 +61,6 @@ class ResBlock_Custom(nn.Module):
                                      kernel_size=3,
                                      padding=1)
             self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
-
 
     def forward(self, x):
         out2 = self.conv_res(x)
@@ -75,7 +74,13 @@ class ResBlock_Custom(nn.Module):
 
         output = out1 + out2
 
+        # Assertions for shape and values
+        assert output.shape[1] == self.out_channels, f"Expected {self.out_channels} channels, got {output.shape[1]}"
+        assert output.shape[2] == x.shape[2] and output.shape[3] == x.shape[3], \
+            f"Expected spatial dimensions {(x.shape[2], x.shape[3])}, got {(output.shape[2], output.shape[3])}"
+
         return output
+
 
 
 # we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 8, 8])
@@ -331,7 +336,16 @@ class WarpField(nn.Module):
         x = self.conv3x3x3(x)
         x = self.gn(x)
         x = F.relu(x)
-        return self.tanh(x)  # produce a 3D warping field w𝑠→
+
+        x = self.tanh(x)
+
+        # Assertions for shape and values
+        assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
+        assert x.shape[2] == zs.shape[2] * 8 and x.shape[3] == zs.shape[3] * 8 and x.shape[4] == zs.shape[4] * 8, \
+            f"Expected spatial dimensions {(zs.shape[2] * 8, zs.shape[3] * 8, zs.shape[4] * 8)}, got {(x.shape[2], x.shape[3], x.shape[4])}"
+
+        return x
+ # produce a 3D warping field w𝑠→
     
     
 
@@ -686,7 +700,7 @@ class Emtn(nn.Module):
 
         model = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
-        self.expression_net = nn.Sequential(*list(model.children())[:-2])
+        self.expression_net = nn.Sequential(*list(model.children())[:-1])
         self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((8, 8))
         # self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7)) #OPTIONAL 🤷 - 16x16 is better?
 
@@ -713,9 +727,6 @@ class Emtn(nn.Module):
         print("x.shape:",x.shape)
         # Forward pass through expression network
         expression = self.expression_net(x)
-
-        print("self.expression_net shape:",expression.shape)
-        
         return rotation, translation, expression
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
 
@@ -753,19 +764,40 @@ class WarpGeneratorS2C(nn.Module):
         assert zs.shape == es.shape, f"Expected zs and es to have the same shape, got {zs.shape} and {es.shape}"
 
         # Sum es with zs
+         # Sum es with zs
         zs_sum = zs + es
-        
+
         # Generate adaptive parameters
         # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
         # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
-        print("zs_sum.shape:",zs_sum.shape) # zs_sum.shape: torch.Size([1, 512, 8, 8])
+        # Reshape zs_sum to fit the warpfield input
+        # zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1)
 
-        w_em_s2c = self.warpfield(zs_sum) #adaptive_gamma, adaptive_beta
+
+        # Define the adaptive average pooling layer
+        # avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Apply the adaptive average pooling
+        # zs_sum_pooled = avg_pool(zs_sum)
+
+        # Assert shape of zs_sum
+        # 🤷 is 8x8 correct, idk or use the 1x1 pool above
+        assert zs_sum.shape == (zs.shape[0], zs.shape[1], 8, 8), f"Expected zs_sum shape (batch_size, feature_dim, 8, 8), got {zs_sum.shape}"
+
+        w_em_s2c = self.warpfield(zs_sum)
+
+        # Assert shape of w_em_s2c
+        assert w_em_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_em_s2c shape (batch_size, 3, 16, 16, 16), got {w_em_s2c.shape}"
 
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
+        
+        # Assert shape of w_rt_s2c
+        assert w_rt_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_rt_s2c shape (batch_size, 3, 16, 16, 16), got {w_rt_s2c.shape}"
+
         w_s2c = w_rt_s2c + w_em_s2c
+
         return w_s2c
 
 
@@ -788,15 +820,16 @@ class WarpGeneratorC2D(nn.Module):
         zd_sum = zd + es
         
         # Generate adaptive parameters
-        adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
-        adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
+        # adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
+        # adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
         
-        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
+           # Reshape zd_sum to fit the warpfield input
+        # zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
 
         # Assert shape of zd_sum
         assert zd_sum.shape == (zd.shape[0], zd.shape[1], 1, 1), f"Expected zd_sum shape (batch_size, feature_dim, 1, 1), got {zd_sum.shape}"
 
-        w_em_c2d = self.warpfield(zd_sum, adaptive_gamma, adaptive_beta)
+        w_em_c2d = self.warpfield(zd_sum)
 
         # Assert shape of w_em_c2d
         assert w_em_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_em_c2d shape (batch_size, 3, 16, 16, 16), got {w_em_c2d.shape}"
@@ -900,34 +933,39 @@ class Gbase(nn.Module):
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
 
         # The motionEncoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
-        Rs, ts, zs = self.motionEncoder(xs) 
+        Rs, ts, zs = self.motionEncoder(xs)
         Rd, td, zd = self.motionEncoder(xd)
+
+        print("es shape:",es.shape)
+        print("zs shape:",zs.shape)
+
 
         w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
         w_s2c = w_rt_s2c + w_em_s2c.permute(0, 2, 3, 4, 1)
-        
+
         # Warp vs using w_s2c to obtain canonical volume vc
         vc = apply_warping_field(vs, w_s2c)
-        print("vc.shape:",vc.shape)
-        
+        assert vc.shape[1:] == (96, 16, 64, 64), f"Expected vc shape (_, 96, 16, 64, 64), got {vc.shape}"
+
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
-        
+
         # Generate warping field w_c2d
         w_em_c2d = self.warp_generator_c2d(Rd, td, zd, es)
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
         w_c2d = w_rt_c2d + w_em_c2d.permute(0, 2, 3, 4, 1)
-        
+
         # Warp vc2d using w_c2d to impose driving motion
         vc2d_warped = apply_warping_field(vc2d, w_c2d)
-        
+        assert vc2d_warped.shape[1:] == (96, 16, 64, 64), f"Expected vc2d_warped shape (_, 96, 16, 64, 64), got {vc2d_warped.shape}"
+
         # Perform orthographic projection (P)
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
-        
+
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
-        
+
         return xhat
 
 
