@@ -78,6 +78,19 @@ class ResBlock_Custom(nn.Module):
         return output
 
 
+# we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 8, 8])
+# n.b. emoportraits reduced this from 512 -> 128 dim - these are feature maps / identity fingerprint of image 
+class CustomResNet50(nn.Module):
+    def __init__(self):
+        super(CustomResNet50, self).__init__()
+        model =  ResNet50()
+        self.custom_resnet50 = nn.Sequential(*list(model.children())[:-2]) # remove avg pool / fc layer
+        self.conv_reduce = nn.Conv2d(2048, 512, kernel_size=1, stride=1, bias=False)
+        
+    def forward(self, x):
+        x = self.custom_resnet50(x)
+        x = self.conv_reduce(x)
+        return x
 
 
 '''
@@ -108,6 +121,8 @@ The Eapp network returns both vs and es as output.
 
 In summary, the Eapp class in the code aligns well with the appearance encoder (Eapp) shown in the diagram. The network architecture follows the same structure, with the corresponding layers and blocks mapped accurately. The conv, resblock_128, resblock_256, resblock_512, conv_1, resblock3D_96, and resblock3D_96_2 layers in the code correspond to the respective blocks in the diagram for producing volumetric features. The resnet50 layer in the code corresponds to the ResNet50 block in the diagram for producing the global descriptor.
 '''
+
+
 class Eapp(nn.Module):
     def __init__(self):
         super().__init__()
@@ -129,9 +144,8 @@ class Eapp(nn.Module):
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
-        self.custom_resnet50 = ResNet50()
-        # self.custom_resnet50.fc = nn.Identity # remove fully connected layer
-
+        self.custom_resnet50 = CustomResNet50()
+ 
     def forward(self, x):
         # First part
         out = self.conv(x)
@@ -273,13 +287,15 @@ class AdaptiveGroupNorm(nn.Module):
         # Reshape back to (batch_size, channels, depth, height, width)
         x = x.view(batch_size, channels, depth, height, width)
 
-        # Adaptive scale and shift
-        embedded_gamma = self.embed_gamma(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        embedded_beta = self.embed_beta(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        adaptive_gamma = self.gamma + embedded_gamma
-        adaptive_beta = self.beta + embedded_beta
 
-        return x * adaptive_gamma + adaptive_beta
+        return x
+        # Adaptive scale and shift
+        # embedded_gamma = self.embed_gamma(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
+        # embedded_beta = self.embed_beta(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
+        # adaptive_gamma = self.gamma + embedded_gamma
+        # adaptive_beta = self.beta + embedded_beta
+
+        # return x * adaptive_gamma + adaptive_beta
 
 
 
@@ -302,9 +318,9 @@ class WarpField(nn.Module):
         self.gn = nn.GroupNorm(1, 3)
         self.tanh = nn.Tanh()
     
-    def forward(self, zs, adaptive_gamma, adaptive_beta):
+    def forward(self, zs): # adaptive_gamma, adaptive_beta
         # Apply adaptive parameters
-        zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
+        # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
         x = self.conv1x1(zs)
         x = self.reshape_layer(x)
@@ -667,14 +683,17 @@ class Emtn(nn.Module):
         self.head_pose_net = resnet18(pretrained=True)
         self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6)  # 6 corresponds to rotation and translation parameters
         
-        self.expression_net = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
-        self.expression_net.fc = nn.Identity() # remove fully connected layer 
 
+        model = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
+        # Remove the fully connected layer and the adaptive average pooling layer
+        self.expression_net = nn.Sequential(*list(model.children())[:-2])
+        self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((8, 8))
+        # self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7)) #OPTIONAL 🤷 - 16x16 is better?
 
     def forward(self, x):
         # Forward pass through head pose network
         head_pose = self.head_pose_net(x)
-        
+
         # Split head pose into rotation and translation parameters
         rotation = head_pose[:, :3]
         translation = head_pose[:, 3:]
@@ -683,9 +702,11 @@ class Emtn(nn.Module):
         print("📐 rotation shape Should print: torch.Size([1, 3]):",rotation.shape)
         print("📷 translation shape Should print: torch.Size([1, 3]):",translation.shape)
 
+        print("x.shape:",x.shape)
         # Forward pass through expression network
         expression = self.expression_net(x)
-        print("self.expression_net shape Should print: torch.Size([1, 512, 7, 7]):",expression.shape)
+
+        print("self.expression_net shape:",expression.shape)
         
         return rotation, translation, expression
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
@@ -727,30 +748,16 @@ class WarpGeneratorS2C(nn.Module):
         zs_sum = zs + es
         
         # Generate adaptive parameters
-        adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
-        adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
+        # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
+        # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
-        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1)
+        print("zs_sum.shape:",zs_sum.shape) # zs_sum.shape: torch.Size([1, 512, 8, 8])
 
-        # Assert shape of zs_sum
-        assert zs_sum.shape == (zs.shape[0], zs.shape[1], 1, 1), f"Expected zs_sum shape (batch_size, feature_dim, 1, 1), got {zs_sum.shape}"
-
-        w_em_s2c = self.warpfield(zs_sum, adaptive_gamma, adaptive_beta)
-
-        # Assert shape of w_em_s2c
-        # assert w_em_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_em_s2c shape (batch_size, 3, 16, 16, 16), got {w_em_s2c.shape}"
+        w_em_s2c = self.warpfield(zs_sum) #adaptive_gamma, adaptive_beta
 
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-
-        # Assert shape of w_rt_s2c
-        # assert w_rt_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_rt_s2c shape (batch_size, 3, 16, 16, 16), got {w_rt_s2c.shape}"
-
         w_s2c = w_rt_s2c + w_em_s2c
-
-        # Assert final shape of w_s2c
-        # assert w_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_s2c shape (batch_size, 3, 16, 16, 16), got {w_s2c.shape}"
-
         return w_s2c
 
 
@@ -877,24 +884,34 @@ class Gbase(nn.Module):
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
-
-        Rs, ts, zs = self.motionEncoder(xs)
+        
+        Rs, ts, zs = self.motionEncoder(xs)    #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
         Rd, td, zd = self.motionEncoder(xd)
 
-        w_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
+        print("zs.shape:",zs.shape)
+        print("es.shape:",es.shape)
+        
+        w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
+        w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
+        
+        # Combine the warping fields using element-wise addition
+        w_s2c = w_rt_s2c + w_em_s2c.permute(0, 2, 3, 4, 1)
         
         # Warp vs using w_s2c to obtain canonical volume vc
-        print("w_s2c.shape:",w_s2c.shape)
-        vc = apply_warping_field(vs, w_s2c)
+        vc = F.grid_sample(vs, w_s2c, mode='bilinear', padding_mode='border', align_corners=True)
         
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
         
         # Generate warping field w_c2d
-        w_c2d = self.warp_generator_c2d(Rd, td, zd, es)
+        w_em_c2d = self.warp_generator_c2d(Rd, td, zd, es)
+        w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
+        
+        # Combine the warping fields using element-wise addition
+        w_c2d = w_rt_c2d + w_em_c2d.permute(0, 2, 3, 4, 1)
         
         # Warp vc2d using w_c2d to impose driving motion
-        vc2d_warped = apply_warping_field(vc2d, w_c2d)
+        vc2d_warped = F.grid_sample(vc2d, w_c2d, mode='bilinear', padding_mode='border', align_corners=True)
         
         # Perform orthographic projection (P)
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
