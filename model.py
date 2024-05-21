@@ -63,6 +63,9 @@ class ResBlock_Custom(nn.Module):
             self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
 
     def forward(self, x):
+        print("ResBlock_Custom > x.shape:",x.shape)
+        # print("x:",x)
+        
         out2 = self.conv_res(x)
 
         out1 = F.group_norm(x, num_groups=32)
@@ -143,8 +146,6 @@ class Eapp(nn.Module):
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
         self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
-        
 
 
         # Second part: producing global descriptor es
@@ -165,7 +166,7 @@ class Eapp(nn.Module):
         
         out = self.resblock_512(out)
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
-        out = self.idk_avgpool(out)
+
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
