@@ -702,6 +702,14 @@ class Emtn(nn.Module):
         print("📐 rotation shape Should print: torch.Size([1, 3]):",rotation.shape)
         print("📷 translation shape Should print: torch.Size([1, 3]):",translation.shape)
 
+        # Extract pitch, yaw, and roll from the rotation vector
+        pitch = rotation[:, 0]
+        yaw = rotation[:, 1]
+        roll = rotation[:, 2]
+        print("pitch:",pitch)
+        print("yaw:",yaw)
+        print("roll:",roll)
+        
         print("x.shape:",x.shape)
         # Forward pass through expression network
         expression = self.expression_net(x)
