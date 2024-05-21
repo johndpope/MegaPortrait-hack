@@ -816,6 +816,12 @@ class WarpGeneratorC2D(nn.Module):
 
 
 # Function to apply the 3D warping field
+
+'''
+It handles the warping of volumetric features correctly by considering their spatial dimensions.
+It applies the warping field to the appropriate grid of coordinates, ensuring that the warping is performed accurately.
+It abstracts away the details of the warping operation, making the code more readable and maintainable.
+'''
 def apply_warping_field(v, warp_field):
     B, C, D, H, W = v.size()
     device = v.device
@@ -892,21 +898,18 @@ class Gbase(nn.Module):
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
         assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
-        
-        Rs, ts, zs = self.motionEncoder(xs)    #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
+
+        # The motionEncoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
+        Rs, ts, zs = self.motionEncoder(xs) 
         Rd, td, zd = self.motionEncoder(xd)
 
-        print("zs.shape:",zs.shape)
-        print("es.shape:",es.shape)
-        
         w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        
-        # Combine the warping fields using element-wise addition
         w_s2c = w_rt_s2c + w_em_s2c.permute(0, 2, 3, 4, 1)
         
         # Warp vs using w_s2c to obtain canonical volume vc
-        vc = F.grid_sample(vs, w_s2c, mode='bilinear', padding_mode='border', align_corners=True)
+        vc = apply_warping_field(vs, w_s2c)
+        print("vc.shape:",vc.shape)
         
         # Process canonical volume (vc) using G3d to obtain vc2d
         vc2d = self.G3d(vc)
@@ -914,12 +917,10 @@ class Gbase(nn.Module):
         # Generate warping field w_c2d
         w_em_c2d = self.warp_generator_c2d(Rd, td, zd, es)
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-        
-        # Combine the warping fields using element-wise addition
         w_c2d = w_rt_c2d + w_em_c2d.permute(0, 2, 3, 4, 1)
         
         # Warp vc2d using w_c2d to impose driving motion
-        vc2d_warped = F.grid_sample(vc2d, w_c2d, mode='bilinear', padding_mode='border', align_corners=True)
+        vc2d_warped = apply_warping_field(vc2d, w_c2d)
         
         # Perform orthographic projection (P)
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
