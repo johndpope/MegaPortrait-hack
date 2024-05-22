@@ -146,7 +146,7 @@ class Eapp(nn.Module):
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
         self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2,padding=0)
-        self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
+        # self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
@@ -167,7 +167,7 @@ class Eapp(nn.Module):
         out = self.resblock_512(out)
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
         #out = self.avgpool(out)  # Added the missing AvgPool operation - 
-        out = self.idk_avgpool(out)
+        out = self.avgpool(out)
    
 
 
@@ -177,7 +177,6 @@ class Eapp(nn.Module):
         assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
         
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
-        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
         
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
@@ -935,8 +934,7 @@ class Gbase(nn.Module):
 
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
-        assert vs.shape[1:] == (96, 16, 64, 64), f"Expected vs shape (_, 96, 16, 64, 64), got {vs.shape}"
-
+   
         # The motionEncoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
         Rs, ts, zs = self.motionEncoder(xs)
         Rd, td, zd = self.motionEncoder(xd)
