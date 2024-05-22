@@ -7,14 +7,15 @@ import math
 import colored_traceback.auto
 from torchsummary import summary
 from resnet50 import ResNet50
-
+from memory_profiler import profile
 
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
         self.register_buffer('weight_std', torch.ones(self.weight.shape))
-
+    
+    @profile
     def forward(self, x):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
@@ -29,7 +30,8 @@ class Conv3D_WS(nn.Conv3d):
         super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
         self.register_buffer('weight_std', torch.ones(self.weight.shape))
-
+    
+    @profile
     def forward(self, x):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3, 4], keepdim=True)
@@ -61,7 +63,8 @@ class ResBlock_Custom(nn.Module):
                                      kernel_size=3,
                                      padding=1)
             self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
-
+    
+    @profile
     def forward(self, x):
         print("ResBlock_Custom > x.shape:",x.shape)
         # print("x:",x)
@@ -140,8 +143,8 @@ class Eapp(nn.Module):
         self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
         self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
         self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
-        self.resblock3D_96 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
-        self.resblock3D_96_2 = ResBlock_Custom(dimension=3, in_channels=96, out_channels=96)
+        self.resblock3D_96 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
@@ -185,7 +188,7 @@ class Eapp(nn.Module):
 
         # Second part
         es = self.custom_resnet50(x)
-        
+        print("vs.shape:",vs.shape)
         return vs, es
 
 
@@ -216,15 +219,13 @@ class ResBlock(nn.Module):
         return nn.ReLU()(input)
      
 
-
-
-class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, in_channels, out_channels,upsample=False, scale_factors=(1, 1, 1)):
+class ResBlock2D_Adaptive(nn.Module):
+    def __init__(self, in_channels, out_channels, upsample=False, scale_factors=(1, 1)):
         super().__init__()
         self.upsample = upsample
         self.scale_factors = scale_factors
-        self.conv1 = nn.Conv3d(in_channels, out_channels, 3, padding=1)
-        self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
         self.norm1 = AdaptiveGroupNorm(out_channels)
         self.norm2 = AdaptiveGroupNorm(out_channels)
 
@@ -236,6 +237,40 @@ class ResBlock3D_Adaptive(nn.Module):
         out = self.conv2(out)
         out = self.norm2(out)
         out += residual
+        out = F.relu(out)
+
+        if self.upsample:
+            out = F.interpolate(out, scale_factor=self.scale_factors, mode='bilinear', align_corners=False)
+        
+        return out
+
+class ResBlock3D_Adaptive(nn.Module):
+    def __init__(self, in_channels, out_channels,upsample=False, scale_factors=(1, 1, 1)):
+        super().__init__()
+        self.upsample = upsample
+        self.scale_factors = scale_factors
+        self.conv1 = nn.Conv3d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1)
+        self.norm1 = AdaptiveGroupNorm(out_channels)
+        self.norm2 = AdaptiveGroupNorm(out_channels)
+
+    @profile
+    def forward(self, x):
+        residual = x
+        print("x.shape:",x.shape)
+        out = self.conv1(x)
+        print("conv1 > x.shape:",out.shape)
+        out = self.norm1(out)
+        print("norm1 > x.shape:",out.shape)
+        out = F.relu(out)
+        print("F.relu(out) > x.shape:",out.shape)
+        out = self.conv2(out)
+        print("conv2 > x.shape:",out.shape)
+        out = self.norm2(out)
+        print("norm2 > x.shape:",out.shape)
+        print("residual > residual.shape:",residual.shape)
+        out += residual
+        
         out = F.relu(out)
 
         if self.upsample:
@@ -315,33 +350,45 @@ class WarpField(nn.Module):
         
         self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
-        self.resblock1 = ResBlock_Custom(dimension=3, in_channels=512, out_channels=256)
+        self.resblock1 = ResBlock3D_Adaptive(in_channels=512, out_channels=256)
         self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock2 = ResBlock_Custom(dimension=3, in_channels=256, out_channels=128)
+        self.resblock2 = ResBlock3D_Adaptive( in_channels=256, out_channels=128)
         self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock3 =  ResBlock_Custom(dimension=3, in_channels=128, out_channels=64)
+        self.resblock3 =  ResBlock3D_Adaptive( in_channels=128, out_channels=64)
         self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2))
-        self.resblock4 = ResBlock_Custom(dimension=3, in_channels=64, out_channels=32)
+        self.resblock4 = ResBlock3D_Adaptive( in_channels=64, out_channels=32)
         self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2))
         self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
         self.gn = nn.GroupNorm(1, 3)
         self.tanh = nn.Tanh()
     
+    @profile
     def forward(self, zs): # adaptive_gamma, adaptive_beta
         # Apply adaptive parameters
         # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
+        print("WarpField > zs.shape:",zs.shape) #torch.Size([1, 512, 8, 8])
         x = self.conv1x1(zs)
+        print("conv1x1 > zs.shape:",zs.shape) # [1, 512, 8, 8]
         x = self.reshape_layer(x)
+        print("reshape_layer > zs.shape:",zs.shape) # [1, 512, 8, 8]
         x = self.upsample1(self.resblock1(x))
+        print("upsample1 > zs.shape:",zs.shape) #[512, 512, 4, 8, 8]
         x = self.upsample2(self.resblock2(x))
+        print("upsample2 > zs.shape:",zs.shape) #[512, 256, 8, 16, 16]
         x = self.upsample3(self.resblock3(x))
+        print("upsample3 > zs.shape:",zs.shape)# [512, 128, 16, 32, 32]
         x = self.upsample4(self.resblock4(x))
+        print("upsample4 > zs.shape:",zs.shape)
         x = self.conv3x3x3(x)
+        print("conv3x3x3 > zs.shape:",zs.shape)
         x = self.gn(x)
+        print("gn > zs.shape:",zs.shape)
         x = F.relu(x)
+        print("F.relu > zs.shape:",zs.shape)
 
         x = self.tanh(x)
+        print("tanh > zs.shape:",zs.shape)
 
         # Assertions for shape and values
         assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
@@ -761,6 +808,7 @@ class WarpGeneratorS2C(nn.Module):
         self.adaptive_matrix_gamma = nn.Parameter(torch.randn(num_channels, num_channels))
         self.adaptive_matrix_beta = nn.Parameter(torch.randn(num_channels, num_channels))
 
+    @profile
     def forward(self, Rs, ts, zs, es):
         # Assert shapes of input tensors
         assert Rs.shape == (zs.shape[0], 3), f"Expected Rs shape (batch_size, 3), got {Rs.shape}"
@@ -814,6 +862,7 @@ class WarpGeneratorC2D(nn.Module):
         self.adaptive_matrix_gamma = nn.Parameter(torch.randn(num_channels, num_channels))
         self.adaptive_matrix_beta = nn.Parameter(torch.randn(num_channels, num_channels))
 
+    @profile
     def forward(self, Rd, td, zd, es):
         # Assert shapes of input tensors
         assert Rd.shape == (zd.shape[0], 3), f"Expected Rd shape (batch_size, 3), got {Rd.shape}"
@@ -932,6 +981,7 @@ class Gbase(nn.Module):
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
+    @profile
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
    

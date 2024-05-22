@@ -6,7 +6,16 @@ All models / code is in model.py
 
 (beware when working with claude if you paste copyright ResNet code - it will spit the dummy - especially on .)
 
-![Image](diagram.jpeg)
+![Image](diagram
+
+
+
+
+fyi - currently blowing up with OOM with custom resnet blocks use  
+```shell
+    mprof run train.py
+```
+
 
 
 ### Implemented Functionality / Descriptions

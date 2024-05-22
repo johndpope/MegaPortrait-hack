@@ -12,3 +12,4 @@ moviepy
 decord
 eva-decord # mac m1 support
 omegaconf
+memory_profiler
