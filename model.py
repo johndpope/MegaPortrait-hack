@@ -145,7 +145,7 @@ class Eapp(nn.Module):
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2,padding=0)
 
 
         # Second part: producing global descriptor es
@@ -166,6 +166,7 @@ class Eapp(nn.Module):
         
         out = self.resblock_512(out)
         assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
+        out = self.avgpool(out)  # Added the missing AvgPool operation
 
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
