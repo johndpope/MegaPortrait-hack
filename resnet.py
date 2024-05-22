@@ -283,7 +283,6 @@ class ResNet(nn.Module):
 
         return x
 
-
 def _resnet(arch, block, layers, pretrained, progress, device, **kwargs):
     global weights_downloaded
     model = ResNet(block, layers, **kwargs)
@@ -291,14 +290,14 @@ def _resnet(arch, block, layers, pretrained, progress, device, **kwargs):
         if not weights_downloaded:
             download_weights()
             weights_downloaded = True
-        if os.path.isdir(pretrained):
-            state_dict = torch.load(pretrained + "/" + arch + ".pt", map_location=device)
+        
+        script_dir = os.path.dirname(__file__)
+        state_dict_path = os.path.join(script_dir, "cifar10_models/state_dicts", arch + ".pt")
+        if os.path.isfile(state_dict_path):
+            state_dict = torch.load(state_dict_path, map_location=device)
+            model.load_state_dict(state_dict)
         else:
-            script_dir = os.path.dirname(__file__)
-            state_dict = torch.load(
-                script_dir + "/state_dicts/" + arch + ".pt", map_location=device
-            )
-        model.load_state_dict(state_dict)
+            raise FileNotFoundError(f"No such file or directory: '{state_dict_path}'")
     return model
 
 
@@ -330,6 +329,14 @@ def resnet50(pretrained=False, progress=True, device="cpu", **kwargs):
 
 
 def download_weights():
+
+    script_dir = os.path.dirname(__file__)
+    state_dicts_dir = os.path.join(script_dir, "cifar10_models")
+
+    if os.path.isdir(state_dicts_dir) and len(os.listdir(state_dicts_dir)) > 0:
+        print("Weights already downloaded. Skipping download.")
+        return
+
     url = "https://rutgers.box.com/shared/static/gkw08ecs797j2et1ksmbg1w5t3idf5r5.zip"
 
     # Streaming, so we can iterate over the response.
@@ -352,6 +359,7 @@ def download_weights():
     print("Download successful. Unzipping file...")
     path_to_zip_file = os.path.join(os.getcwd(), "state_dicts.zip")
     directory_to_extract_to = os.path.join(os.getcwd(), "cifar10_models")
+    
     with zipfile.ZipFile(path_to_zip_file, "r") as zip_ref:
         zip_ref.extractall(directory_to_extract_to)
         print("Unzip file successful!")
