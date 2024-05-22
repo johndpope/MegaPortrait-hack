@@ -12,7 +12,7 @@ import os
 import decord
 from typing import List, Tuple, Dict, Any
 from decord import VideoReader,AVReader
-import face_alignment
+# import face_alignment
 
 class EMODataset(Dataset):
     def __init__(self, use_gpu:False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None):
@@ -25,7 +25,7 @@ class EMODataset(Dataset):
         self.video_dir = video_dir
         self.transform = transform
         self.stage = stage
-        self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.THREE_D, device='cpu')
+        # self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.THREE_D, device='cpu')
 
         # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
         # self.face_mask_generator = FaceHelper()

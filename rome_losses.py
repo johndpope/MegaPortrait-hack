@@ -87,10 +87,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import grad
-try:
-    from pytorch3d.loss.mesh_laplacian_smoothing import cot_laplacian
-except:
-    from pytorch3d.loss.mesh_laplacian_smoothing import laplacian_cot as cot_laplacian
+# try:
+#     from pytorch3d.loss.mesh_laplacian_smoothing import cot_laplacian
+# except:
+#     from pytorch3d.loss.mesh_laplacian_smoothing import laplacian_cot as cot_laplacian
 
 
 def make_grid(h, w, device, dtype):
@@ -1164,121 +1164,121 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from pytorch3d.ops.knn import knn_gather, knn_points
-from pytorch3d.structures.pointclouds import Pointclouds
+# from pytorch3d.ops.knn import knn_gather, knn_points
+# from pytorch3d.structures.pointclouds import Pointclouds
 
 from typing import Union
 
 
 
-class ChamferSilhouetteLoss(nn.Module):
-    def __init__(
-        self, 
-        num_neighbours=1, 
-        use_same_number_of_points=False, 
-        sample_outside_of_silhouette=False,
-        use_visibility=True
-    ):
-        super(ChamferSilhouetteLoss, self).__init__()
-        self.num_neighbours = num_neighbours
-        self.use_same_number_of_points = use_same_number_of_points
-        self.sample_outside_of_silhouette = sample_outside_of_silhouette
-        self.use_visibility = use_visibility
+# class ChamferSilhouetteLoss(nn.Module):
+#     def __init__(
+#         self, 
+#         num_neighbours=1, 
+#         use_same_number_of_points=False, 
+#         sample_outside_of_silhouette=False,
+#         use_visibility=True
+#     ):
+#         super(ChamferSilhouetteLoss, self).__init__()
+#         self.num_neighbours = num_neighbours
+#         self.use_same_number_of_points = use_same_number_of_points
+#         self.sample_outside_of_silhouette = sample_outside_of_silhouette
+#         self.use_visibility = use_visibility
 
-    def forward(self, 
-                pred_points: torch.Tensor,
-                points_visibility: torch.Tensor,
-                target_silhouette: torch.Tensor,
-                target_segs: torch.Tensor) -> torch.Tensor:        
-        target_points, target_lengths, weight = self.get_pointcloud(target_segs, target_silhouette)
+#     def forward(self, 
+#                 pred_points: torch.Tensor,
+#                 points_visibility: torch.Tensor,
+#                 target_silhouette: torch.Tensor,
+#                 target_segs: torch.Tensor) -> torch.Tensor:        
+#         target_points, target_lengths, weight = self.get_pointcloud(target_segs, target_silhouette)
 
-        if self.use_visibility:
-            pred_points, pred_lengths = self.get_visible_points(pred_points, points_visibility)
+#         if self.use_visibility:
+#             pred_points, pred_lengths = self.get_visible_points(pred_points, points_visibility)
                 
-        if self.use_same_number_of_points:
-            target_points = target_points[:, :pred_points.shape[1]]    
+#         if self.use_same_number_of_points:
+#             target_points = target_points[:, :pred_points.shape[1]]    
 
-            target_lengths = pred_lengths = torch.minimum(target_lengths, pred_lengths)
+#             target_lengths = pred_lengths = torch.minimum(target_lengths, pred_lengths)
             
-            if self.sample_outside_of_silhouette:
-                target_lengths = (target_lengths.clone() * weight).long()
+#             if self.sample_outside_of_silhouette:
+#                 target_lengths = (target_lengths.clone() * weight).long()
 
-            for i in range(target_points.shape[0]):
-                target_points[i, target_lengths[i]:] = -100.0
+#             for i in range(target_points.shape[0]):
+#                 target_points[i, target_lengths[i]:] = -100.0
 
-            for i in range(pred_points.shape[0]):
-                pred_points[i, pred_lengths[i]:] = -100.0
+#             for i in range(pred_points.shape[0]):
+#                 pred_points[i, pred_lengths[i]:] = -100.0
 
-        visible_batch = target_lengths > 0
-        if self.use_visibility:
-            visible_batch *= pred_lengths > 0
+#         visible_batch = target_lengths > 0
+#         if self.use_visibility:
+#             visible_batch *= pred_lengths > 0
 
-        if self.use_visibility:
-            loss = chamfer_distance(
-                pred_points[visible_batch], 
-                target_points[visible_batch], 
-                x_lengths=pred_lengths[visible_batch], 
-                y_lengths=target_lengths[visible_batch],
-                num_neighbours=self.num_neighbours
-            )        
-        else:
-            loss = chamfer_distance(
-                pred_points[visible_batch], 
-                target_points[visible_batch], 
-                y_lengths=target_lengths[visible_batch],
-                num_neighbours=self.num_neighbours
-            )
+#         if self.use_visibility:
+#             loss = chamfer_distance(
+#                 pred_points[visible_batch], 
+#                 target_points[visible_batch], 
+#                 x_lengths=pred_lengths[visible_batch], 
+#                 y_lengths=target_lengths[visible_batch],
+#                 num_neighbours=self.num_neighbours
+#             )        
+#         else:
+#             loss = chamfer_distance(
+#                 pred_points[visible_batch], 
+#                 target_points[visible_batch], 
+#                 y_lengths=target_lengths[visible_batch],
+#                 num_neighbours=self.num_neighbours
+#             )
 
-        if isinstance(loss, tuple):
-            loss = loss[0]
+#         if isinstance(loss, tuple):
+#             loss = loss[0]
         
-        return loss, pred_points, target_points
+#         return loss, pred_points, target_points
     
-    @torch.no_grad()
-    def get_pointcloud(self, seg, silhouette):
-        if self.sample_outside_of_silhouette:
-            silhouette = (silhouette > 0.0).type(seg.type())
+#     @torch.no_grad()
+#     def get_pointcloud(self, seg, silhouette):
+#         if self.sample_outside_of_silhouette:
+#             silhouette = (silhouette > 0.0).type(seg.type())
 
-            old_area = seg.view(seg.shape[0], -1).sum(1)
-            seg = seg * (1 - silhouette)
-            new_area = seg.view(seg.shape[0], -1).sum(1)
+#             old_area = seg.view(seg.shape[0], -1).sum(1)
+#             seg = seg * (1 - silhouette)
+#             new_area = seg.view(seg.shape[0], -1).sum(1)
 
-            weight = new_area / (old_area + 1e-7)
+#             weight = new_area / (old_area + 1e-7)
         
-        else:
-            weight = torch.ones(seg.shape[0], dtype=seg.dtype, device=seg.device)
+#         else:
+#             weight = torch.ones(seg.shape[0], dtype=seg.dtype, device=seg.device)
 
-        batch, coords = torch.nonzero(seg[:, 0] > 0.5).split([1, 2], dim=1)
-        batch = batch[:, 0]
-        coords = coords.float()
-        coords[:, 0] = (coords[:, 0] / seg.shape[2] - 0.5) * 2
-        coords[:, 1] = (coords[:, 1] / seg.shape[3] - 0.5) * 2
+#         batch, coords = torch.nonzero(seg[:, 0] > 0.5).split([1, 2], dim=1)
+#         batch = batch[:, 0]
+#         coords = coords.float()
+#         coords[:, 0] = (coords[:, 0] / seg.shape[2] - 0.5) * 2
+#         coords[:, 1] = (coords[:, 1] / seg.shape[3] - 0.5) * 2
 
-        pointcloud = -100.0 * torch.ones(seg.shape[0], seg.shape[2]*seg.shape[3], 2).to(seg.device)
-        length = torch.zeros(seg.shape[0]).to(seg.device).long()
-        for i in range(seg.shape[0]):
-            pt = coords[batch == i]
-            pt = pt[torch.randperm(pt.shape[0])] # randomly permute the points
-            pointcloud[i][:pt.shape[0]] = torch.cat([pt[:, 1:], pt[:, :1]], dim=1)
-            length[i] = pt.shape[0]
+#         pointcloud = -100.0 * torch.ones(seg.shape[0], seg.shape[2]*seg.shape[3], 2).to(seg.device)
+#         length = torch.zeros(seg.shape[0]).to(seg.device).long()
+#         for i in range(seg.shape[0]):
+#             pt = coords[batch == i]
+#             pt = pt[torch.randperm(pt.shape[0])] # randomly permute the points
+#             pointcloud[i][:pt.shape[0]] = torch.cat([pt[:, 1:], pt[:, :1]], dim=1)
+#             length[i] = pt.shape[0]
         
-        return pointcloud, length, weight
+#         return pointcloud, length, weight
     
-    @staticmethod
-    def get_visible_points(points, visibility):
-        batch, indices = torch.nonzero(visibility > 0.0).split([1, 1], dim=1)
-        batch = batch[:, 0]
-        indices = indices[:, 0]
+#     @staticmethod
+#     def get_visible_points(points, visibility):
+#         batch, indices = torch.nonzero(visibility > 0.0).split([1, 1], dim=1)
+#         batch = batch[:, 0]
+#         indices = indices[:, 0]
 
-        length = torch.zeros(points.shape[0]).to(points.device).long()
-        for i in range(points.shape[0]):
-            batch_i = batch == i
-            indices_i = indices[batch_i]
-            points[i][:indices_i.shape[0]] = points[i][indices_i]
-            points[i][indices_i.shape[0]:] = -100.0
-            length[i] = indices_i.shape[0]
+#         length = torch.zeros(points.shape[0]).to(points.device).long()
+#         for i in range(points.shape[0]):
+#             batch_i = batch == i
+#             indices_i = indices[batch_i]
+#             points[i][:indices_i.shape[0]] = points[i][indices_i]
+#             points[i][indices_i.shape[0]:] = -100.0
+#             length[i] = indices_i.shape[0]
 
-        return points, length
+#         return points, length
 
 
 # Copyright (c) Facebook, Inc. and its affiliates.
@@ -1287,58 +1287,58 @@ class ChamferSilhouetteLoss(nn.Module):
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-def _validate_chamfer_reduction_inputs(
-    batch_reduction: Union[str, None], point_reduction: str
-):
-    """Check the requested reductions are valid.
-    Args:
-        batch_reduction: Reduction operation to apply for the loss across the
-            batch, can be one of ["mean", "sum"] or None.
-        point_reduction: Reduction operation to apply for the loss across the
-            points, can be one of ["mean", "sum"].
-    """
-    if batch_reduction is not None and batch_reduction not in ["mean", "sum"]:
-        raise ValueError('batch_reduction must be one of ["mean", "sum"] or None')
-    if point_reduction not in ["mean", "sum"]:
-        raise ValueError('point_reduction must be one of ["mean", "sum"]')
+# def _validate_chamfer_reduction_inputs(
+#     batch_reduction: Union[str, None], point_reduction: str
+# ):
+#     """Check the requested reductions are valid.
+#     Args:
+#         batch_reduction: Reduction operation to apply for the loss across the
+#             batch, can be one of ["mean", "sum"] or None.
+#         point_reduction: Reduction operation to apply for the loss across the
+#             points, can be one of ["mean", "sum"].
+#     """
+#     if batch_reduction is not None and batch_reduction not in ["mean", "sum"]:
+#         raise ValueError('batch_reduction must be one of ["mean", "sum"] or None')
+#     if point_reduction not in ["mean", "sum"]:
+#         raise ValueError('point_reduction must be one of ["mean", "sum"]')
 
 
-def _handle_pointcloud_input(
-    points: Union[torch.Tensor, Pointclouds],
-    lengths: Union[torch.Tensor, None],
-    normals: Union[torch.Tensor, None],
-):
-    """
-    If points is an instance of Pointclouds, retrieve the padded points tensor
-    along with the number of points per batch and the padded normals.
-    Otherwise, return the input points (and normals) with the number of points per cloud
-    set to the size of the second dimension of `points`.
-    """
-    if isinstance(points, Pointclouds):
-        X = points.points_padded()
-        lengths = points.num_points_per_cloud()
-        normals = points.normals_padded()  # either a tensor or None
-    elif torch.is_tensor(points):
-        if points.ndim != 3:
-            raise ValueError("Expected points to be of shape (N, P, D)")
-        X = points
-        if lengths is not None and (
-            lengths.ndim != 1 or lengths.shape[0] != X.shape[0]
-        ):
-            raise ValueError("Expected lengths to be of shape (N,)")
-        if lengths is None:
-            lengths = torch.full(
-                (X.shape[0],), X.shape[1], dtype=torch.int64, device=points.device
-            )
-        if normals is not None and normals.ndim != 3:
-            raise ValueError("Expected normals to be of shape (N, P, 3")
-    else:
-        raise ValueError(
-            "The input pointclouds should be either "
-            + "Pointclouds objects or torch.Tensor of shape "
-            + "(minibatch, num_points, 3)."
-        )
-    return X, lengths, normals
+# def _handle_pointcloud_input(
+#     points: Union[torch.Tensor, Pointclouds],
+#     lengths: Union[torch.Tensor, None],
+#     normals: Union[torch.Tensor, None],
+# ):
+#     """
+#     If points is an instance of Pointclouds, retrieve the padded points tensor
+#     along with the number of points per batch and the padded normals.
+#     Otherwise, return the input points (and normals) with the number of points per cloud
+#     set to the size of the second dimension of `points`.
+#     """
+#     if isinstance(points, Pointclouds):
+#         X = points.points_padded()
+#         lengths = points.num_points_per_cloud()
+#         normals = points.normals_padded()  # either a tensor or None
+#     elif torch.is_tensor(points):
+#         if points.ndim != 3:
+#             raise ValueError("Expected points to be of shape (N, P, D)")
+#         X = points
+#         if lengths is not None and (
+#             lengths.ndim != 1 or lengths.shape[0] != X.shape[0]
+#         ):
+#             raise ValueError("Expected lengths to be of shape (N,)")
+#         if lengths is None:
+#             lengths = torch.full(
+#                 (X.shape[0],), X.shape[1], dtype=torch.int64, device=points.device
+#             )
+#         if normals is not None and normals.ndim != 3:
+#             raise ValueError("Expected normals to be of shape (N, P, 3")
+#     else:
+#         raise ValueError(
+#             "The input pointclouds should be either "
+#             + "Pointclouds objects or torch.Tensor of shape "
+#             + "(minibatch, num_points, 3)."
+#         )
+#     return X, lengths, normals
 
 
 def chamfer_distance(
