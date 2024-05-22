@@ -33,6 +33,8 @@ __all__ = [
     "resnet34",
     "resnet50",
 ]
+weights_downloaded = False
+
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
@@ -283,8 +285,12 @@ class ResNet(nn.Module):
 
 
 def _resnet(arch, block, layers, pretrained, progress, device, **kwargs):
+    global weights_downloaded
     model = ResNet(block, layers, **kwargs)
     if pretrained:
+        if not weights_downloaded:
+            download_weights()
+            weights_downloaded = True
         if os.path.isdir(pretrained):
             state_dict = torch.load(pretrained + "/" + arch + ".pt", map_location=device)
         else:
