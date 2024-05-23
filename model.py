@@ -14,6 +14,8 @@ from memory_profiler import profile
 FEATURE_SIZE_AVG_POOL = 4  # 🤷 these should align
 FEATURE_SIZE = (4, 4) # 🤷 1x1? 4x4? idk
 
+# Define the device globally
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Conv2d_WS(nn.Conv2d):
@@ -171,34 +173,31 @@ class Eapp(nn.Module):
     def __init__(self):
         super().__init__()
         
-        # First part: producing volumetric features vs
-        self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3)
-        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
-        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
-        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
-        
-        # round 0
-        self.resblock3D_96 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        
-        # round 1
-        self.resblock3D_96_1 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        self.resblock3D_96_1_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        
-        # round 2
-        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        self.resblock3D_96_2_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
-        
+          # First part: producing volumetric features vs
+        self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3).to(device)
+        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128).to(device)
+        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256).to(device)
+        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512).to(device)
 
-        self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
+        # round 0
+        self.resblock3D_96 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+
+        # round 1
+        self.resblock3D_96_1 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+        self.resblock3D_96_1_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+
+        # round 2
+        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+        self.resblock3D_96_2_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
+
+        self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0).to(device)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0) # 🤷 this maybe wrong
+        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0).to(device)
 
         # Second part: producing global descriptor es
-        # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
-        self.custom_resnet50 = CustomResNet50()
-        # make the features 1D h/w
+        self.custom_resnet50 = CustomResNet50().to(device)
        
     def forward(self, x):
         # First part
@@ -371,24 +370,24 @@ class WarpField(nn.Module):
     def __init__(self):
         super(WarpField, self).__init__()
         
-        self.conv1x1 = nn.Conv2d(512, 2048, kernel_size=1)
+        self.conv1x1 = nn.Conv2d(512, 2048, kernel_size=1).to(device)
 
 
         
         # reshape the tensor from [batch_size, 2048, height, width] to [batch_size, 512, 4, height, width], effectively splitting the channels into a channels dimension of size 512 and a depth dimension of size 4.
-        self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
+        self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:]).to(device)
 
-        self.resblock1 = ResBlock3D_Adaptive(in_channels=512, out_channels=256)
-        self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock2 = ResBlock3D_Adaptive( in_channels=256, out_channels=128)
-        self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2))
-        self.resblock3 =  ResBlock3D_Adaptive( in_channels=128, out_channels=64)
-        self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2))
-        self.resblock4 = ResBlock3D_Adaptive( in_channels=64, out_channels=32)
-        self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2))
-        self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1)
-        self.gn = nn.GroupNorm(1, 3)
-        self.tanh = nn.Tanh()
+        self.resblock1 = ResBlock3D_Adaptive(in_channels=512, out_channels=256).to(device)
+        self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        self.resblock2 = ResBlock3D_Adaptive( in_channels=256, out_channels=128).to(device)
+        self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        self.resblock3 =  ResBlock3D_Adaptive( in_channels=128, out_channels=64).to(device)
+        self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2)).to(device)
+        self.resblock4 = ResBlock3D_Adaptive( in_channels=64, out_channels=32).to(device)
+        self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2)).to(device)
+        self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1).to(device)
+        self.gn = nn.GroupNorm(1, 3).to(device)
+        self.tanh = nn.Tanh().to(device)
     
 #    @profile
     def forward(self, zs): # adaptive_gamma, adaptive_beta
@@ -535,7 +534,7 @@ class G3d(nn.Module):
             ResBlock3D(192, 384),
             nn.AvgPool3d(kernel_size=2, stride=2),
             ResBlock3D(384, 768),
-        )
+        ).to(device)
         self.upsampling = nn.Sequential(
             ResBlock3D(768, 384),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
@@ -543,8 +542,8 @@ class G3d(nn.Module):
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
             ResBlock3D(192, 96),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
-        )
-        self.final_conv = nn.Conv3d(96, 96, kernel_size=3, padding=1)
+        ).to(device)
+        self.final_conv = nn.Conv3d(96, 96, kernel_size=3, padding=1).to(device)
 
     def forward(self, x):
         x = self.downsampling(x)
@@ -620,8 +619,8 @@ Finally, a 3x3 convolution outputs the synthesized image with 3 color channels.
 class G2d(nn.Module):
     def __init__(self, in_channels):
         super(G2d, self).__init__()
-        self.reshape = nn.Conv2d(96, 1536, kernel_size=1)  # Reshape C96xD16 → C1536
-        self.conv1x1 = nn.Conv2d(1536, 512, kernel_size=1)  # 1x1 convolution to reduce channels to 512
+        self.reshape = nn.Conv2d(96, 1536, kernel_size=1).to(device)  # Reshape C96xD16 → C1536
+        self.conv1x1 = nn.Conv2d(1536, 512, kernel_size=1).to(device)  # 1x1 convolution to reduce channels to 512
 
         self.res_blocks = nn.Sequential(
             ResBlock2D(512, 512),
@@ -632,29 +631,29 @@ class G2d(nn.Module):
             ResBlock2D(512, 512),
             ResBlock2D(512, 512),
             ResBlock2D(512, 512),
-        )
+        ).to(device)
 
         self.upsample1 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(512, 256)
-        )
+        ).to(device)
 
         self.upsample2 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(256, 128)
-        )
+        ).to(device)
 
         self.upsample3 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(128, 64)
-        )
+        ).to(device)
 
         self.final_conv = nn.Sequential(
             nn.GroupNorm(num_groups=32, num_channels=64),
             nn.ReLU(inplace=True), 
             nn.Conv2d(64, 3, kernel_size=3, padding=1),
             nn.Sigmoid()
-        )
+        ).to(device)
 
     def forward(self, x):
         print("G2d > x:",x.shape)
@@ -775,11 +774,11 @@ Note: Make sure to adjust the dimensions of the rotation, translation, and expre
 class Emtn(nn.Module):
     def __init__(self):
         super().__init__()
-        self.head_pose_net = resnet18(pretrained=True)
-        self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6)  # 6 corresponds to rotation and translation parameters
+        self.head_pose_net = resnet18(pretrained=True).to(device)
+        self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
         
 
-        model = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
+        model = resnet18(pretrained=False,num_classes=512).to(device)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
         self.expression_net = nn.Sequential(*list(model.children())[:-1])
         self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d(FEATURE_SIZE)  # https://github.com/neeek2303/MegaPortraits/issues/3

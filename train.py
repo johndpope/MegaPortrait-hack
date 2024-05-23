@@ -15,7 +15,7 @@ import decord
 from omegaconf import OmegaConf
 from torchvision import models
 from model import MPGazeLoss,Encoder
-from rome_losses import PerceptualLoss
+from rome_losses import Vgg19 # use vgg19 for perceptualloss 
 
 
 use_cuda = torch.cuda.is_available()
@@ -103,37 +103,37 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.base_epochs, eta_min=1e-6)
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
-    perceptual_loss_fn = PerceptualLoss().to(device)
+    vgg19 = Vgg19().to(device)
+    perceptual_loss_fn = nn.L1Loss().to(device)
     gaze_loss_fn = MPGazeLoss(device)
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
     for epoch in range(cfg.training.base_epochs):
         print("epoch:", epoch)
         for batch in dataloader:
-            print("🌸")
-            source_frames = batch['source_frames']
-            driving_frames = batch['driving_frames']
-            # keypoints = batch['keypoints']
+            source_frames = batch['source_frames'] #.to(device)
+            driving_frames = batch['driving_frames'] #.to(device)
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for idx in range(num_frames):
-                print(".")
-                source_frame = source_frames[idx]
-                # Get the size of the image
-                print("source_frame.shape:",source_frame.shape)
-                driving_frame = driving_frames[idx]
-                # keypoint = keypoints[idx]
+                source_frame = source_frames[idx].to(device)
+                driving_frame = driving_frames[idx].to(device)
 
                 # Train generator
                 optimizer_G.zero_grad()
                 output_frame = Gbase(source_frame, driving_frame)
 
                 # Compute losses
-                loss_perceptual = perceptual_loss_fn(output_frame, driving_frame)
+                output_vgg_features = vgg19(output_frame)
+                driving_vgg_features = vgg19(driving_frame)
+                loss_perceptual = 0
+                for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
+                    loss_perceptual += perceptual_loss_fn(output_feat, driving_feat.detach())
+
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
-                loss_gaze = gaze_loss_fn(output_frame, driving_frame)
+                loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
                 loss_G = (
                     cfg.training.lambda_perceptual * loss_perceptual
                     + cfg.training.lambda_adversarial * loss_adversarial
@@ -171,7 +171,8 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
     GHR.train()
     Genh.train()
 
-    perceptual_loss_fn = PerceptualLoss().to(device)
+    vgg19 = Vgg19().to(device)
+    perceptual_loss_fn = nn.L1Loss().to(device)
     gaze_loss_fn = MPGazeLoss(device=device)
 
     optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
@@ -181,14 +182,12 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
         for batch in dataloader_hr:
             source_frames = batch['source_frames'].to(device)
             driving_frames = batch['driving_frames'].to(device)
-            # keypoints = batch['keypoints'].to(device)
 
             num_frames = len(source_frames)  # Get the number of frames in the batch
 
             for idx in range(num_frames):
                 source_frame = source_frames[idx]
                 driving_frame = driving_frames[idx]
-                # keypoint = keypoints[idx]
 
                 # Generate output frame using pre-trained base model
                 with torch.no_grad():
@@ -198,10 +197,22 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
                 optimizer_G.zero_grad()
                 xhat_hr = Genh(xhat_base)
 
-                # Compute losses
-                loss_supervised = Genh.supervised_loss(xhat_hr, driving_frame)
-                loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
-                loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frame)
+
+                # Compute losses - option 1
+                # loss_supervised = Genh.supervised_loss(xhat_hr, driving_frame)
+                # loss_unsupervised = Genh.unsupervised_loss(xhat_base, xhat_hr)
+                # loss_perceptual = perceptual_loss_fn(xhat_hr, driving_frame)
+
+                # option2 ? 🤷 use vgg19 as per metaportrait?
+                # - Compute losses
+                xhat_hr_vgg_features = vgg19(xhat_hr)
+                driving_vgg_features = vgg19(driving_frame)
+                loss_perceptual = 0
+                for xhat_hr_feat, driving_feat in zip(xhat_hr_vgg_features, driving_vgg_features):
+                    loss_perceptual += perceptual_loss_fn(xhat_hr_feat, driving_feat.detach())
+
+                loss_supervised = perceptual_loss_fn(xhat_hr, driving_frame)
+                loss_unsupervised = perceptual_loss_fn(xhat_hr, xhat_base)
                 loss_gaze = gaze_loss_fn(xhat_hr, driving_frame)
                 loss_G = (
                     cfg.training.lambda_supervised * loss_supervised
@@ -223,6 +234,7 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
                   f"Loss_G: {loss_G.item():.4f}")
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Genh.state_dict(), f"Genh_epoch{epoch+1}.pth")
+
 
 def train_student(cfg, Student, GHR, dataloader_avatars):
     Student.train()
