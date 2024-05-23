@@ -194,7 +194,6 @@ class Eapp(nn.Module):
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
         self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0) # 🤷 this maybe wrong
-        # self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
@@ -203,10 +202,11 @@ class Eapp(nn.Module):
        
     def forward(self, x):
         # First part
+        print(f"image x: {x.shape}") # [1, 3, 256, 256]
         out = self.conv(x)
-        print(f"After conv: {out.shape}")
+        print(f"After conv: {out.shape}")  # [1, 3, 256, 256]
         out = self.resblock_128(out)
-        print(f"After resblock_128: {out.shape}")
+        print(f"After resblock_128: {out.shape}") # [1, 128, 256, 256]
         out = self.avgpool(out)
         print(f"After avgpool: {out.shape}")
         
@@ -216,14 +216,14 @@ class Eapp(nn.Module):
         print(f"After avgpool: {out.shape}")
         
         out = self.resblock_512(out)
-        print(f"After resblock_512: {out.shape}")
-        out = self.avgpool(out)
-        print(f"After avgpool: {out.shape}")
+        print(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
+        # out = self.avgpool(out) 🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
+        # print(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
    
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
-        print(f"After conv_1: {out.shape}")
+        print(f"After conv_1: {out.shape}") # [1, 1536, 32, 32]
         
      # reshape 1546 -> C96 x D16
         vs = out.view(out.size(0), 96, 16, *out.shape[2:]) # 🤷 this maybe inaccurate
@@ -232,19 +232,19 @@ class Eapp(nn.Module):
         
         # 1
         vs = self.resblock3D_96(vs)
-        print(f"After resblock3D_96: {vs.shape}")
+        print(f"After resblock3D_96: {vs.shape}") 
         vs = self.resblock3D_96_2(vs)
-        print(f"After resblock3D_96_2: {vs.shape}")
+        print(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
 
         # 2
         vs = self.resblock3D_96_1(vs)
-        print(f"After resblock3D_96_1: {vs.shape}")
+        print(f"After resblock3D_96_1: {vs.shape}") # [1, 96, 16, 32, 32]
         vs = self.resblock3D_96_1_2(vs)
         print(f"After resblock3D_96_1_2: {vs.shape}")
 
         # 3
         vs = self.resblock3D_96_2(vs)
-        print(f"After resblock3D_96_2: {vs.shape}")
+        print(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
         vs = self.resblock3D_96_2_2(vs)
         print(f"After resblock3D_96_2_2: {vs.shape}")
 
@@ -902,19 +902,16 @@ class WarpGeneratorC2D(nn.Module):
 
 
 # Function to apply the 3D warping field
-
-'''
-It handles the warping of volumetric features correctly by considering their spatial dimensions.
-It applies the warping field to the appropriate grid of coordinates, ensuring that the warping is performed accurately.
-It abstracts away the details of the warping operation, making the code more readable and maintainable.
-'''
 def apply_warping_field(v, warp_field):
     B, C, D, H, W = v.size()
-    print("🍏 apply_warping_field v:",v.shape)
-    print("warp_field:",v.shape)
-    
+    print("🍏 apply_warping_field v:", v.shape)
+    print("warp_field:", warp_field.shape)
 
     device = v.device
+
+    # Resize warp_field to match the dimensions of v
+    warp_field = F.interpolate(warp_field, size=(D, H, W), mode='trilinear', align_corners=True)
+    print("Resized warp_field:", warp_field.shape)
 
     # Create a meshgrid for the canonical coordinates
     d = torch.linspace(-1, 1, D, device=device)
@@ -922,18 +919,25 @@ def apply_warping_field(v, warp_field):
     w = torch.linspace(-1, 1, W, device=device)
     grid_d, grid_h, grid_w = torch.meshgrid(d, h, w, indexing='ij')
     grid = torch.stack((grid_w, grid_h, grid_d), dim=-1)  # Shape: [D, H, W, 3]
+    print("Canonical grid:", grid.shape)
 
     # Add batch dimension and repeat the grid for each item in the batch
     grid = grid.unsqueeze(0).repeat(B, 1, 1, 1, 1)  # Shape: [B, D, H, W, 3]
+    print("Batch grid:", grid.shape)
 
     # Apply the warping field to the grid
     warped_grid = grid + warp_field.permute(0, 2, 3, 4, 1)  # Shape: [B, D, H, W, 3]
+    print("Warped grid:", warped_grid.shape)
 
     # Normalize the grid to the range [-1, 1]
-    warped_grid = 2.0 * warped_grid / torch.tensor([W-1, H-1, D-1], device=device) - 1.0
+    normalization_factors = torch.tensor([W-1, H-1, D-1], device=device)
+    print("Normalization factors:", normalization_factors)
+    warped_grid = 2.0 * warped_grid / normalization_factors - 1.0
+    print("Normalized warped grid:", warped_grid.shape)
 
     # Apply grid sampling
     v_canonical = F.grid_sample(v, warped_grid, mode='bilinear', padding_mode='border', align_corners=True)
+    print("v_canonical:", v_canonical.shape)
 
     return v_canonical
 
@@ -1000,7 +1004,7 @@ class Gbase(nn.Module):
         w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
         print("w_em_s2c shape:",w_em_s2c.shape) # [1, 3, 64, 64, 64]
-        print("w_rt_s2c shape:",w_rt_s2c.shape) # [1, 3, 16, 16, 16]
+        print("w_rt_s2c shape:",w_rt_s2c.shape) # [1, 3, 64, 64, 64]
 
 
         w_s2c = w_rt_s2c + w_em_s2c
@@ -1017,7 +1021,10 @@ class Gbase(nn.Module):
         # Generate warping field w_c2d
         w_em_c2d = self.warp_generator_c2d(Rd, td, zd, es)
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-        w_c2d = w_rt_c2d + w_em_c2d.permute(0, 2, 3, 4, 1)
+        print("w_em_c2d shape:",w_em_c2d.shape) 
+        print("w_rt_c2d shape:",w_rt_c2d.shape) 
+
+        w_c2d = w_rt_c2d + w_em_c2d #.permute(0, 2, 3, 4, 1)
 
         # Warp vc2d using w_c2d to impose driving motion
         vc2d_warped = apply_warping_field(vc2d, w_c2d)
