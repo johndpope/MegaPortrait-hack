@@ -226,8 +226,8 @@ class Eapp(nn.Module):
         print(f"After conv_1: {out.shape}")
         
      # reshape 1546 -> C96 x D16
-        vs = out.view(out.size(0), 96, 16, *out.shape[2:])
-        print(f"reshape 1546 -> C96 x D16 : {vs.shape}")
+        vs = out.view(out.size(0), 96, 16, *out.shape[2:]) # 🤷 this maybe inaccurate
+        print(f"reshape 1546 -> C96 x D16 : {vs.shape}") 
         
         
         # 1
