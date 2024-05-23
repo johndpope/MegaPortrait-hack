@@ -900,28 +900,11 @@ class WarpGeneratorC2D(nn.Module):
         # adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
         # adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
         
-           # Reshape zd_sum to fit the warpfield input
-        # zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
-
-        # Assert shape of zd_sum
-        assert zd_sum.shape == (zd.shape[0], zd.shape[1], 1, 1), f"Expected zd_sum shape (batch_size, feature_dim, 1, 1), got {zd_sum.shape}"
-
         w_em_c2d = self.warpfield(zd_sum)
-
-        # Assert shape of w_em_c2d
-        assert w_em_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_em_c2d shape (batch_size, 3, 16, 16, 16), got {w_em_c2d.shape}"
 
         # Compute rotation/translation warping
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-
-        # Assert shape of w_rt_c2d
-        assert w_rt_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_rt_c2d shape (batch_size, 3, 16, 16, 16), got {w_rt_c2d.shape}"
-
         w_c2d = w_rt_c2d + w_em_c2d
-
-        # Assert final shape of w_c2d
-        assert w_c2d.shape == (zd.shape[0], 3, 16, 16, 16), f"Expected w_c2d shape (batch_size, 3, 16, 16, 16), got {w_c2d.shape}"
-
         return w_c2d
 
 
