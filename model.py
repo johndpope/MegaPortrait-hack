@@ -620,7 +620,8 @@ Finally, a 3x3 convolution outputs the synthesized image with 3 color channels.
 class G2d(nn.Module):
     def __init__(self, in_channels):
         super(G2d, self).__init__()
-        self.reshape = nn.Conv3d(96, 1536, kernel_size=1)  # Reshape C96xD16 → C1536
+        self.reshape = nn.Conv2d(96, 1536, kernel_size=1)  # Reshape C96xD16 → C1536
+        self.conv1x1 = nn.Conv2d(1536, 512, kernel_size=1)  # 1x1 convolution to reduce channels to 512
 
         self.res_blocks = nn.Sequential(
             ResBlock2D(512, 512),
@@ -656,7 +657,9 @@ class G2d(nn.Module):
         )
 
     def forward(self, x):
+        print("G2d > x:",x.shape)
         x = self.reshape(x)
+        x = self.conv1x1(x)  # Added 1x1 convolution to reduce channels to 512
         x = self.res_blocks(x)
         x = self.upsample1(x)
         x = self.upsample2(x)
