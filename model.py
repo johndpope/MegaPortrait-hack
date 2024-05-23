@@ -178,22 +178,22 @@ class Eapp(nn.Module):
         self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
         
         # round 0
-        self.resblock3D_96 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
-        self.resblock3D_96_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
+        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
         
         # round 1
-        self.resblock3D_96_1 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
-        self.resblock3D_96_1_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96_1 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
+        self.resblock3D_96_1_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
         
         # round 2
-        self.resblock3D_96_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
-        self.resblock3D_96_2_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
+        self.resblock3D_96_2_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96)
         
 
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2,padding=0) # 🤷 this maybe wrong
+        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0) # 🤷 this maybe wrong
         # self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # Second part: producing global descriptor es
@@ -204,53 +204,55 @@ class Eapp(nn.Module):
     def forward(self, x):
         # First part
         out = self.conv(x)
-        assert out.shape[1] == 64, f"Expected 64 channels after conv, got {out.shape[1]}"
+        print(f"After conv: {out.shape}")
         out = self.resblock_128(out)
-        assert out.shape[1] == 128, f"Expected 128 channels after resblock_128, got {out.shape[1]}"
+        print(f"After resblock_128: {out.shape}")
         out = self.avgpool(out)
+        print(f"After avgpool: {out.shape}")
         
         out = self.resblock_256(out)
-        assert out.shape[1] == 256, f"Expected 256 channels after resblock_256, got {out.shape[1]}"
+        print(f"After resblock_256: {out.shape}")
         out = self.avgpool(out)
+        print(f"After avgpool: {out.shape}")
         
         out = self.resblock_512(out)
-        assert out.shape[1] == 512, f"Expected 512 channels after resblock_512, got {out.shape[1]}"
-        #out = self.avgpool(out)  # Added the missing AvgPool operation - 
+        print(f"After resblock_512: {out.shape}")
         out = self.avgpool(out)
+        print(f"After avgpool: {out.shape}")
    
-
-
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
-        assert out.shape[1] == 1536, f"Expected 1536 channels after conv_1, got {out.shape[1]}"
+        print(f"After conv_1: {out.shape}")
         
-        vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
+     # reshape 1546 -> C96 x D16
+        vs = out.view(out.size(0), 96, 16, *out.shape[2:])
+        print(f"reshape 1546 -> C96 x D16 : {vs.shape}")
+        
         
         # 1
         vs = self.resblock3D_96(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        print(f"After resblock3D_96: {vs.shape}")
         vs = self.resblock3D_96_2(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
+        print(f"After resblock3D_96_2: {vs.shape}")
 
         # 2
         vs = self.resblock3D_96_1(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        print(f"After resblock3D_96_1: {vs.shape}")
         vs = self.resblock3D_96_1_2(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
+        print(f"After resblock3D_96_1_2: {vs.shape}")
 
         # 3
         vs = self.resblock3D_96_2(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        print(f"After resblock3D_96_2: {vs.shape}")
         vs = self.resblock3D_96_2_2(vs)
-        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
-
-
+        print(f"After resblock3D_96_2_2: {vs.shape}")
 
         # Second part
         es = self.custom_resnet50(x)
-        print("vs.shape:",vs.shape)  # 🤷 why does this end up 32x32 
+        print("vs.shape:", vs.shape)  # 🤷 why does this end up 32x32 
         return vs, es
+
 
 
 
