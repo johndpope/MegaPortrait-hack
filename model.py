@@ -337,7 +337,7 @@ class ResBlock3D_Adaptive(nn.Module):
 #    @profile
     def forward(self, x):
         residual = x
-        print("🍒  ResBlock3D x.shape:",x.shape)
+        print("   🍒 ResBlock3D x.shape:",x.shape)
         out = self.conv1(x)
         print("   conv1 > out.shape:",out.shape)
         out = self.norm1(out)
@@ -398,26 +398,26 @@ class WarpField(nn.Module):
 
         print("WarpField > zs sum.shape:",zs.shape) #torch.Size([1, 512, 1, 1])
         x = self.conv1x1(zs)
-        print("conv1x1 > x.shape:",x.shape) #  -> [1, 2048, 1, 1]
+        print("      conv1x1 > x.shape:",x.shape) #  -> [1, 2048, 1, 1]
         x = self.reshape_layer(x)
-        print("reshape_layer > x.shape:",x.shape) # -> [1, 512, 4, 1, 1]
+        print("      reshape_layer > x.shape:",x.shape) # -> [1, 512, 4, 1, 1]
         x = self.upsample1(self.resblock1(x))
-        print("upsample1 > x.shape:",x.shape) # [1, 512, 4, 1, 1]
+        print("      upsample1 > x.shape:",x.shape) # [1, 512, 4, 1, 1]
         x = self.upsample2(self.resblock2(x))
-        print("upsample2 > x.shape:",x.shape) #[512, 256, 8, 16, 16]
+        print("      upsample2 > x.shape:",x.shape) #[512, 256, 8, 16, 16]
         x = self.upsample3(self.resblock3(x))
-        print("upsample3 > x.shape:",x.shape)# [512, 128, 16, 32, 32]
+        print("      upsample3 > x.shape:",x.shape)# [512, 128, 16, 32, 32]
         x = self.upsample4(self.resblock4(x))
-        print("upsample4 > x.shape:",x.shape)
+        print("      upsample4 > x.shape:",x.shape)
         x = self.conv3x3x3(x)
-        print("conv3x3x3 > x.shape:",x.shape)
+        print("      conv3x3x3 > x.shape:",x.shape)
         x = self.gn(x)
-        print("gn > x.shape:",x.shape)
+        print("      gn > x.shape:",x.shape)
         x = F.relu(x)
-        print("F.relu > x.shape:",x.shape)
+        print("      F.relu > x.shape:",x.shape)
 
         x = self.tanh(x)
-        print("tanh > x.shape:",x.shape)
+        print("      tanh > x.shape:",x.shape)
 
         # Assertions for shape and values
         assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
