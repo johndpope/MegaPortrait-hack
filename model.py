@@ -176,8 +176,20 @@ class Eapp(nn.Module):
         self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128)
         self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256)
         self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512)
+        
+        # round 0
         self.resblock3D_96 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
         self.resblock3D_96_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        
+        # round 1
+        self.resblock3D_96_1 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96_1_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        
+        # round 2
+        self.resblock3D_96_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        self.resblock3D_96_2_2 = ResBlock3D_Adaptive( in_channels=96, out_channels=96)
+        
+
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
@@ -215,14 +227,29 @@ class Eapp(nn.Module):
         
         vs = out.view(out.size(0), 96, 16, out.size(2), out.size(3))
         
+        # 1
         vs = self.resblock3D_96(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
         vs = self.resblock3D_96_2(vs)
         assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
 
+        # 2
+        vs = self.resblock3D_96_1(vs)
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        vs = self.resblock3D_96_1_2(vs)
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
+
+        # 3
+        vs = self.resblock3D_96_2(vs)
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96, got {vs.shape[1]}"
+        vs = self.resblock3D_96_2_2(vs)
+        assert vs.shape[1] == 96, f"Expected 96 channels after resblock3D_96_2, got {vs.shape[1]}"
+
+
+
         # Second part
         es = self.custom_resnet50(x)
-        print("vs.shape:",vs.shape)
+        print("vs.shape:",vs.shape)  # 🤷 why does this end up 32x32 
         return vs, es
 
 
