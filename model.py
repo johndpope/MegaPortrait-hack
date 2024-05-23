@@ -9,6 +9,9 @@ from torchsummary import summary
 from resnet50 import ResNet50
 from memory_profiler import profile
 
+
+# keep the code in one mega class for copying and pasting into Claude.ai
+
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
@@ -272,7 +275,7 @@ class ResBlock2D_Adaptive(nn.Module):
         return out
 
 class ResBlock3D_Adaptive(nn.Module):
-    def __init__(self, in_channels, out_channels,upsample=False, scale_factors=(1, 1, 1)):
+    def __init__(self, in_channels, out_channels, upsample=False, scale_factors=(1, 1, 1)):
         super().__init__()
         self.upsample = upsample
         self.scale_factors = scale_factors
@@ -280,24 +283,31 @@ class ResBlock3D_Adaptive(nn.Module):
         self.conv2 = nn.Conv3d(out_channels, out_channels, 3, padding=1)
         self.norm1 = AdaptiveGroupNorm(out_channels)
         self.norm2 = AdaptiveGroupNorm(out_channels)
+        
+        if in_channels != out_channels:
+            self.residual_conv = nn.Conv3d(in_channels, out_channels, 1)
+        else:
+            self.residual_conv = nn.Identity()
 
     @profile
     def forward(self, x):
         residual = x
-        print("x.shape:",x.shape)
+        print("🍒  ResBlock3D x.shape:",x.shape)
         out = self.conv1(x)
-        print("conv1 > x.shape:",out.shape)
+        print("   conv1 > out.shape:",out.shape)
         out = self.norm1(out)
-        print("norm1 > x.shape:",out.shape)
+        print("   norm1 > out.shape:",out.shape)
         out = F.relu(out)
-        print("F.relu(out) > x.shape:",out.shape)
+        print("   F.relu(out) > out.shape:",out.shape)
         out = self.conv2(out)
-        print("conv2 > x.shape:",out.shape)
+        print("   conv2 > out.shape:",out.shape)
         out = self.norm2(out)
-        print("norm2 > x.shape:",out.shape)
-        print("residual > residual.shape:",residual.shape)
-        out += residual
+        print("   norm2 > out.shape:",out.shape)
         
+        residual = self.residual_conv(residual)
+        print("   residual > residual.shape:",residual.shape)
+        
+        out += residual
         out = F.relu(out)
 
         if self.upsample:
@@ -399,33 +409,34 @@ class WarpField(nn.Module):
         # Apply adaptive parameters
         # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
+
+
+
         print("WarpField > zs sum.shape:",zs.shape) #torch.Size([1, 512, 1, 1])
         x = self.conv1x1(zs)
-        print("conv1x1 > zs.shape:",x.shape) # [1, 512, 1, 1]
+        print("conv1x1 > x.shape:",x.shape) #  -> [1, 2048, 1, 1]
         x = self.reshape_layer(x)
-        print("reshape_layer > zs.shape:",x.shape) # [1, 512, 1, 1]
+        print("reshape_layer > x.shape:",x.shape) # -> [1, 512, 4, 1, 1]
         x = self.upsample1(self.resblock1(x))
-        print("upsample1 > zs.shape:",x.shape) #[512, 512, 4, 1, 1]
+        print("upsample1 > x.shape:",x.shape) # [1, 512, 4, 1, 1]
         x = self.upsample2(self.resblock2(x))
-        print("upsample2 > zs.shape:",x.shape) #[512, 256, 8, 16, 16]
+        print("upsample2 > x.shape:",x.shape) #[512, 256, 8, 16, 16]
         x = self.upsample3(self.resblock3(x))
-        print("upsample3 > zs.shape:",x.shape)# [512, 128, 16, 32, 32]
+        print("upsample3 > x.shape:",x.shape)# [512, 128, 16, 32, 32]
         x = self.upsample4(self.resblock4(x))
-        print("upsample4 > zs.shape:",x.shape)
+        print("upsample4 > x.shape:",x.shape)
         x = self.conv3x3x3(x)
-        print("conv3x3x3 > zs.shape:",x.shape)
+        print("conv3x3x3 > x.shape:",x.shape)
         x = self.gn(x)
-        print("gn > zs.shape:",x.shape)
+        print("gn > x.shape:",x.shape)
         x = F.relu(x)
-        print("F.relu > zs.shape:",x.shape)
+        print("F.relu > x.shape:",x.shape)
 
         x = self.tanh(x)
-        print("tanh > zs.shape:",x.shape)
+        print("tanh > x.shape:",x.shape)
 
         # Assertions for shape and values
         assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
-        assert x.shape[2] == zs.shape[2] * 8 and x.shape[3] == zs.shape[3] * 8 and x.shape[4] == zs.shape[4] * 8, \
-            f"Expected spatial dimensions {(zs.shape[2] * 8, zs.shape[3] * 8, zs.shape[4] * 8)}, got {(x.shape[2], x.shape[3], x.shape[4])}"
 
         return x
  # produce a 3D warping field w𝑠→
@@ -849,22 +860,18 @@ class WarpGeneratorS2C(nn.Module):
 
         # Sum es with zs
         zs_sum = zs + es
-        print("zs_sum:",zs_sum.shape) # [1,512,1,1]
+
         # Generate adaptive parameters
         # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
         # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
         w_em_s2c = self.warpfield(zs_sum)
 
-        # Assert shape of w_em_s2c
-        assert w_em_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_em_s2c shape (batch_size, 3, 16, 16, 16), got {w_em_s2c.shape}"
-
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        
-        # Assert shape of w_rt_s2c
-        assert w_rt_s2c.shape == (zs.shape[0], 3, 16, 16, 16), f"Expected w_rt_s2c shape (batch_size, 3, 16, 16, 16), got {w_rt_s2c.shape}"
-
+        print("w_rt_s2c:",w_rt_s2c.shape) 
+        print("w_em_s2c:",w_em_s2c.shape) 
+  
         w_s2c = w_rt_s2c + w_em_s2c
 
         return w_s2c
@@ -1012,7 +1019,11 @@ class Gbase(nn.Module):
 
         w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        w_s2c = w_rt_s2c + w_em_s2c.permute(0, 2, 3, 4, 1)
+        print("w_em_s2c shape:",w_em_s2c.shape) # [1, 3, 64, 64, 64]
+        print("w_rt_s2c shape:",w_rt_s2c.shape) # [1, 3, 16, 16, 16]
+
+
+        w_s2c = w_rt_s2c + w_em_s2c
 
         # Warp vs using w_s2c to obtain canonical volume vc
         vc = apply_warping_field(vs, w_s2c)
