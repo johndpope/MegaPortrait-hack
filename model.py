@@ -92,17 +92,43 @@ class ResBlock_Custom(nn.Module):
 # we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 8, 8])
 # n.b. emoportraits reduced this from 512 -> 128 dim - these are feature maps / identity fingerprint of image 
 class CustomResNet50(nn.Module):
-    def __init__(self):
-        super(CustomResNet50, self).__init__()
-        model =  ResNet50()
-        self.custom_resnet50 = nn.Sequential(*list(model.children())[:-2]) # remove avg pool / fc layer
-        self.conv_reduce = nn.Conv2d(2048, 512, kernel_size=1, stride=1, bias=False)
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        resnet = models.resnet50(*args, **kwargs)
+        self.conv1 = resnet.conv1
+        self.bn1 = resnet.bn1
+        self.relu = resnet.relu
+        self.maxpool = resnet.maxpool
+        self.layer1 = resnet.layer1
+        self.layer2 = resnet.layer2
+        self.layer3 = resnet.layer3
+        # Remove the last residual block (layer4)
+        # self.layer4 = resnet.layer4
         
-    def forward(self, x):
-        x = self.custom_resnet50(x)
-        x = self.conv_reduce(x)
-        return x
+        # Add an adaptive average pooling layer
+        self.adaptive_avg_pool = nn.AdaptiveAvgPool2d(1)
+        
+        # Add a 1x1 convolutional layer to reduce the number of channels to 512
+        self.conv_reduce = nn.Conv2d(1024, 512, kernel_size=1)
 
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        # Remove the forward pass through layer4
+        # x = self.layer4(x)
+        
+        # Apply adaptive average pooling
+        x = self.adaptive_avg_pool(x)
+        
+        # Apply the 1x1 convolutional layer to reduce the number of channels
+        x = self.conv_reduce(x)
+        
+        return x
 
 '''
 Eapp Class:
@@ -154,7 +180,8 @@ class Eapp(nn.Module):
         # Second part: producing global descriptor es
         # https://github.com/Kevinfringe/MegaPortrait/blob/master/model.py#L148
         self.custom_resnet50 = CustomResNet50()
- 
+        # make the features 1D h/w
+       
     def forward(self, x):
         # First part
         out = self.conv(x)
@@ -752,7 +779,7 @@ class Emtn(nn.Module):
         model = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
         self.expression_net = nn.Sequential(*list(model.children())[:-1])
-        self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((8, 8))
+        self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))  # https://github.com/neeek2303/MegaPortraits/issues/3
         # self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7)) #OPTIONAL 🤷 - 16x16 is better?
 
     def forward(self, x):
@@ -833,10 +860,7 @@ class WarpGeneratorS2C(nn.Module):
         # Apply the adaptive average pooling
         # zs_sum_pooled = avg_pool(zs_sum)
 
-        # Assert shape of zs_sum
-        # 🤷 is 8x8 correct, idk or use the 1x1 pool above
-        assert zs_sum.shape == (zs.shape[0], zs.shape[1], 8, 8), f"Expected zs_sum shape (batch_size, feature_dim, 8, 8), got {zs_sum.shape}"
-
+ 
         w_em_s2c = self.warpfield(zs_sum)
 
         # Assert shape of w_em_s2c
