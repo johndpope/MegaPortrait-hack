@@ -181,7 +181,7 @@ class Eapp(nn.Module):
         self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0)
 
         # Adjusted AvgPool to reduce spatial dimensions effectively
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2,padding=0)
+        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2,padding=0) # 🤷 this maybe wrong
         # self.idk_avgpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
         # Second part: producing global descriptor es
@@ -226,6 +226,20 @@ class Eapp(nn.Module):
         return vs, es
 
 
+
+class AdaptiveGroupNorm(nn.Module):
+    def __init__(self, num_channels, num_groups=32):
+        super(AdaptiveGroupNorm, self).__init__()
+        self.num_channels = num_channels
+        self.num_groups = num_groups
+        self.weight = nn.Parameter(torch.ones(1, num_channels, 1, 1, 1))
+        self.bias = nn.Parameter(torch.zeros(1, num_channels, 1, 1, 1))
+        
+        self.group_norm = nn.GroupNorm(num_groups, num_channels)
+
+    def forward(self, x):
+        normalized = self.group_norm(x)
+        return normalized * self.weight + self.bias
 
 
 class ResBlock(nn.Module):
@@ -320,67 +334,6 @@ class ResBlock3D_Adaptive(nn.Module):
         return out
 
 
-
-'''
-
-In this expanded version of AdaptiveGroupNorm, we define a module that performs adaptive group normalization on a 5D input tensor of shape (batch_size, channels, depth, height, width).
-The module is initialized with the number of channels (num_channels), the number of groups (num_groups), and a small constant (eps) for numerical stability.
-We define learnable parameters gamma and beta for adaptive normalization, which have the same shape as the input tensor.
-We also define embedding layers embed_gamma and embed_beta that take the mean of the input tensor across the spatial dimensions (depth, height, width) and output adaptive parameters of the same shape as gamma and beta. These embedding layers allow the normalization parameters to adapt based on the input.
-In the forward method, we first reshape the input tensor into (batch_size, num_groups, channels // num_groups, depth, height, width) to perform group normalization. We compute the mean and variance per group and normalize the tensor using these statistics.
-After normalization, we reshape the tensor back to its original shape (batch_size, channels, depth, height, width).
-Finally, we compute the adaptive scale and shift parameters by adding the learnable parameters gamma and beta to the embedded parameters obtained from embed_gamma and embed_beta. We apply these adaptive parameters to the normalized tensor using element-wise multiplication and addition.
-The resulting tensor has the same shape as the input tensor but has undergone adaptive group normalization.
-This AdaptiveGroupNorm module can be used as a replacement for standard group normalization layers in the network, allowing for adaptive normalization based on the input.
-'''
-class AdaptiveGroupNorm(nn.Module):
-    def __init__(self, num_channels, num_groups=32, eps=1e-5):
-        super(AdaptiveGroupNorm, self).__init__()
-        self.num_channels = num_channels
-        self.num_groups = num_groups
-        self.eps = eps
-
-        # Parameters for adaptive normalization
-        self.gamma = nn.Parameter(torch.ones(1, num_channels, 1, 1, 1))
-        self.beta = nn.Parameter(torch.zeros(1, num_channels, 1, 1, 1))
-
-        # Embedding layers for adaptive parameters
-        self.embed_gamma = nn.Sequential(
-            nn.Linear(num_channels, num_channels),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_channels, num_channels)
-        )
-        self.embed_beta = nn.Sequential(
-            nn.Linear(num_channels, num_channels),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_channels, num_channels)
-        )
-
-    def forward(self, x):
-        batch_size, channels, depth, height, width = x.size()
-
-        # Reshape into (batch_size, num_groups, channels // num_groups, depth, height, width)
-        x = x.view(batch_size, self.num_groups, -1, depth, height, width)
-
-        # Compute mean and variance per group
-        mean = x.mean(dim=[2, 3, 4, 5], keepdim=True)
-        var = x.var(dim=[2, 3, 4, 5], keepdim=True, unbiased=False)
-
-        # Normalize
-        x = (x - mean) / torch.sqrt(var + self.eps)
-
-        # Reshape back to (batch_size, channels, depth, height, width)
-        x = x.view(batch_size, channels, depth, height, width)
-
-
-        return x
-        # Adaptive scale and shift
-        # embedded_gamma = self.embed_gamma(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        # embedded_beta = self.embed_beta(x.mean(dim=[2, 3, 4], keepdim=True)).view(batch_size, channels, 1, 1, 1)
-        # adaptive_gamma = self.gamma + embedded_gamma
-        # adaptive_beta = self.beta + embedded_beta
-
-        # return x * adaptive_gamma + adaptive_beta
 
 
 
@@ -721,12 +674,10 @@ def compute_rt_warp(rotation, translation, invert=False, grid_size=64):
     if invert:
         affine_matrix = torch.inverse(affine_matrix)
 
-    # Create a grid of normalized coordinates
+    # # Create a grid of normalized coordinates 
     grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
-    
-    # Transpose the dimensions of the grid to match the expected shape
+    # # Transpose the dimensions of the grid to match the expected shape
     grid = grid.permute(0, 4, 1, 2, 3)
-
     return grid
 
 def compute_rotation_matrix(rotation):
@@ -874,8 +825,12 @@ class WarpGeneratorS2C(nn.Module):
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
         print("w_rt_s2c:",w_rt_s2c.shape) 
         
-  
-        w_s2c = w_rt_s2c + w_em_s2c
+
+        # 🤷 its the wrong dimensions - idk - 
+        # Resize w_em_s2c to match w_rt_s2c
+        w_em_s2c_resized = F.interpolate(w_em_s2c, size=w_rt_s2c.shape[2:], mode='trilinear', align_corners=False)
+        print("w_em_s2c_resized:", w_em_s2c_resized.shape)
+        w_s2c = w_rt_s2c + w_em_s2c_resized
 
         return w_s2c
 
@@ -907,7 +862,13 @@ class WarpGeneratorC2D(nn.Module):
 
         # Compute rotation/translation warping
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-        w_c2d = w_rt_c2d + w_em_c2d
+
+         # Resize w_em_c2d to match w_rt_c2d
+        w_em_c2d_resized = F.interpolate(w_em_c2d, size=w_rt_c2d.shape[2:], mode='trilinear', align_corners=False)
+        print("w_em_c2d_resized:", w_em_c2d_resized.shape)
+
+        w_c2d = w_rt_c2d + w_em_c2d_resized
+
         return w_c2d
 
 
@@ -920,6 +881,10 @@ It abstracts away the details of the warping operation, making the code more rea
 '''
 def apply_warping_field(v, warp_field):
     B, C, D, H, W = v.size()
+    print("🍏 apply_warping_field v:",v.shape)
+    print("warp_field:",v.shape)
+    
+
     device = v.device
 
     # Create a meshgrid for the canonical coordinates
@@ -1011,6 +976,8 @@ class Gbase(nn.Module):
 
         w_s2c = w_rt_s2c + w_em_s2c
 
+
+        print("vs shape:",vs.shape) 
         # Warp vs using w_s2c to obtain canonical volume vc
         vc = apply_warping_field(vs, w_s2c)
         assert vc.shape[1:] == (96, 16, 64, 64), f"Expected vc shape (_, 96, 16, 64, 64), got {vc.shape}"
