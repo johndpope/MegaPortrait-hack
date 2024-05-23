@@ -89,7 +89,7 @@ class ResBlock_Custom(nn.Module):
 
 
 
-# we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 8, 8])
+# we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 1, 1])
 # n.b. emoportraits reduced this from 512 -> 128 dim - these are feature maps / identity fingerprint of image 
 class CustomResNet50(nn.Module):
     def __init__(self, *args, **kwargs):
@@ -375,8 +375,13 @@ class WarpField(nn.Module):
     def __init__(self):
         super(WarpField, self).__init__()
         
-        self.conv1x1 = nn.Conv3d(1, 2048, kernel_size=1)
+        self.conv1x1 = nn.Conv2d(512, 2048, kernel_size=1)
+
+
+        
+        # reshape the tensor from [batch_size, 2048, height, width] to [batch_size, 512, 4, height, width], effectively splitting the channels into a channels dimension of size 512 and a depth dimension of size 4.
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:])
+
         self.resblock1 = ResBlock3D_Adaptive(in_channels=512, out_channels=256)
         self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2))
         self.resblock2 = ResBlock3D_Adaptive( in_channels=256, out_channels=128)
@@ -394,28 +399,28 @@ class WarpField(nn.Module):
         # Apply adaptive parameters
         # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
-        print("WarpField > zs.shape:",zs.shape) #torch.Size([1, 512, 8, 8])
+        print("WarpField > zs sum.shape:",zs.shape) #torch.Size([1, 512, 1, 1])
         x = self.conv1x1(zs)
-        print("conv1x1 > zs.shape:",zs.shape) # [1, 512, 8, 8]
+        print("conv1x1 > zs.shape:",x.shape) # [1, 512, 1, 1]
         x = self.reshape_layer(x)
-        print("reshape_layer > zs.shape:",zs.shape) # [1, 512, 8, 8]
+        print("reshape_layer > zs.shape:",x.shape) # [1, 512, 1, 1]
         x = self.upsample1(self.resblock1(x))
-        print("upsample1 > zs.shape:",zs.shape) #[512, 512, 4, 8, 8]
+        print("upsample1 > zs.shape:",x.shape) #[512, 512, 4, 1, 1]
         x = self.upsample2(self.resblock2(x))
-        print("upsample2 > zs.shape:",zs.shape) #[512, 256, 8, 16, 16]
+        print("upsample2 > zs.shape:",x.shape) #[512, 256, 8, 16, 16]
         x = self.upsample3(self.resblock3(x))
-        print("upsample3 > zs.shape:",zs.shape)# [512, 128, 16, 32, 32]
+        print("upsample3 > zs.shape:",x.shape)# [512, 128, 16, 32, 32]
         x = self.upsample4(self.resblock4(x))
-        print("upsample4 > zs.shape:",zs.shape)
+        print("upsample4 > zs.shape:",x.shape)
         x = self.conv3x3x3(x)
-        print("conv3x3x3 > zs.shape:",zs.shape)
+        print("conv3x3x3 > zs.shape:",x.shape)
         x = self.gn(x)
-        print("gn > zs.shape:",zs.shape)
+        print("gn > zs.shape:",x.shape)
         x = F.relu(x)
-        print("F.relu > zs.shape:",zs.shape)
+        print("F.relu > zs.shape:",x.shape)
 
         x = self.tanh(x)
-        print("tanh > zs.shape:",zs.shape)
+        print("tanh > zs.shape:",x.shape)
 
         # Assertions for shape and values
         assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
@@ -843,24 +848,12 @@ class WarpGeneratorS2C(nn.Module):
         assert zs.shape == es.shape, f"Expected zs and es to have the same shape, got {zs.shape} and {es.shape}"
 
         # Sum es with zs
-         # Sum es with zs
         zs_sum = zs + es
-
+        print("zs_sum:",zs_sum.shape) # [1,512,1,1]
         # Generate adaptive parameters
         # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
         # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
-        # Reshape zs_sum to fit the warpfield input
-        # zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1)
-
-
-        # Define the adaptive average pooling layer
-        # avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Apply the adaptive average pooling
-        # zs_sum_pooled = avg_pool(zs_sum)
-
- 
         w_em_s2c = self.warpfield(zs_sum)
 
         # Assert shape of w_em_s2c
