@@ -11,6 +11,10 @@ from memory_profiler import profile
 
 
 # keep the code in one mega class for copying and pasting into Claude.ai
+FEATURE_SIZE_AVG_POOL = 4  # 🤷 these should align
+FEATURE_SIZE = (4, 4) # 🤷 1x1? 4x4? idk
+
+
 
 class Conv2d_WS(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
@@ -18,7 +22,7 @@ class Conv2d_WS(nn.Conv2d):
         self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
         self.register_buffer('weight_std', torch.ones(self.weight.shape))
     
-    @profile
+#    @profile
     def forward(self, x):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
@@ -34,7 +38,7 @@ class Conv3D_WS(nn.Conv3d):
         self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
         self.register_buffer('weight_std', torch.ones(self.weight.shape))
     
-    @profile
+#    @profile
     def forward(self, x):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3, 4], keepdim=True)
@@ -67,7 +71,7 @@ class ResBlock_Custom(nn.Module):
                                      padding=1)
             self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
     
-    @profile
+#    @profile
     def forward(self, x):
         print("ResBlock_Custom > x.shape:",x.shape)
         # print("x:",x)
@@ -109,7 +113,7 @@ class CustomResNet50(nn.Module):
         # self.layer4 = resnet.layer4
         
         # Add an adaptive average pooling layer
-        self.adaptive_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.adaptive_avg_pool = nn.AdaptiveAvgPool2d(FEATURE_SIZE_AVG_POOL)
         
         # Add a 1x1 convolutional layer to reduce the number of channels to 512
         self.conv_reduce = nn.Conv2d(1024, 512, kernel_size=1)
@@ -289,7 +293,7 @@ class ResBlock3D_Adaptive(nn.Module):
         else:
             self.residual_conv = nn.Identity()
 
-    @profile
+#    @profile
     def forward(self, x):
         residual = x
         print("🍒  ResBlock3D x.shape:",x.shape)
@@ -404,7 +408,7 @@ class WarpField(nn.Module):
         self.gn = nn.GroupNorm(1, 3)
         self.tanh = nn.Tanh()
     
-    @profile
+#    @profile
     def forward(self, zs): # adaptive_gamma, adaptive_beta
         # Apply adaptive parameters
         # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
@@ -795,7 +799,7 @@ class Emtn(nn.Module):
         model = resnet18(pretrained=False,num_classes=512)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
         self.expression_net = nn.Sequential(*list(model.children())[:-1])
-        self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))  # https://github.com/neeek2303/MegaPortraits/issues/3
+        self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d(FEATURE_SIZE)  # https://github.com/neeek2303/MegaPortraits/issues/3
         # self.expression_net.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7)) #OPTIONAL 🤷 - 16x16 is better?
 
     def forward(self, x):
@@ -814,11 +818,10 @@ class Emtn(nn.Module):
         pitch = rotation[:, 0]
         yaw = rotation[:, 1]
         roll = rotation[:, 2]
-        print("pitch:",pitch)
-        print("yaw:",yaw)
-        print("roll:",roll)
-        
-        print("x.shape:",x.shape)
+        print("   pitch:",pitch)
+        print("   yaw:",yaw)
+        print("   roll:",roll)
+
         # Forward pass through expression network
         expression = self.expression_net(x)
         return rotation, translation, expression
@@ -851,7 +854,7 @@ class WarpGeneratorS2C(nn.Module):
         self.adaptive_matrix_gamma = nn.Parameter(torch.randn(num_channels, num_channels))
         self.adaptive_matrix_beta = nn.Parameter(torch.randn(num_channels, num_channels))
 
-    @profile
+#    @profile
     def forward(self, Rs, ts, zs, es):
         # Assert shapes of input tensors
         assert Rs.shape == (zs.shape[0], 3), f"Expected Rs shape (batch_size, 3), got {Rs.shape}"
@@ -866,11 +869,11 @@ class WarpGeneratorS2C(nn.Module):
         # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
         w_em_s2c = self.warpfield(zs_sum)
-
+        print("w_em_s2c:",w_em_s2c.shape) # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
         print("w_rt_s2c:",w_rt_s2c.shape) 
-        print("w_em_s2c:",w_em_s2c.shape) 
+        
   
         w_s2c = w_rt_s2c + w_em_s2c
 
@@ -886,7 +889,7 @@ class WarpGeneratorC2D(nn.Module):
         self.adaptive_matrix_gamma = nn.Parameter(torch.randn(num_channels, num_channels))
         self.adaptive_matrix_beta = nn.Parameter(torch.randn(num_channels, num_channels))
 
-    @profile
+#    @profile
     def forward(self, Rd, td, zd, es):
         # Assert shapes of input tensors
         assert Rd.shape == (zd.shape[0], 3), f"Expected Rd shape (batch_size, 3), got {Rd.shape}"
@@ -988,7 +991,7 @@ class Gbase(nn.Module):
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
-    @profile
+#    @profile
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
    
