@@ -134,11 +134,11 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 loss_perceptual = 0
 
                 for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
-     
                     loss_perceptual += perceptual_loss_fn(output_feat, driving_feat.detach())
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
+                print("gaze_loss_fn:",gaze_loss_fn)
                 loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
                 loss_G = (
                     cfg.training.lambda_perceptual * loss_perceptual
