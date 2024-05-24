@@ -194,9 +194,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                 # Accumulate gradients
                 loss_gaze.backward(retain_graph=True)
-                loss_perceptual.backward(retain_graph=True)
-                loss_adversarial.backward(retain_graph=True)
-                loss_cosine.backward(retain_graph=True)
+                # loss_perceptual.backward(retain_graph=True)
+                # loss_adversarial.backward(retain_graph=True)
+                # loss_cosine.backward(retain_graph=True)
                 
 
                 # Update generator
@@ -219,7 +219,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
-                  f"Loss_G: {loss_G.item():.4f}, Loss_D: {loss_D.item():.4f}")
+                  f"Loss_G: {loss_gaze.item():.4f}, Loss_D: {loss_D.item():.4f}")
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
