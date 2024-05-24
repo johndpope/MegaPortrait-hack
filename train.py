@@ -16,7 +16,11 @@ from omegaconf import OmegaConf
 from torchvision import models
 from model import MPGazeLoss,Encoder
 from rome_losses import Vgg19 # use vgg19 for perceptualloss 
+import cv2
+import mediapipe as mp
 
+
+face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -95,6 +99,53 @@ def discriminator_loss(real_pred, fake_pred):
     fake_loss = F.mse_loss(fake_pred, torch.zeros_like(fake_pred))
     return real_loss + fake_loss
 
+
+        
+def gaze_loss_fn( predicted_gaze, target_gaze, face_image):
+        # Ensure face_image has shape (C, H, W)
+        if face_image.dim() == 4 and face_image.shape[0] == 1:
+            face_image = face_image.squeeze(0)
+        if face_image.dim() != 3 or face_image.shape[0] not in [1, 3]:
+            raise ValueError(f"Expected face_image of shape (C, H, W), got {face_image.shape}")
+        
+        # Convert face image from tensor to numpy array
+        face_image = face_image.detach().cpu().numpy()
+        if face_image.shape[0] == 3:  # if channels are first
+            face_image = face_image.transpose(1, 2, 0)
+        face_image = (face_image * 255).astype(np.uint8)
+
+        # Extract eye landmarks using MediaPipe
+        results = face_mesh.process(cv2.cvtColor(face_image, cv2.COLOR_RGB2BGR))
+        if not results.multi_face_landmarks:
+            return torch.tensor(0.0).to(device)
+
+        eye_landmarks = []
+        for face_landmarks in results.multi_face_landmarks:
+            left_eye_landmarks = [face_landmarks.landmark[idx] for idx in mp.solutions.face_mesh.FACEMESH_LEFT_EYE]
+            right_eye_landmarks = [face_landmarks.landmark[idx] for idx in mp.solutions.face_mesh.FACEMESH_RIGHT_EYE]
+            eye_landmarks.append((left_eye_landmarks, right_eye_landmarks))
+
+        # Compute loss for each eye
+        loss = 0.0
+        h, w = face_image.shape[:2]
+        for left_eye, right_eye in eye_landmarks:
+            # Convert landmarks to pixel coordinates
+            left_eye_pixels = [(int(lm.x * w), int(lm.y * h)) for lm in left_eye]
+            right_eye_pixels = [(int(lm.x * w), int(lm.y * h)) for lm in right_eye]
+
+            # Create eye mask
+            left_mask = torch.zeros((1, h, w)).to(device)
+            right_mask = torch.zeros((1, h, w)).to(device)
+            cv2.fillPoly(left_mask[0].cpu().numpy(), [np.array(left_eye_pixels)], 1.0)
+            cv2.fillPoly(right_mask[0].cpu().numpy(), [np.array(right_eye_pixels)], 1.0)
+
+            # Compute gaze loss for each eye
+            left_gaze_loss = F.mse_loss(predicted_gaze * left_mask, target_gaze * left_mask)
+            right_gaze_loss = F.mse_loss(predicted_gaze * right_mask, target_gaze * right_mask)
+            loss += left_gaze_loss + right_gaze_loss
+
+        return loss / len(eye_landmarks)
+
 def train_base(cfg, Gbase, Dbase, dataloader):
     Gbase.train()
     Dbase.train()
@@ -105,7 +156,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
     vgg19 = Vgg19().to(device)
     perceptual_loss_fn = nn.L1Loss().to(device)
-    gaze_loss_fn = MPGazeLoss(device)
+    # gaze_loss_fn = MPGazeLoss(device)
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
     for epoch in range(cfg.training.base_epochs):
@@ -138,7 +189,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
-                print("gaze_loss_fn:",gaze_loss_fn)
                 loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
                 loss_G = (
                     cfg.training.lambda_perceptual * loss_perceptual
@@ -179,7 +229,7 @@ def train_hr(cfg, GHR, Genh, dataloader_hr):
 
     vgg19 = Vgg19().to(device)
     perceptual_loss_fn = nn.L1Loss().to(device)
-    gaze_loss_fn = MPGazeLoss(device=device)
+    # gaze_loss_fn = MPGazeLoss(device=device)
 
     optimizer_G = torch.optim.AdamW(Genh.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.hr_epochs, eta_min=1e-6)
