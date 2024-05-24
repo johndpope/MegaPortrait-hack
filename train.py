@@ -20,7 +20,7 @@ from rome_losses import Vgg19 # use vgg19 for perceptualloss
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-
+torch.autograd.set_detect_anomaly(True)
 
 '''
 Perceptual Loss:
