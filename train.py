@@ -189,12 +189,12 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
-                loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
+                # loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
                 loss_G = (
                     cfg.training.lambda_perceptual * loss_perceptual
                     + cfg.training.lambda_adversarial * loss_adversarial
                     + cfg.training.lambda_cosine * loss_cosine
-                    + cfg.training.lambda_gaze * loss_gaze
+                    # + cfg.training.lambda_gaze * loss_gaze
                 )
 
                 # Backpropagate and update generator
