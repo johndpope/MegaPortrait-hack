@@ -1530,14 +1530,13 @@ class GazeBlinkLoss(nn.Module):
 
 
 # vanilla gazeloss using mediapipe
-
 class MPGazeLoss(nn.Module):
     def __init__(self, device):
         super(MPGazeLoss, self).__init__()
         self.device = device
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
+        self.mse_loss = nn.MSELoss()
         
-    @torch.cuda.amp.autocast(False)
     def forward(self, predicted_gaze, target_gaze, face_image):
         # Ensure face_image has shape (C, H, W)
         if face_image.dim() == 4 and face_image.shape[0] == 1:
@@ -1577,8 +1576,8 @@ class MPGazeLoss(nn.Module):
             cv2.fillPoly(right_mask[0].cpu().numpy(), [np.array(right_eye_pixels)], 1.0)
 
             # Compute gaze loss for each eye
-            left_gaze_loss = F.mse_loss(predicted_gaze * left_mask, target_gaze * left_mask)
-            right_gaze_loss = F.mse_loss(predicted_gaze * right_mask, target_gaze * right_mask)
+            left_gaze_loss = self.mse_loss(predicted_gaze * left_mask, target_gaze * left_mask)
+            right_gaze_loss = self.mse_loss(predicted_gaze * right_mask, target_gaze * right_mask)
             loss += left_gaze_loss + right_gaze_loss
 
         return loss / len(eye_landmarks)
