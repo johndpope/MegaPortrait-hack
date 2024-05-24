@@ -72,32 +72,34 @@ def cycle_consistency_loss(output_frame, source_frame, driving_frame, generator)
     loss = F.l1_loss(reconstructed_source, source_frame)
     return loss
 
-def contrastive_loss(output_frame, source_frame, driving_frame, encoder,margin=1.0):
+def contrastive_loss(output_frame, source_frame, driving_frame, encoder, margin=1.0):
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
-    z_rand = torch.randn_like(z_out)  # Define z_rand
-    
+    z_rand = torch.randn_like(z_out, requires_grad=True)  # Define z_rand with requires_grad=True
+
     pos_pairs = [(z_out, z_src), (z_out, z_drv)]
     neg_pairs = [(z_out, z_rand), (z_src, z_rand)]  # Update neg_pairs
-    
+
     loss = 0
     for pos_pair in pos_pairs:
-        loss += torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) / 
-                          (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) + neg_pair_loss(pos_pair, neg_pairs, margin)))  # Pass margin to neg_pair_loss
-    
+        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
+                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
+                                 neg_pair_loss(pos_pair, neg_pairs, margin)))  # Pass margin to neg_pair_loss
+
     return loss
 
 def neg_pair_loss(pos_pair, neg_pairs, margin):
     loss = 0
     for neg_pair in neg_pairs:
-        loss += torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)  # Update margin
+        loss = loss + torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)  # Update margin
     return loss
 
 def discriminator_loss(real_pred, fake_pred):
     real_loss = F.mse_loss(real_pred, torch.ones_like(real_pred))
     fake_loss = F.mse_loss(fake_pred, torch.zeros_like(fake_pred))
     return real_loss + fake_loss
+
 
 def gaze_loss_fn(predicted_gaze, target_gaze, face_image):
     # Ensure face_image has shape (C, H, W)
