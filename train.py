@@ -24,7 +24,7 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_face
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
 
 '''
 Perceptual Loss:
@@ -183,17 +183,19 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 loss_perceptual = 0
 
                 for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
-                    loss_perceptual += perceptual_loss_fn(output_feat, driving_feat.detach())
+                    loss_perceptual = loss_perceptual + perceptual_loss_fn(output_feat, driving_feat.detach())
+
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
                 loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
 
                 # Accumulate gradients
+                loss_gaze.backward(retain_graph=True)
                 loss_perceptual.backward(retain_graph=True)
                 loss_adversarial.backward(retain_graph=True)
                 loss_cosine.backward(retain_graph=True)
-                loss_gaze.backward(retain_graph=True)
+                
 
                 # Update generator
                 optimizer_G.step()
