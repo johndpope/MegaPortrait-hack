@@ -1582,27 +1582,21 @@ class MPGazeLoss(object):
         return loss / len(eye_landmarks)
 
 class Discriminator(nn.Module):
-    def __init__(self, in_channels=3):
+    def __init__(self, input_nc, ndf=64):
         super(Discriminator, self).__init__()
-
-        def discriminator_block(in_filters, out_filters, normalization=True):
-            """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
-            if normalization:
-                layers.append(nn.InstanceNorm2d(out_filters))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-
-        self.model = nn.Sequential(
-            *discriminator_block(in_channels * 2, 64, normalization=False),
-            *discriminator_block(64, 128),
-            *discriminator_block(128, 256),
-            *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(512, 1, 4, padding=1, bias=False)
-        )
-
-    def forward(self, img_A, img_B):
-        # Concatenate image and condition image by channels to produce input
-        img_input = torch.cat((img_A, img_B), 1)
-        return self.model(img_input)
+        self.conv1 = nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1)
+        self.fc = nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=1, padding=0)
+        self.bn2 = nn.BatchNorm2d(ndf * 2)
+        self.bn3 = nn.BatchNorm2d(ndf * 4)
+        self.bn4 = nn.BatchNorm2d(ndf * 8)
+        
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x), 0.2)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), 0.2)
+        x = F.leaky_relu(self.bn3(self.conv3(x)), 0.2)
+        x = F.leaky_relu(self.bn4(self.conv4(x)), 0.2)
+        x = self.fc(x)
+        return torch.sigmoid(x)

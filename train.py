@@ -124,11 +124,17 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 optimizer_G.zero_grad()
                 output_frame = Gbase(source_frame, driving_frame)
 
+
+                # Resize output_frame to 256x256 to match the driving_frame size
+                resized_output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
+
                 # Compute losses
-                output_vgg_features = vgg19(output_frame)
+                output_vgg_features = vgg19(resized_output_frame)
                 driving_vgg_features = vgg19(driving_frame)
                 loss_perceptual = 0
+
                 for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
+     
                     loss_perceptual += perceptual_loss_fn(output_feat, driving_feat.detach())
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
@@ -302,12 +308,13 @@ def main(cfg: OmegaConf) -> None:
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
     
     Gbase = model.Gbase()
-    Dbase = model.Discriminator()
+    Dbase = model.Discriminator(input_nc=3).to(device) # 🤷
+    
     train_base(cfg, Gbase, Dbase, dataloader)
     
     GHR = model.GHR()
     GHR.Gbase.load_state_dict(Gbase.state_dict())
-    Dhr = model.Discriminator()
+    Dhr = model.Discriminator(input_nc=3).to(device) # 🤷
     train_hr(cfg, GHR, Dhr, dataloader)
     
     Student = model.Student(num_avatars=100) # this should equal the number of celebs in dataset
