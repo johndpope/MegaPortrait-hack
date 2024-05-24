@@ -175,7 +175,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 optimizer_G.zero_grad()
                 output_frame = Gbase(source_frame, driving_frame)
 
-
                 # Resize output_frame to 256x256 to match the driving_frame size
                 resized_output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
@@ -190,15 +189,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
                 loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
                 loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
-                loss_G = (
-                     loss_perceptual #cfg.training.lambda_perceptual *
-                 #   + cfg.training.lambda_adversarial * loss_adversarial
-                  # cfg.training.lambda_cosine * loss_cosine
-                  #   cfg.training.lambda_gaze * loss_gaze
-                )
 
-                # Backpropagate and update generator
-                loss_perceptual.backward() #
+                # Accumulate gradients
+                loss_perceptual.backward(retain_graph=True)
+                loss_adversarial.backward(retain_graph=True)
+                loss_cosine.backward(retain_graph=True)
+                loss_gaze.backward(retain_graph=True)
+
+                # Update generator
                 optimizer_G.step()
 
                 # Train discriminator
