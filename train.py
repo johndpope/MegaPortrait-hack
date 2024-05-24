@@ -198,7 +198,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 )
 
                 # Backpropagate and update generator
-                loss_G.backward(retain_graph=True)
+                loss_G.backward() #retain_graph=True
                 optimizer_G.step()
 
                 # Train discriminator
