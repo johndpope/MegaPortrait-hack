@@ -8,6 +8,10 @@ import colored_traceback.auto
 from torchsummary import summary
 from resnet50 import ResNet50
 from memory_profiler import profile
+import logging
+
+# Configure logging - use logging.DEBUG to see tensor shapes
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 # keep the code in one mega class for copying and pasting into Claude.ai
@@ -75,8 +79,8 @@ class ResBlock_Custom(nn.Module):
     
 #    @profile
     def forward(self, x):
-        print("ResBlock_Custom > x.shape:",x.shape)
-        # print("x:",x)
+        logging.debug("ResBlock_Custom > x.shape:",x.shape)
+        # logging.debug("x:",x)
         
         out2 = self.conv_res(x)
 
@@ -201,55 +205,55 @@ class Eapp(nn.Module):
        
     def forward(self, x):
         # First part
-        print(f"image x: {x.shape}") # [1, 3, 256, 256]
+        logging.debug(f"image x: {x.shape}") # [1, 3, 256, 256]
         out = self.conv(x)
-        print(f"After conv: {out.shape}")  # [1, 3, 256, 256]
+        logging.debug(f"After conv: {out.shape}")  # [1, 3, 256, 256]
         out = self.resblock_128(out)
-        print(f"After resblock_128: {out.shape}") # [1, 128, 256, 256]
+        logging.debug(f"After resblock_128: {out.shape}") # [1, 128, 256, 256]
         out = self.avgpool(out)
-        print(f"After avgpool: {out.shape}")
+        logging.debug(f"After avgpool: {out.shape}")
         
         out = self.resblock_256(out)
-        print(f"After resblock_256: {out.shape}")
+        logging.debug(f"After resblock_256: {out.shape}")
         out = self.avgpool(out)
-        print(f"After avgpool: {out.shape}")
+        logging.debug(f"After avgpool: {out.shape}")
         
         out = self.resblock_512(out)
-        print(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
+        logging.debug(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
         # out = self.avgpool(out) 🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
-        # print(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
+        # logging.debug(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
    
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
-        print(f"After conv_1: {out.shape}") # [1, 1536, 32, 32]
+        logging.debug(f"After conv_1: {out.shape}") # [1, 1536, 32, 32]
         
      # reshape 1546 -> C96 x D16
         vs = out.view(out.size(0), 96, 16, *out.shape[2:]) # 🤷 this maybe inaccurate
-        print(f"reshape 1546 -> C96 x D16 : {vs.shape}") 
+        logging.debug(f"reshape 1546 -> C96 x D16 : {vs.shape}") 
         
         
         # 1
         vs = self.resblock3D_96(vs)
-        print(f"After resblock3D_96: {vs.shape}") 
+        logging.debug(f"After resblock3D_96: {vs.shape}") 
         vs = self.resblock3D_96_2(vs)
-        print(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
+        logging.debug(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
 
         # 2
         vs = self.resblock3D_96_1(vs)
-        print(f"After resblock3D_96_1: {vs.shape}") # [1, 96, 16, 32, 32]
+        logging.debug(f"After resblock3D_96_1: {vs.shape}") # [1, 96, 16, 32, 32]
         vs = self.resblock3D_96_1_2(vs)
-        print(f"After resblock3D_96_1_2: {vs.shape}")
+        logging.debug(f"After resblock3D_96_1_2: {vs.shape}")
 
         # 3
         vs = self.resblock3D_96_2(vs)
-        print(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
+        logging.debug(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
         vs = self.resblock3D_96_2_2(vs)
-        print(f"After resblock3D_96_2_2: {vs.shape}")
+        logging.debug(f"After resblock3D_96_2_2: {vs.shape}")
 
         # Second part
         es = self.custom_resnet50(x)
-        print("vs.shape:", vs.shape)  # 🤷 why does this end up 32x32 
+        logging.debug("vs.shape:", vs.shape)  # 🤷 why does this end up 32x32 
         return vs, es
 
 
@@ -338,20 +342,20 @@ class ResBlock3D_Adaptive(nn.Module):
 #    @profile
     def forward(self, x):
         residual = x
-        print("   🍒 ResBlock3D x.shape:",x.shape)
+        logging.debug("   🍒 ResBlock3D x.shape:",x.shape)
         out = self.conv1(x)
-        print("   conv1 > out.shape:",out.shape)
+        logging.debug("   conv1 > out.shape:",out.shape)
         out = self.norm1(out)
-        print("   norm1 > out.shape:",out.shape)
+        logging.debug("   norm1 > out.shape:",out.shape)
         out = F.relu(out)
-        print("   F.relu(out) > out.shape:",out.shape)
+        logging.debug("   F.relu(out) > out.shape:",out.shape)
         out = self.conv2(out)
-        print("   conv2 > out.shape:",out.shape)
+        logging.debug("   conv2 > out.shape:",out.shape)
         out = self.norm2(out)
-        print("   norm2 > out.shape:",out.shape)
+        logging.debug("   norm2 > out.shape:",out.shape)
         
         residual = self.residual_conv(residual)
-        print("   residual > residual.shape:",residual.shape)
+        logging.debug("   residual > residual.shape:",residual.shape)
         
         out += residual
         out = F.relu(out)
@@ -397,28 +401,28 @@ class WarpField(nn.Module):
 
 
 
-        print("WarpField > zs sum.shape:",zs.shape) #torch.Size([1, 512, 1, 1])
+        logging.debug("WarpField > zs sum.shape:",zs.shape) #torch.Size([1, 512, 1, 1])
         x = self.conv1x1(zs)
-        print("      conv1x1 > x.shape:",x.shape) #  -> [1, 2048, 1, 1]
+        logging.debug("      conv1x1 > x.shape:",x.shape) #  -> [1, 2048, 1, 1]
         x = self.reshape_layer(x)
-        print("      reshape_layer > x.shape:",x.shape) # -> [1, 512, 4, 1, 1]
+        logging.debug("      reshape_layer > x.shape:",x.shape) # -> [1, 512, 4, 1, 1]
         x = self.upsample1(self.resblock1(x))
-        print("      upsample1 > x.shape:",x.shape) # [1, 512, 4, 1, 1]
+        logging.debug("      upsample1 > x.shape:",x.shape) # [1, 512, 4, 1, 1]
         x = self.upsample2(self.resblock2(x))
-        print("      upsample2 > x.shape:",x.shape) #[512, 256, 8, 16, 16]
+        logging.debug("      upsample2 > x.shape:",x.shape) #[512, 256, 8, 16, 16]
         x = self.upsample3(self.resblock3(x))
-        print("      upsample3 > x.shape:",x.shape)# [512, 128, 16, 32, 32]
+        logging.debug("      upsample3 > x.shape:",x.shape)# [512, 128, 16, 32, 32]
         x = self.upsample4(self.resblock4(x))
-        print("      upsample4 > x.shape:",x.shape)
+        logging.debug("      upsample4 > x.shape:",x.shape)
         x = self.conv3x3x3(x)
-        print("      conv3x3x3 > x.shape:",x.shape)
+        logging.debug("      conv3x3x3 > x.shape:",x.shape)
         x = self.gn(x)
-        print("      gn > x.shape:",x.shape)
+        logging.debug("      gn > x.shape:",x.shape)
         x = F.relu(x)
-        print("      F.relu > x.shape:",x.shape)
+        logging.debug("      F.relu > x.shape:",x.shape)
 
         x = self.tanh(x)
-        print("      tanh > x.shape:",x.shape)
+        logging.debug("      tanh > x.shape:",x.shape)
 
         # Assertions for shape and values
         assert x.shape[1] == 3, f"Expected 3 channels after conv3x3x3, got {x.shape[1]}"
@@ -656,7 +660,7 @@ class G2d(nn.Module):
         ).to(device)
 
     def forward(self, x):
-        print("G2d > x:",x.shape)
+        logging.debug("G2d > x:",x.shape)
         x = self.reshape(x)
         x = self.conv1x1(x)  # Added 1x1 convolution to reduce channels to 512
         x = self.res_blocks(x)
@@ -792,17 +796,17 @@ class Emtn(nn.Module):
         rotation = head_pose[:, :3]
         translation = head_pose[:, 3:]
         
-        print("👤 head_pose shape Should print: torch.Size([1, 6]):",head_pose.shape)
-        print("📐 rotation shape Should print: torch.Size([1, 3]):",rotation.shape)
-        print("📷 translation shape Should print: torch.Size([1, 3]):",translation.shape)
+        logging.debug("👤 head_pose shape Should print: torch.Size([1, 6]):",head_pose.shape)
+        logging.debug("📐 rotation shape Should print: torch.Size([1, 3]):",rotation.shape)
+        logging.debug("📷 translation shape Should print: torch.Size([1, 3]):",translation.shape)
 
         # Extract pitch, yaw, and roll from the rotation vector
         pitch = rotation[:, 0]
         yaw = rotation[:, 1]
         roll = rotation[:, 2]
-        print("   pitch:",pitch)
-        print("   yaw:",yaw)
-        print("   roll:",roll)
+        logging.debug("   pitch:",pitch)
+        logging.debug("   yaw:",yaw)
+        logging.debug("   roll:",roll)
 
         # Forward pass through expression network
         expression = self.expression_net(x)
@@ -851,16 +855,16 @@ class WarpGeneratorS2C(nn.Module):
         # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
         w_em_s2c = self.warpfield(zs_sum)
-        print("w_em_s2c:",w_em_s2c.shape) # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
+        logging.debug("w_em_s2c:",w_em_s2c.shape) # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        print("w_rt_s2c:",w_rt_s2c.shape) 
+        logging.debug("w_rt_s2c:",w_rt_s2c.shape) 
         
 
         # 🤷 its the wrong dimensions - idk - 
         # Resize w_em_s2c to match w_rt_s2c
         w_em_s2c_resized = F.interpolate(w_em_s2c, size=w_rt_s2c.shape[2:], mode='trilinear', align_corners=False)
-        print("w_em_s2c_resized:", w_em_s2c_resized.shape)
+        logging.debug("w_em_s2c_resized:", w_em_s2c_resized.shape)
         w_s2c = w_rt_s2c + w_em_s2c_resized
 
         return w_s2c
@@ -896,7 +900,7 @@ class WarpGeneratorC2D(nn.Module):
 
          # Resize w_em_c2d to match w_rt_c2d
         w_em_c2d_resized = F.interpolate(w_em_c2d, size=w_rt_c2d.shape[2:], mode='trilinear', align_corners=False)
-        print("w_em_c2d_resized:", w_em_c2d_resized.shape)
+        logging.debug("w_em_c2d_resized:", w_em_c2d_resized.shape)
 
         w_c2d = w_rt_c2d + w_em_c2d_resized
 
@@ -906,14 +910,14 @@ class WarpGeneratorC2D(nn.Module):
 # Function to apply the 3D warping field
 def apply_warping_field(v, warp_field):
     B, C, D, H, W = v.size()
-    print("🍏 apply_warping_field v:", v.shape)
-    print("warp_field:", warp_field.shape)
+    logging.debug("🍏 apply_warping_field v:", v.shape)
+    logging.debug("warp_field:", warp_field.shape)
 
     device = v.device
 
     # Resize warp_field to match the dimensions of v
     warp_field = F.interpolate(warp_field, size=(D, H, W), mode='trilinear', align_corners=True)
-    print("Resized warp_field:", warp_field.shape)
+    logging.debug("Resized warp_field:", warp_field.shape)
 
     # Create a meshgrid for the canonical coordinates
     d = torch.linspace(-1, 1, D, device=device)
@@ -921,25 +925,25 @@ def apply_warping_field(v, warp_field):
     w = torch.linspace(-1, 1, W, device=device)
     grid_d, grid_h, grid_w = torch.meshgrid(d, h, w, indexing='ij')
     grid = torch.stack((grid_w, grid_h, grid_d), dim=-1)  # Shape: [D, H, W, 3]
-    print("Canonical grid:", grid.shape)
+    logging.debug("Canonical grid:", grid.shape)
 
     # Add batch dimension and repeat the grid for each item in the batch
     grid = grid.unsqueeze(0).repeat(B, 1, 1, 1, 1)  # Shape: [B, D, H, W, 3]
-    print("Batch grid:", grid.shape)
+    logging.debug("Batch grid:", grid.shape)
 
     # Apply the warping field to the grid
     warped_grid = grid + warp_field.permute(0, 2, 3, 4, 1)  # Shape: [B, D, H, W, 3]
-    print("Warped grid:", warped_grid.shape)
+    logging.debug("Warped grid:", warped_grid.shape)
 
     # Normalize the grid to the range [-1, 1]
     normalization_factors = torch.tensor([W-1, H-1, D-1], device=device)
-    print("Normalization factors:", normalization_factors)
+    logging.debug("Normalization factors:", normalization_factors)
     warped_grid = 2.0 * warped_grid / normalization_factors - 1.0
-    print("Normalized warped grid:", warped_grid.shape)
+    logging.debug("Normalized warped grid:", warped_grid.shape)
 
     # Apply grid sampling
     v_canonical = F.grid_sample(v, warped_grid, mode='bilinear', padding_mode='border', align_corners=True)
-    print("v_canonical:", v_canonical.shape)
+    logging.debug("v_canonical:", v_canonical.shape)
 
     return v_canonical
 
@@ -999,20 +1003,20 @@ class Gbase(nn.Module):
         Rs, ts, zs = self.motionEncoder(xs)
         Rd, td, zd = self.motionEncoder(xd)
 
-        print("es shape:",es.shape)
-        print("zs shape:",zs.shape)
+        logging.debug("es shape:",es.shape)
+        logging.debug("zs shape:",zs.shape)
 
 
         w_em_s2c = self.warp_generator_s2c(Rs, ts, zs, es)
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        print("w_em_s2c shape:",w_em_s2c.shape) # [1, 3, 64, 64, 64]
-        print("w_rt_s2c shape:",w_rt_s2c.shape) # [1, 3, 64, 64, 64]
+        logging.debug("w_em_s2c shape:",w_em_s2c.shape) # [1, 3, 64, 64, 64]
+        logging.debug("w_rt_s2c shape:",w_rt_s2c.shape) # [1, 3, 64, 64, 64]
 
 
         w_s2c = w_rt_s2c + w_em_s2c
 
 
-        print("vs shape:",vs.shape) 
+        logging.debug("vs shape:",vs.shape) 
         # Warp vs using w_s2c to obtain canonical volume vc
         vc = apply_warping_field(vs, w_s2c)
         assert vc.shape[1:] == (96, 16, 64, 64), f"Expected vc shape (_, 96, 16, 64, 64), got {vc.shape}"
@@ -1023,8 +1027,8 @@ class Gbase(nn.Module):
         # Generate warping field w_c2d
         w_em_c2d = self.warp_generator_c2d(Rd, td, zd, es)
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-        print("w_em_c2d shape:",w_em_c2d.shape) 
-        print("w_rt_c2d shape:",w_rt_c2d.shape) 
+        logging.debug("w_em_c2d shape:",w_em_c2d.shape) 
+        logging.debug("w_rt_c2d shape:",w_rt_c2d.shape) 
 
         w_c2d = w_rt_c2d + w_em_c2d #.permute(0, 2, 3, 4, 1)
 
