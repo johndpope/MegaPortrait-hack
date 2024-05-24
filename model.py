@@ -106,7 +106,7 @@ class CustomResNet50(nn.Module):
         resnet = models.resnet50(*args, **kwargs)
         self.conv1 = resnet.conv1
         self.bn1 = resnet.bn1
-        self.relu = resnet.relu
+      #  self.relu = resnet.relu
         self.maxpool = resnet.maxpool
         self.layer1 = resnet.layer1
         self.layer2 = resnet.layer2
@@ -123,7 +123,7 @@ class CustomResNet50(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)
+        x = F.relu(x)
         x = self.maxpool(x)
         x = self.layer1(x)
         x = self.layer2(x)
