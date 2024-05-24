@@ -193,8 +193,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 loss_G = (
                 #    cfg.training.lambda_perceptual * loss_perceptual
                  #   + cfg.training.lambda_adversarial * loss_adversarial
-                  #  + cfg.training.lambda_cosine * loss_cosine
-                     cfg.training.lambda_gaze * loss_gaze
+                   cfg.training.lambda_cosine * loss_cosine
+                  #   cfg.training.lambda_gaze * loss_gaze
                 )
 
                 # Backpropagate and update generator
