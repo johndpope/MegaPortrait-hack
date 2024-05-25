@@ -18,6 +18,7 @@ from model import MPGazeLoss,Encoder
 from rome_losses import Vgg19 # use vgg19 for perceptualloss 
 import cv2
 import mediapipe as mp
+from memory_profiler import profile
 
 
 face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
@@ -61,46 +62,49 @@ The discriminator_loss function computes the loss for the discriminator.
 It calculates the MSE loss between the predicted values for real samples and a tensor of ones, and the MSE loss between the predicted values for fake samples and a tensor of zeros.
 The total discriminator loss is the sum of the real and fake losses.
 '''
-
+# @profile
 def adversarial_loss(output_frame, discriminator):
     fake_pred = discriminator(output_frame)
     loss = F.mse_loss(fake_pred, torch.ones_like(fake_pred))
-    return loss
+    return loss.requires_grad_()
 
+# @profile
 def cycle_consistency_loss(output_frame, source_frame, driving_frame, generator):
     reconstructed_source = generator(output_frame, source_frame)
     loss = F.l1_loss(reconstructed_source, source_frame)
-    return loss
+    return loss.requires_grad_()
+
 
 def contrastive_loss(output_frame, source_frame, driving_frame, encoder, margin=1.0):
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
-    z_rand = torch.randn_like(z_out, requires_grad=True)  # Define z_rand with requires_grad=True
+    z_rand = torch.randn_like(z_out, requires_grad=True)
 
     pos_pairs = [(z_out, z_src), (z_out, z_drv)]
-    neg_pairs = [(z_out, z_rand), (z_src, z_rand)]  # Update neg_pairs
+    neg_pairs = [(z_out, z_rand), (z_src, z_rand)]
 
-    loss = 0
+    loss = torch.tensor(0.0, requires_grad=True).to(device)
     for pos_pair in pos_pairs:
         loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
                                 (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
-                                 neg_pair_loss(pos_pair, neg_pairs, margin)))  # Pass margin to neg_pair_loss
+                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
 
     return loss
 
 def neg_pair_loss(pos_pair, neg_pairs, margin):
-    loss = 0
+    loss = torch.tensor(0.0, requires_grad=True).to(device)
     for neg_pair in neg_pairs:
-        loss = loss + torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)  # Update margin
+        loss = loss + torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)
     return loss
-
+# @profile
 def discriminator_loss(real_pred, fake_pred):
     real_loss = F.mse_loss(real_pred, torch.ones_like(real_pred))
     fake_loss = F.mse_loss(fake_pred, torch.zeros_like(fake_pred))
-    return real_loss + fake_loss
+    return (real_loss + fake_loss).requires_grad_()
 
 
+# @profile
 def gaze_loss_fn(predicted_gaze, target_gaze, face_image):
     # Ensure face_image has shape (C, H, W)
     if face_image.dim() == 4 and face_image.shape[0] == 1:
@@ -189,14 +193,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
 
                 loss_adversarial = adversarial_loss(output_frame, Dbase)
-                loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
+                #loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
                 loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
 
                 # Accumulate gradients
-                loss_gaze.backward(retain_graph=True)
+                loss_gaze.backward()
                 loss_perceptual.backward(retain_graph=True)
-                loss_adversarial.backward(retain_graph=True)
-                loss_cosine.backward(retain_graph=True)
+                loss_adversarial.backward()
+                # loss_cosine.backward(retain_graph=True)
                 
 
                 # Update generator
@@ -219,7 +223,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
-                  f"Loss_G: {loss_G.item():.4f}, Loss_D: {loss_D.item():.4f}")
+                  f"Loss_G: {loss_gaze.item():.4f}, Loss_D: {loss_D.item():.4f}")
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
