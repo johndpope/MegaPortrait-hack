@@ -39,8 +39,8 @@ class Conv2d_WS(nn.Conv2d):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
         weight_std = weight.std(dim=[1, 2, 3], keepdim=True)
-        self.weight_mean.copy_(weight_mean)
-        self.weight_std.copy_(weight_std)
+        self.weight_mean = weight_mean.detach()  # Ensure it is not part of the computational graph
+        self.weight_std = weight_std.detach()    # Ensure it is not part of the computational graph
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv2d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
@@ -55,8 +55,9 @@ class Conv3D_WS(nn.Conv3d):
         weight = self.weight
         weight_mean = weight.mean(dim=[1, 2, 3, 4], keepdim=True)
         weight_std = weight.std(dim=[1, 2, 3, 4], keepdim=True)
-        self.weight_mean.copy_(weight_mean)
-        self.weight_std.copy_(weight_std)
+        self.weight_mean = weight_mean.detach()  # Ensure it is not part of the computational graph
+        self.weight_std = weight_std.detach()    # Ensure it is not part of the computational graph
+        
         standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
         return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
@@ -208,6 +209,7 @@ class Eapp(nn.Module):
 
         # Second part: producing global descriptor es
         self.custom_resnet50 = CustomResNet50().to(device)
+       
        
     def forward(self, x):
         # First part
