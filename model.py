@@ -402,8 +402,7 @@ class WarpField(nn.Module):
     
 #    @profile
     def forward(self, zs,adaptive_gamma, adaptive_beta): # 
-        # Apply adaptive parameters
-        zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
+       # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
 
 
