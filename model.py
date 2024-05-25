@@ -401,9 +401,9 @@ class WarpField(nn.Module):
         self.tanh = nn.Tanh().to(device)
     
 #    @profile
-    def forward(self, zs): # adaptive_gamma, adaptive_beta
+    def forward(self, zs,adaptive_gamma, adaptive_beta): # 
         # Apply adaptive parameters
-        # zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
+        zs = zs * adaptive_gamma.unsqueeze(-1).unsqueeze(-1) + adaptive_beta.unsqueeze(-1).unsqueeze(-1)
         
 
 
@@ -858,10 +858,10 @@ class WarpGeneratorS2C(nn.Module):
         zs_sum = zs + es
 
         # Generate adaptive parameters
-        # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
-        # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
+        adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
+        adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
         
-        w_em_s2c = self.warpfield(zs_sum)
+        w_em_s2c = self.warpfield(zs_sum,adaptive_gamma,adaptive_beta)
         logging.debug(f"w_em_s2c:  :{w_em_s2c.shape}") # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
         # Compute rotation/translation warping
         w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
@@ -897,10 +897,10 @@ class WarpGeneratorC2D(nn.Module):
         zd_sum = zd + es
         
         # Generate adaptive parameters
-        # adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
-        # adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
+        adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
+        adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
         
-        w_em_c2d = self.warpfield(zd_sum)
+        w_em_c2d = self.warpfield(zd_sum,adaptive_gamma,adaptive_beta)
 
         # Compute rotation/translation warping
         w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
