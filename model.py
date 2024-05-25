@@ -858,8 +858,8 @@ class WarpGeneratorS2C(nn.Module):
         zs_sum = zs + es
 
         # Generate adaptive parameters
-        adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
-        adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta)
+        adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma).to(device)
+        adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta).to(device)
         
         w_em_s2c = self.warpfield(zs_sum,adaptive_gamma,adaptive_beta)
         logging.debug(f"w_em_s2c:  :{w_em_s2c.shape}") # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
@@ -897,8 +897,8 @@ class WarpGeneratorC2D(nn.Module):
         zd_sum = zd + es
         
         # Generate adaptive parameters
-        adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
-        adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
+        adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma).to(device)
+        adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta).to(device)
         
         w_em_c2d = self.warpfield(zd_sum,adaptive_gamma,adaptive_beta)
 
