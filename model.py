@@ -1059,16 +1059,27 @@ class Gbase(nn.Module):
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
         fig = plt.figure(figsize=(15, 10))
 
-        # Plot source and driving images
+
+        # Extract pitch, yaw, and roll from rotation vectors
+        pitch_s, yaw_s, roll_s = Rs[:, 0], Rs[:, 1], Rs[:, 2]
+        pitch_d, yaw_d, roll_d = Rd[:, 0], Rd[:, 1], Rd[:, 2]
+
+        logging.debug(f"Source Image Pitch: {pitch_s}, Yaw: {yaw_s}, Roll: {roll_s}")
+        logging.debug(f"Driving Image Pitch: {pitch_d}, Yaw: {yaw_d}, Roll: {roll_d}")
+
+        fig = plt.figure(figsize=(15, 10))
+
+        # Plot source and driving images with titles indicating rotation parameters
         ax_source = fig.add_subplot(2, 3, 1)
         ax_source.imshow(np.transpose(xs.cpu().numpy()[0], (1, 2, 0)))
-        ax_source.set_title('Source Image')
+        ax_source.set_title(f'Source Image\nPitch: {pitch_s[0]:.2f}, Yaw: {yaw_s[0]:.2f}, Roll: {roll_s[0]:.2f}')
         ax_source.axis('off')
 
         ax_driving = fig.add_subplot(2, 3, 2)
         ax_driving.imshow(np.transpose(xd.cpu().numpy()[0], (1, 2, 0)))
-        ax_driving.set_title('Driving Image')
+        ax_driving.set_title(f'Driving Image\nPitch: {pitch_d[0]:.2f}, Yaw: {yaw_d[0]:.2f}, Roll: {roll_d[0]:.2f}')
         ax_driving.axis('off')
+
 
         # Plot w_s2c warp field
         ax_w_s2c = fig.add_subplot(2, 3, 4, projection='3d')
@@ -1089,7 +1100,7 @@ class Gbase(nn.Module):
         plt.tight_layout()
         plt.show()
 
-    def plot_warp_field(self, ax, warp_field, title, sample_rate=4):
+    def plot_warp_field(self, ax, warp_field, title, sample_rate=8):
         # Convert the warp field to numpy array
         warp_field_np = warp_field.detach().cpu().numpy()[0]  # Assuming batch size of 1
 
