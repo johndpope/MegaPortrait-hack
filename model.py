@@ -1004,7 +1004,7 @@ Finally, the projected features (vc2d_projected) are passed through the 2D convo
 
 '''
 
-
+import matplotlib.pyplot as plt
 
 class Gbase(nn.Module):
     def __init__(self):
@@ -1053,9 +1053,70 @@ class Gbase(nn.Module):
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
 
+        self.visualize_warp_fields(xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td)
         return xhat
 
+    def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
+        fig = plt.figure(figsize=(15, 10))
 
+        # Plot source and driving images
+        ax_source = fig.add_subplot(2, 3, 1)
+        ax_source.imshow(np.transpose(xs.cpu().numpy()[0], (1, 2, 0)))
+        ax_source.set_title('Source Image')
+        ax_source.axis('off')
+
+        ax_driving = fig.add_subplot(2, 3, 2)
+        ax_driving.imshow(np.transpose(xd.cpu().numpy()[0], (1, 2, 0)))
+        ax_driving.set_title('Driving Image')
+        ax_driving.axis('off')
+
+        # Plot w_s2c warp field
+        ax_w_s2c = fig.add_subplot(2, 3, 4, projection='3d')
+        self.plot_warp_field(ax_w_s2c, w_s2c, 'w_s2c Warp Field')
+
+        # Plot w_c2d warp field
+        ax_w_c2d = fig.add_subplot(2, 3, 3, projection='3d')
+        self.plot_warp_field(ax_w_c2d, w_c2d, 'w_c2d Warp Field')
+
+        # Plot canonical head rotations
+        ax_rotations_s = fig.add_subplot(2, 3, 5, projection='3d')
+        self.plot_rotations(ax_rotations_s, Rs, 'Canonical Head Rotations')
+
+        # Plot driving head rotations and translations
+        ax_rotations_d = fig.add_subplot(2, 3, 6, projection='3d')
+        self.plot_rotations(ax_rotations_d, Rd, 'Driving Head Rotations', ts, td)
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_warp_field(self, ax, warp_field, title):
+        # Convert the warp field to numpy array
+        warp_field_np = warp_field.detach().cpu().numpy()[0]  # Assuming batch size of 1
+
+        # Get the spatial dimensions of the warp field
+        depth, height, width = warp_field_np.shape[1:]
+
+        # Create meshgrids for the spatial dimensions
+        x = np.arange(width)
+        y = np.arange(height)
+        z = np.arange(depth)
+        X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+
+        # Extract the x, y, and z components of the warp field
+        U = warp_field_np[0]
+        V = warp_field_np[1]
+        W = warp_field_np[2]
+
+        # Plot the quiver3D
+        ax.quiver3D(X, Y, Z, U, V, W, length=0.3, normalize=True)
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title(title)
+
+    def plot_rotations(self, ax, rotations, title, source_translations=None, driving_translations=None):
+        # Code to visualize the rotations and translations goes here
+        pass
 
 
 '''
