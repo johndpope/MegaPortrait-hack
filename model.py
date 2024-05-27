@@ -1053,7 +1053,7 @@ class Gbase(nn.Module):
         # Pass projected features through G2d to obtain the final output image (xhat)
         xhat = self.G2d(vc2d_projected)
 
-        self.visualize_warp_fields(xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td)
+        # self.visualize_warp_fields(xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td)
         return xhat
 
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
