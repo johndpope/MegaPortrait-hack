@@ -1057,8 +1057,7 @@ class Gbase(nn.Module):
         return xhat
 
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
-        fig = plt.figure(figsize=(15, 10))
-
+     
 
         # Extract pitch, yaw, and roll from rotation vectors
         pitch_s, yaw_s, roll_s = Rs[:, 0], Rs[:, 1], Rs[:, 2]
