@@ -1089,26 +1089,40 @@ class Gbase(nn.Module):
         plt.tight_layout()
         plt.show()
 
-    def plot_warp_field(self, ax, warp_field, title):
+    def plot_warp_field(self, ax, warp_field, title, sample_rate=4):
         # Convert the warp field to numpy array
         warp_field_np = warp_field.detach().cpu().numpy()[0]  # Assuming batch size of 1
 
         # Get the spatial dimensions of the warp field
         depth, height, width = warp_field_np.shape[1:]
 
-        # Create meshgrids for the spatial dimensions
-        x = np.arange(width)
-        y = np.arange(height)
-        z = np.arange(depth)
+        # Create meshgrids for the spatial dimensions with sample_rate
+        x = np.arange(0, width, sample_rate)
+        y = np.arange(0, height, sample_rate)
+        z = np.arange(0, depth, sample_rate)
         X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
 
-        # Extract the x, y, and z components of the warp field
-        U = warp_field_np[0]
-        V = warp_field_np[1]
-        W = warp_field_np[2]
+        # Extract the x, y, and z components of the warp field with sample_rate
+        U = warp_field_np[0, ::sample_rate, ::sample_rate, ::sample_rate]
+        V = warp_field_np[1, ::sample_rate, ::sample_rate, ::sample_rate]
+        W = warp_field_np[2, ::sample_rate, ::sample_rate, ::sample_rate]
 
-        # Plot the quiver3D
-        ax.quiver3D(X, Y, Z, U, V, W, length=0.3, normalize=True)
+        # Create a mask for positive and negative values
+        mask_pos = (U > 0) | (V > 0) | (W > 0)
+        mask_neg = (U < 0) | (V < 0) | (W < 0)
+
+        # Set colors for positive and negative values
+        color_pos = 'red'
+        color_neg = 'blue'
+
+        # Plot the quiver3D for positive values
+        ax.quiver3D(X[mask_pos], Y[mask_pos], Z[mask_pos], U[mask_pos], V[mask_pos], W[mask_pos],
+                    color=color_pos, length=0.3, normalize=True)
+
+        # Plot the quiver3D for negative values
+        ax.quiver3D(X[mask_neg], Y[mask_neg], Z[mask_neg], U[mask_neg], V[mask_neg], W[mask_neg],
+                    color=color_neg, length=0.3, normalize=True)
+
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
