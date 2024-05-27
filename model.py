@@ -11,7 +11,7 @@ from memory_profiler import profile
 import logging
 
 # Set this flag to True for DEBUG mode, False for INFO mode
-debug_mode = False
+debug_mode = True
 
 # Configure logging
 if debug_mode:
@@ -699,10 +699,8 @@ def compute_rt_warp(rotation, translation, invert=False, grid_size=64):
     Returns:
         torch.Tensor: The resulting transformation grid.
     """
-    # Compute the rotation matrix from the rotation parameters
-    rotation_matrix = compute_rotation_matrix(rotation)
-
-    # Create a 4x4 affine transformation matrix
+   def compute_rt_warp(rotation, translation, invert=False, grid_size=[16, 64, 64]):
+    # Create a 4x4 identity matrix
     affine_matrix = torch.eye(4, device=rotation.device).repeat(rotation.shape[0], 1, 1)
 
     # Set the top-left 3x3 submatrix to the rotation matrix
@@ -715,10 +713,9 @@ def compute_rt_warp(rotation, translation, invert=False, grid_size=64):
     if invert:
         affine_matrix = torch.inverse(affine_matrix)
 
-    # # Create a grid of normalized coordinates 
-    grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
-    # # Transpose the dimensions of the grid to match the expected shape
-    grid = grid.permute(0, 4, 1, 2, 3)
+    # Generate the base grid using affine_grid
+    grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, *grid_size), align_corners=True)
+
     return grid
 
 def compute_rotation_matrix(rotation):
@@ -917,45 +914,6 @@ class WarpGeneratorC2D(nn.Module):
         return w_c2d
 
 
-# Function to apply the 3D warping field
-def apply_warping_field(v, warp_field):
-    B, C, D, H, W = v.size()
-    logging.debug(f"🍏 apply_warping_field v:{v.shape}", )
-    logging.debug(f"warp_field:{warp_field.shape}" )
-
-    device = v.device
-
-    # Resize warp_field to match the dimensions of v
-    warp_field = F.interpolate(warp_field, size=(D, H, W), mode='trilinear', align_corners=True)
-    logging.debug(f"Resized warp_field:{warp_field.shape}" )
-
-    # Create a meshgrid for the canonical coordinates
-    d = torch.linspace(-1, 1, D, device=device)
-    h = torch.linspace(-1, 1, H, device=device)
-    w = torch.linspace(-1, 1, W, device=device)
-    grid_d, grid_h, grid_w = torch.meshgrid(d, h, w, indexing='ij')
-    grid = torch.stack((grid_w, grid_h, grid_d), dim=-1)  # Shape: [D, H, W, 3]
-    logging.debug(f"Canonical grid:{grid.shape}" )
-
-    # Add batch dimension and repeat the grid for each item in the batch
-    grid = grid.unsqueeze(0).repeat(B, 1, 1, 1, 1)  # Shape: [B, D, H, W, 3]
-    logging.debug(f"Batch grid:{grid.shape}" )
-
-    # Apply the warping field to the grid
-    warped_grid = grid + warp_field.permute(0, 2, 3, 4, 1)  # Shape: [B, D, H, W, 3]
-    logging.debug(f"Warped grid:{warped_grid.shape}" )
-
-    # Normalize the grid to the range [-1, 1]
-    normalization_factors = torch.tensor([W-1, H-1, D-1], device=device)
-    logging.debug(f"Normalization factors:{normalization_factors}" )
-    warped_grid = 2.0 * warped_grid / normalization_factors - 1.0
-    logging.debug(f"Normalized warped grid:{warped_grid.shape}" )
-
-    # Apply grid sampling
-    v_canonical = F.grid_sample(v, warped_grid, mode='bilinear', padding_mode='border', align_corners=True)
-    logging.debug(f"v_canonical:{v_canonical.shape}" )
-
-    return v_canonical
 
 
 
@@ -1021,8 +979,10 @@ class Gbase(nn.Module):
 
 
         logging.debug(f"vs shape:{vs.shape}") 
-        # Warp vs using w_s2c to obtain canonical volume vc
-        vc = apply_warping_field(vs, w_s2c)
+
+          # Warp vs using w_s2c to obtain canonical volume vc
+        vc = F.grid_sample(vs, w_s2c, mode='trilinear', padding_mode='border', align_corners=True)
+
         assert vc.shape[1:] == (96, 16, 64, 64), f"Expected vc shape (_, 96, 16, 64, 64), got {vc.shape}"
 
         # Process canonical volume (vc) using G3d to obtain vc2d
@@ -1033,8 +993,7 @@ class Gbase(nn.Module):
         logging.debug(f"w_c2d shape:{w_c2d.shape}") 
 
         # Warp vc2d using w_c2d to impose driving motion
-        vc2d_warped = apply_warping_field(vc2d, w_c2d)
-        assert vc2d_warped.shape[1:] == (96, 16, 64, 64), f"Expected vc2d_warped shape (_, 96, 16, 64, 64), got {vc2d_warped.shape}"
+        vc2d_warped = F.grid_sample(vc2d, w_c2d, mode='trilinear', padding_mode='border', align_corners=True)
 
         # Perform orthographic projection (P)
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
