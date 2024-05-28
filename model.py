@@ -796,9 +796,9 @@ class Emtn(nn.Module):
         super().__init__()
         # https://github.com/johndpope/MegaPortrait-hack/issues/19
         # replace this with off the shelf SixDRepNet
-        # self.head_pose_net = resnet18(pretrained=True).to(device)
-        # self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
-        self.head_pose_net =  SixDRepNet_Detector()
+        self.head_pose_net = resnet18(pretrained=True).to(device)
+        self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
+        self.rotation_net =  SixDRepNet_Detector()
 
         model = resnet18(pretrained=False,num_classes=512).to(device)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
@@ -808,17 +808,12 @@ class Emtn(nn.Module):
 
     def forward(self, x):
         # Forward pass through head pose network
-        rotations,translations = self.head_pose_net.predict(x)
-        logging.debug(f"📐 rotation shape Should print: torch.Size([1, 3]):{rotations}")
-        logging.debug(f"📷 translation shape Should print: torch.Size([1, 3]):{translations}")
+        rotations,_ = self.rotation_net.predict(x)
+        logging.debug(f"📐 rotation :{rotations}")
+        _,translations = self.head_pose_net(x)
+        logging.debug(f"📷 translation :{translations}")
 
-        # Extract pitch, yaw, and roll from the rotation vector
-        pitch = rotations[0]
-        yaw = rotations[1]
-        roll = rotations[2]
-        logging.debug(f"   pitch:{pitch}")
-        logging.debug(f"   yaw:{yaw}")
-        logging.debug(f"   roll:{roll}")
+
 
         # Forward pass through expression network
         expression = self.expression_net(x)

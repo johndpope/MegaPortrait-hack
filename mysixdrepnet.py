@@ -826,11 +826,11 @@ class SixDRepNet_Detector():
         rotations,translations  = self.model(img)
         
         euler = compute_euler_angles_from_rotation_matrices(rotations)*180/np.pi
-        p = euler[:, 0].cpu().detach().numpy()
-        y = euler[:, 1].cpu().detach().numpy()
-        r = euler[:, 2].cpu().detach().numpy()
+        # p = euler[:, 0].cpu().detach().numpy()
+        # y = euler[:, 1].cpu().detach().numpy()
+        # r = euler[:, 2].cpu().detach().numpy()
 
-        return [p,y,r],translations
+        return euler,translations
 
 
     def draw_axis(self, img, yaw, pitch, roll, tdx=None, tdy=None, size = 100):
