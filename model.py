@@ -894,6 +894,7 @@ class WarpGeneratorS2C(nn.Module):
         which is more reasonable than just using sum.
         '''
         zs_sum = torch.matmul(zs_sum, self.adaptive_matrix_gamma) 
+        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1) ### TODO 3: add unsqueeze(-1).unsqueeze(-1) to match the shape of w_em_s2c
 
         adaptive_gamma = 0
         adaptive_beta = 0
@@ -943,8 +944,9 @@ class WarpGeneratorC2D(nn.Module):
         adaptive_matrix_gamma should be retained. It is not used to change the shape, but can generate learning parameters, 
         which is more reasonable than just using sum.
         '''
-        zs_sum = torch.matmul(zs_sum, self.adaptive_matrix_gamma) 
-                
+        zd_sum = torch.matmul(zd_sum, self.adaptive_matrix_gamma) 
+        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1) ### TODO 3 add unsqueeze(-1).unsqueeze(-1) to match the shape of w_em_c2d
+
         adaptive_gamma = 0
         adaptive_beta = 0
         w_em_c2d = self.flowfield(zd_sum,adaptive_gamma,adaptive_beta)
