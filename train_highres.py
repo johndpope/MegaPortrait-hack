@@ -1,3 +1,5 @@
+# not convinced we need to train this - see metaportrait Super Resolution model
+# https://github.com/Meta-Portrait/MetaPortrait/tree/main/sr_model
 import argparse
 import torch
 import model
@@ -19,13 +21,66 @@ from rome_losses import Vgg19 # use vgg19 for perceptualloss
 import cv2
 import mediapipe as mp
 from memory_profiler import profile
+import torchvision.transforms as transforms
+import os
+from torchvision.utils import save_image
+
+
+
+# Create a directory to save the images (if it doesn't already exist)
+output_dir = "output_images"
+os.makedirs(output_dir, exist_ok=True)
 
 
 face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
+# torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
+
+
+
+'''
+We load the pre-trained DeepLabV3 model using models.segmentation.deeplabv3_resnet101(pretrained=True). This model is based on the ResNet-101 backbone and is pre-trained on the COCO dataset.
+We define the necessary image transformations using transforms.Compose. The transformations include converting the image to a tensor and normalizing it using the mean and standard deviation values specific to the model.
+We apply the transformations to the input image using transform(image) and add an extra dimension to represent the batch size using unsqueeze(0).
+We move the input tensor to the same device as the model to ensure compatibility.
+We perform the segmentation by passing the input tensor through the model using model(input_tensor). The output is a dictionary containing the segmentation map.
+We obtain the predicted segmentation mask by taking the argmax of the output along the channel dimension using torch.max(output['out'], dim=1).
+We convert the segmentation mask to a binary foreground mask by comparing the predicted class labels with the class index representing the person class (assuming it is 15 in this example). The resulting mask will have values of 1 for foreground pixels and 0 for background pixels.
+Finally, we return the foreground mask.
+'''
+
+def get_foreground_mask(image):
+    # Load the pre-trained DeepLabV3 model
+    model = models.segmentation.deeplabv3_resnet101(pretrained=True)
+    model.eval()
+
+    # Define the image transformations
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    # Apply the transformations to the input image
+    input_tensor = transform(image).unsqueeze(0)
+
+    # Move the input tensor to the same device as the model
+    device = next(model.parameters()).device
+    input_tensor = input_tensor.to(device)
+
+    # Perform the segmentation
+    with torch.no_grad():
+        output = model(input_tensor)
+
+    # Get the predicted segmentation mask
+    _, mask = torch.max(output['out'], dim=1)
+
+    # Convert the segmentation mask to a binary foreground mask
+    foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
+
+    return foreground_mask
+
 
 '''
 Perceptual Loss:
@@ -62,6 +117,7 @@ The discriminator_loss function computes the loss for the discriminator.
 It calculates the MSE loss between the predicted values for real samples and a tensor of ones, and the MSE loss between the predicted values for fake samples and a tensor of zeros.
 The total discriminator loss is the sum of the real and fake losses.
 '''
+
 # @profile
 def adversarial_loss(output_frame, discriminator):
     fake_pred = discriminator(output_frame)
@@ -181,27 +237,36 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 output_frame = Gbase(source_frame, driving_frame)
 
                 # Resize output_frame to 256x256 to match the driving_frame size
-                resized_output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
+                output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
-                # Compute losses
-                output_vgg_features = vgg19(resized_output_frame)
-                driving_vgg_features = vgg19(driving_frame)
-                loss_perceptual = 0
+
+                # 💀 Compute losses -  "losses are calculated using ONLY foreground regions" 
+                # Obtain the foreground mask for the target image
+                foreground_mask = get_foreground_mask(source_frame)
+
+                # Multiply the predicted and target images with the foreground mask
+                masked_predicted_image = output_frame * foreground_mask
+                masked_target_image = source_frame * foreground_mask
+
+
+                output_vgg_features = vgg19(masked_predicted_image)
+                driving_vgg_features = vgg19(masked_target_image)  
+                total_loss = 0
 
                 for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
-                    loss_perceptual = loss_perceptual + perceptual_loss_fn(output_feat, driving_feat.detach())
+                    total_loss = total_loss + perceptual_loss_fn(output_feat, driving_feat.detach())
 
+                loss_adversarial = adversarial_loss(masked_predicted_image, Dbase)
 
-                loss_adversarial = adversarial_loss(output_frame, Dbase)
-                #loss_cosine = contrastive_loss(output_frame, source_frame, driving_frame, encoder)
-                loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame)
+                loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame) # 🤷 fix this
+                # Combine the losses and perform backpropagation and optimization
+                total_loss = total_loss + loss_adversarial + loss_gaze
 
+                
                 # Accumulate gradients
                 loss_gaze.backward()
-                loss_perceptual.backward(retain_graph=True)
+                total_loss.backward(retain_graph=True)
                 loss_adversarial.backward()
-                # loss_cosine.backward(retain_graph=True)
-                
 
                 # Update generator
                 optimizer_G.step()
@@ -215,6 +280,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 # Backpropagate and update discriminator
                 loss_D.backward()
                 optimizer_D.step()
+
 
         # Update learning rates
         scheduler_G.step()
@@ -345,7 +411,7 @@ def main(cfg: OmegaConf) -> None:
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter()
+        transforms.ColorJitter() # as augmentation for both source and target images, we use color jitter and random flip
     ])
 
     dataset = EMODataset(
