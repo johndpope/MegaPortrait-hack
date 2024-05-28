@@ -810,14 +810,18 @@ class Emtn(nn.Module):
         # Forward pass through head pose network
         rotations,_ = self.rotation_net.predict(x)
         logging.debug(f"📐 rotation :{rotations}")
-        _,translations = self.head_pose_net(x)
-        logging.debug(f"📷 translation :{translations}")
+       
+
+        head_pose = self.head_pose_net(x)
+
+        # Split head pose into rotation and translation parameters
+        # rotation = head_pose[:, :3]  - this is shit
+        translation = head_pose[:, 3:]
 
 
-
-        # Forward pass through expression network
+        # Forward pass image through expression network
         expression = self.expression_net(x)
-        return rotations, translations, expression
+        return rotations, translation, expression
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
 
 
