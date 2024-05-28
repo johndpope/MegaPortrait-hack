@@ -21,8 +21,9 @@ from resnet50 import ResNet50
 from memory_profiler import profile
 import logging
 
+from mysixdrepnet import SixDRepNet_Detector
 # Set this flag to True for DEBUG mode, False for INFO mode
-debug_mode = False
+debug_mode = True
 
 # Configure logging
 if debug_mode:
@@ -779,8 +780,6 @@ def compute_rotation_matrix(rotation):
 
     return rotation_matrix
 
-        
-
 
 
 '''
@@ -795,9 +794,11 @@ Note: Make sure to adjust the dimensions of the rotation, translation, and expre
 class Emtn(nn.Module):
     def __init__(self):
         super().__init__()
-        self.head_pose_net = resnet18(pretrained=True).to(device)
-        self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
-        
+        # https://github.com/johndpope/MegaPortrait-hack/issues/19
+        # replace this with off the shelf SixDRepNet
+        # self.head_pose_net = resnet18(pretrained=True).to(device)
+        # self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
+        self.head_pose_net =  SixDRepNet_Detector()
 
         model = resnet18(pretrained=False,num_classes=512).to(device)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
@@ -807,27 +808,21 @@ class Emtn(nn.Module):
 
     def forward(self, x):
         # Forward pass through head pose network
-        head_pose = self.head_pose_net(x)
-
-        # Split head pose into rotation and translation parameters
-        rotation = head_pose[:, :3]
-        translation = head_pose[:, 3:]
-        
-        logging.debug(f"👤 head_pose shape Should print: torch.Size([1, 6]):{head_pose.shape}")
-        logging.debug(f"📐 rotation shape Should print: torch.Size([1, 3]):{rotation.shape}")
-        logging.debug(f"📷 translation shape Should print: torch.Size([1, 3]):{translation.shape}")
+        rotations,translations = self.head_pose_net.predict(x)
+        logging.debug(f"📐 rotation shape Should print: torch.Size([1, 3]):{rotations}")
+        logging.debug(f"📷 translation shape Should print: torch.Size([1, 3]):{translations}")
 
         # Extract pitch, yaw, and roll from the rotation vector
-        pitch = rotation[:, 0]
-        yaw = rotation[:, 1]
-        roll = rotation[:, 2]
+        pitch = rotations[0]
+        yaw = rotations[1]
+        roll = rotations[2]
         logging.debug(f"   pitch:{pitch}")
         logging.debug(f"   yaw:{yaw}")
         logging.debug(f"   roll:{roll}")
 
         # Forward pass through expression network
         expression = self.expression_net(x)
-        return rotation, translation, expression
+        return rotations, translations, expression
     #This encoder outputs head rotations R𝑠/𝑑 ,translations t𝑠/𝑑 , and latent expression descriptors z𝑠/𝑑
 
 
