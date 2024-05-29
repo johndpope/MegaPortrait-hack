@@ -189,8 +189,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     # Multiply the predicted and target images with the foreground mask
                     masked_predicted_image = output_frame * foreground_mask
                     masked_target_image = source_frame * foreground_mask
-                    print("Predicted shape:", masked_predicted_image.shape)
-                    print("Target shape:", masked_target_image.shape)
                     # Calculate perceptual losses
                     perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
 

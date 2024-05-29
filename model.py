@@ -32,7 +32,7 @@ import face_recognition
 
 from mysixdrepnet import SixDRepNet_Detector
 # Set this flag to True for DEBUG mode, False for INFO mode
-debug_mode = True
+debug_mode = False
 
 # Configure logging
 if debug_mode:
@@ -1839,11 +1839,11 @@ class PerceptualLoss(nn.Module):
         loss = 0.0
         predicted_features = predicted
         target_features = target
-        print(f"predicted_features:{predicted_features.shape}")
-        print(f"target_features:{target_features.shape}")
+        #print(f"predicted_features:{predicted_features.shape}")
+        #print(f"target_features:{target_features.shape}")
 
         for i, layer in enumerate(model.children()):
-            print(f"i{i}")
+            # print(f"i{i}")
             if isinstance(layer, nn.Conv2d):
                 predicted_features = layer(predicted_features)
                 target_features = layer(target_features)
