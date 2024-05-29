@@ -202,7 +202,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
 
                     # Combine the losses
-                    total_loss = perceptual_loss + 1.0 * loss_adv + 40.0 * loss_fm + 2.0 * loss_cos
                     total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
 
                     # Backpropagate and update generator
