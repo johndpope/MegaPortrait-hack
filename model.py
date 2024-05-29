@@ -285,7 +285,7 @@ class Eapp(nn.Module):
         # Second part
         es_resnet = self.custom_resnet50(x)
         ### TODO 2
-        print(f"🍌 es:{es_resnet.shape}")
+        # print(f"🍌 es:{es_resnet.shape}") # [1, 512, 2, 2]
         es_flatten = torch.flatten(es_resnet, start_dim=1)
         es = self.fc(es_flatten) # torch.Size([bs, 2048]) -> torch.Size([bs, COMPRESS_DIM])        
        
