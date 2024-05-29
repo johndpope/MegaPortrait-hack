@@ -11,24 +11,16 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from EmoDataset import EMODataset
 import torch.nn.functional as F
-import decord
 from omegaconf import OmegaConf
 from torchvision import models
-from model import MPGazeLoss,Encoder
-from rome_losses import Vgg19 # use vgg19 for perceptualloss 
+from model import Encoder,PerceptualLoss,crop_and_warp_face,get_foreground_mask
+# from rome_losses import Vgg19 # use vgg19 for perceptualloss 
 import cv2
 import mediapipe as mp
 # from memory_profiler import profile
 import torchvision.transforms as transforms
 import os
-from torchvision.utils import save_image
-from skimage.transform import PiecewiseAffineTransform, warp
-import face_recognition
-import torchvision.transforms as transforms
-from torchvision.transforms.functional import to_pil_image, to_tensor
-from PIL import Image
-from skimage.transform import PiecewiseAffineTransform, warp
-import face_recognition
+
 
 # # Define the transform for data preprocessing
 transform = transforms.Compose([
@@ -51,98 +43,8 @@ device = torch.device("cuda" if use_cuda else "cpu")
 # torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
 
 
-'''
-As for driving image, before sending it to Emtn we do a center crop around the face of
-a person. Next, we augment it using a random warping based on
-thin-plate-splines, which severely degrades the shape of the facial
-features, yet keeps the expression intact (ex., it cannot close or open
-eyes or change the eyes’ direction). Finally, we apply a severe color
-jitter.
-'''
 
 
-def crop_and_warp_face(image_tensor):
-    # Check if the input tensor has a batch dimension and handle it
-    if image_tensor.ndim == 4:
-        # Assuming batch size is the first dimension, process one image at a time
-        image_tensor = image_tensor.squeeze(0)
-    
-    # Convert the single image tensor to a PIL Image
-    image = to_pil_image(image_tensor)
-
-    # Detect the face in the image using the numpy array
-    face_locations = face_recognition.face_locations(np.array(image))
-
-    if len(face_locations) > 0:
-        top, right, bottom, left = face_locations[0]
-
-        # Crop the face region from the image
-        face_image = image.crop((left, top, right, bottom))
-
-        # Convert the face image to a numpy array
-        face_array = np.array(face_image)
-
-        # Generate random control points for thin-plate-spline warping
-        rows, cols = face_array.shape[:2]
-        src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
-        dst_points = src_points + np.random.randn(4, 2) * (rows * 0.1)
-
-        # Create a PiecewiseAffineTransform object
-        tps = PiecewiseAffineTransform()
-        tps.estimate(src_points, dst_points)
-
-        # Apply the thin-plate-spline warping to the face image
-        warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
-
-        # Convert the warped face array back to a PIL image
-        warped_face_image = Image.fromarray(warped_face_array.astype(np.uint8))
-
-        # Convert the warped PIL image back to a tensor
-        return to_tensor(warped_face_image)
-    else:
-        return None
-
-
-'''
-We load the pre-trained DeepLabV3 model using models.segmentation.deeplabv3_resnet101(pretrained=True). This model is based on the ResNet-101 backbone and is pre-trained on the COCO dataset.
-We define the necessary image transformations using transforms.Compose. The transformations include converting the image to a tensor and normalizing it using the mean and standard deviation values specific to the model.
-We apply the transformations to the input image using transform(image) and add an extra dimension to represent the batch size using unsqueeze(0).
-We move the input tensor to the same device as the model to ensure compatibility.
-We perform the segmentation by passing the input tensor through the model using model(input_tensor). The output is a dictionary containing the segmentation map.
-We obtain the predicted segmentation mask by taking the argmax of the output along the channel dimension using torch.max(output['out'], dim=1).
-We convert the segmentation mask to a binary foreground mask by comparing the predicted class labels with the class index representing the person class (assuming it is 15 in this example). The resulting mask will have values of 1 for foreground pixels and 0 for background pixels.
-Finally, we return the foreground mask.
-'''
-
-def get_foreground_mask(image):
-    # Load the pre-trained DeepLabV3 model
-    model = models.segmentation.deeplabv3_resnet101(pretrained=True)
-    model.eval()
-
-    # Define the image transformations
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-
-    # Apply the transformations to the input image
-    input_tensor = transform(image).unsqueeze(0)
-
-    # Move the input tensor to the same device as the model
-    device = next(model.parameters()).device
-    input_tensor = input_tensor.to(device)
-
-    # Perform the segmentation
-    with torch.no_grad():
-        output = model(input_tensor)
-
-    # Get the predicted segmentation mask
-    _, mask = torch.max(output['out'], dim=1)
-
-    # Convert the segmentation mask to a binary foreground mask
-    foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
-
-    return foreground_mask
 
 
 '''
@@ -270,6 +172,25 @@ def gaze_loss_fn(predicted_gaze, target_gaze, face_image):
     return loss / len(eye_landmarks)
 
 
+
+'''
+Perceptual Losses (ℒ_per):
+        VGG19 perceptual loss (ℒ_IN)
+        VGGFace perceptual loss (ℒ_face)
+        Gaze loss (ℒ_gaze)
+
+Adversarial Losses (ℒ_GAN):
+        Generator adversarial loss (ℒ_adv)
+        Feature matching loss (ℒ_FM)
+
+Cycle Consistency Loss (ℒ_cos)
+
+N.B
+Perceptual Loss (w_per): The perceptual loss is often given a higher weight compared to other losses to prioritize the generation of perceptually similar images. A weight of 20 is a reasonable starting point to emphasize the importance of perceptual similarity.
+Adversarial Loss (w_adv): The adversarial loss is typically assigned a lower weight compared to the perceptual loss. A weight of 1 is a common choice to balance the adversarial training without overpowering other losses.
+Feature Matching Loss (w_fm): The feature matching loss is used to stabilize the training process and improve the quality of generated images. A weight of 40 is a relatively high value to give significant importance to feature matching and encourage the generator to produce realistic features.
+Cycle Consistency Loss (w_cos): The cycle consistency loss helps in preserving the identity and consistency between the source and generated images. A weight of 2 is a moderate value to ensure cycle consistency without dominating the other losses.
+'''
 def train_base(cfg, Gbase, Dbase, dataloader):
     Gbase.train()
     Dbase.train()
@@ -278,65 +199,59 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.base_epochs, eta_min=1e-6)
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
-    vgg19 = Vgg19().to(device)
-    perceptual_loss_fn = nn.L1Loss().to(device)
-    # gaze_loss_fn = MPGazeLoss(device)
+    perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
     for epoch in range(cfg.training.base_epochs):
         print("epoch:", epoch)
         for batch in dataloader:
-            source_frames = batch['source_frames'] #.to(device)
-            driving_frames = batch['driving_frames'] #.to(device)
+            source_frames = batch['source_frames']
+            driving_frames = batch['driving_frames']
 
-            num_frames = len(source_frames)  # Get the number of frames in the batch
+            num_frames = len(source_frames)
 
             for idx in range(num_frames):
                 source_frame = source_frames[idx].to(device)
                 driving_frame = driving_frames[idx].to(device)
 
-                # B.1 Training details Perform face cropping and random warping on the driving frame - supp. material
-                warped_driving_frame = crop_and_warp_face(driving_frame)
-                print(f"warped_driving_frame:{warped_driving_frame.shape}")
+                # Apply face cropping and random warping to the driving frame
+                warped_driving_frame =  driving_frame #crop_and_warp_face(driving_frame, pad_to_original=True)
+
                 if warped_driving_frame is not None:
-                    
                     # Train generator
                     optimizer_G.zero_grad()
                     output_frame = Gbase(source_frame, warped_driving_frame)
 
-                    # Resize output_frame to 256x256 to match the driving_frame size
+                    # Resize output_frame to match the driving_frame size
                     output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
-
-                    # 💀 Compute losses -  "losses are calculated using ONLY foreground regions" 
                     # Obtain the foreground mask for the target image
                     foreground_mask = get_foreground_mask(source_frame)
+                    
+                    # Move the foreground mask to the same device as output_frame
+                    foreground_mask = foreground_mask.to(output_frame.device)
 
                     # Multiply the predicted and target images with the foreground mask
                     masked_predicted_image = output_frame * foreground_mask
                     masked_target_image = source_frame * foreground_mask
+                    print("Predicted shape:", masked_predicted_image.shape)
+                    print("Target shape:", masked_target_image.shape)
+                    # Calculate perceptual losses
+                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
 
+                    # Calculate adversarial losses
+                    loss_adv = adversarial_loss(masked_predicted_image, Dbase)
+                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
 
-                    output_vgg_features = vgg19(masked_predicted_image)
-                    driving_vgg_features = vgg19(masked_target_image)  
-                    total_loss = 0
+                    # Calculate cycle consistency loss
+                    loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
 
-                    for output_feat, driving_feat in zip(output_vgg_features, driving_vgg_features):
-                        total_loss = total_loss + perceptual_loss_fn(output_feat, driving_feat.detach())
+                    # Combine the losses
+                    total_loss = perceptual_loss + 1.0 * loss_adv + 40.0 * loss_fm + 2.0 * loss_cos
+                    total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
 
-                    loss_adversarial = adversarial_loss(masked_predicted_image, Dbase)
-
-                    loss_gaze = gaze_loss_fn(output_frame, driving_frame, source_frame) # 🤷 fix this
-                    # Combine the losses and perform backpropagation and optimization
-                    total_loss = total_loss + loss_adversarial + loss_gaze
-
-                    
-                    # Accumulate gradients
-                    loss_gaze.backward()
-                    total_loss.backward(retain_graph=True)
-                    loss_adversarial.backward()
-
-                    # Update generator
+                    # Backpropagate and update generator
+                    total_loss.backward()
                     optimizer_G.step()
 
                     # Train discriminator
@@ -349,7 +264,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     loss_D.backward()
                     optimizer_D.step()
 
-
         # Update learning rates
         scheduler_G.step()
         scheduler_D.step()
@@ -357,12 +271,10 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
-                  f"Loss_G: {loss_gaze.item():.4f}, Loss_D: {loss_D.item():.4f}")
+                  f"Loss_G: {total_loss.item():.4f}, Loss_D: {loss_D.item():.4f}")
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
-
-
 
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
