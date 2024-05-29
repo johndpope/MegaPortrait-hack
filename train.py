@@ -25,6 +25,10 @@ from torchvision.utils import save_image
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
 import torchvision.transforms as transforms
+from torchvision.transforms.functional import to_pil_image, to_tensor
+from PIL import Image
+from skimage.transform import PiecewiseAffineTransform, warp
+import face_recognition
 
 # # Define the transform for data preprocessing
 transform = transforms.Compose([
@@ -57,19 +61,23 @@ jitter.
 '''
 
 
-def crop_and_warp_face(image):
-    # Convert the image to RGB format
-    rgb_image = image.convert('RGB')
+def crop_and_warp_face(image_tensor):
+    # Check if the input tensor has a batch dimension and handle it
+    if image_tensor.ndim == 4:
+        # Assuming batch size is the first dimension, process one image at a time
+        image_tensor = image_tensor.squeeze(0)
+    
+    # Convert the single image tensor to a PIL Image
+    image = to_pil_image(image_tensor)
 
-    # Detect the face in the image
-    face_locations = face_recognition.face_locations(np.array(rgb_image))
+    # Detect the face in the image using the numpy array
+    face_locations = face_recognition.face_locations(np.array(image))
 
     if len(face_locations) > 0:
-        # Get the bounding box coordinates of the first face
         top, right, bottom, left = face_locations[0]
 
         # Crop the face region from the image
-        face_image = rgb_image.crop((left, top, right, bottom))
+        face_image = image.crop((left, top, right, bottom))
 
         # Convert the face image to a numpy array
         face_array = np.array(face_image)
@@ -89,10 +97,10 @@ def crop_and_warp_face(image):
         # Convert the warped face array back to a PIL image
         warped_face_image = Image.fromarray(warped_face_array.astype(np.uint8))
 
-        return warped_face_image
+        # Convert the warped PIL image back to a tensor
+        return to_tensor(warped_face_image)
     else:
         return None
-    
 
 
 '''
@@ -289,11 +297,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                 # B.1 Training details Perform face cropping and random warping on the driving frame - supp. material
                 warped_driving_frame = crop_and_warp_face(driving_frame)
-
+                print(f"warped_driving_frame:{warped_driving_frame.shape}")
                 if warped_driving_frame is not None:
-                    # Convert the warped driving frame to a tensor and move it to the device
-                    warped_driving_frame = transform(warped_driving_frame).to(device)
-
+                    
                     # Train generator
                     optimizer_G.zero_grad()
                     output_frame = Gbase(source_frame, warped_driving_frame)
@@ -383,7 +389,7 @@ def main(cfg: OmegaConf) -> None:
     
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
     
-    Gbase = model.Gbase()
+    Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator(input_nc=3).to(device) # 🤷
     
     train_base(cfg, Gbase, Dbase, dataloader)    
