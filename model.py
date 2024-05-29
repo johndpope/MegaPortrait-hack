@@ -1780,9 +1780,6 @@ class Discriminator(nn.Module):
         return torch.sigmoid(x)
 
 
-
-
-
 class PerceptualLoss(nn.Module):
     def __init__(self, device, weights={'vgg19': 1.0, 'vggface': 1.0, 'gaze': 1.0}):
         super(PerceptualLoss, self).__init__()
@@ -1790,7 +1787,8 @@ class PerceptualLoss(nn.Module):
         self.weights = weights
 
         # VGG19 network
-        self.vgg19 = models.vgg19(pretrained=True).features.to(device).eval()
+        vgg19 = models.vgg19(pretrained=True).features
+        self.vgg19 = nn.Sequential(*[vgg19[i] for i in range(30)]).to(device).eval()
         self.vgg19_layers = [1, 6, 11, 20, 29]
 
         # VGGFace network
@@ -1812,13 +1810,13 @@ class PerceptualLoss(nn.Module):
         vggface_loss = self.compute_vggface_loss(predicted, target)
 
         # Compute gaze loss
-        gaze_loss = self.gaze_loss(predicted, target)
+        # gaze_loss = self.gaze_loss(predicted, target)
 
         # Compute total perceptual loss
         total_loss = (
             self.weights['vgg19'] * vgg19_loss +
             self.weights['vggface'] * vggface_loss +
-            self.weights['gaze'] * gaze_loss
+            self.weights['gaze'] * 1 #gaze_loss
         )
 
         if use_fm_loss:
@@ -1829,53 +1827,47 @@ class PerceptualLoss(nn.Module):
         return total_loss
 
     def compute_vgg19_loss(self, predicted, target):
-        vgg19_loss = 0.0
-        predicted_features = predicted
-        target_features = target
-
-        for i, layer in enumerate(self.vgg19):
-            predicted_features = layer(predicted_features)
-            target_features = layer(target_features)
-
-            if i in self.vgg19_layers:
-                vgg19_loss += torch.mean(torch.abs(predicted_features - target_features))
-
-        return vgg19_loss
+        return self.compute_perceptual_loss(self.vgg19, self.vgg19_layers, predicted, target)
 
     def compute_vggface_loss(self, predicted, target):
-        vggface_loss = 0.0
+        return self.compute_perceptual_loss(self.vggface, self.vggface_layers, predicted, target)
+
+    def compute_feature_matching_loss(self, predicted, target):
+        return self.compute_perceptual_loss(self.vgg19, self.vgg19_layers, predicted, target, detach=True)
+
+    def compute_perceptual_loss(self, model, layers, predicted, target, detach=False):
+        loss = 0.0
         predicted_features = predicted
         target_features = target
+        print(f"predicted_features:{predicted_features.shape}")
+        print(f"target_features:{target_features.shape}")
 
-        for i, layer in enumerate(self.vggface.modules()):
+        for i, layer in enumerate(model.children()):
+            print(f"i{i}")
             if isinstance(layer, nn.Conv2d):
                 predicted_features = layer(predicted_features)
                 target_features = layer(target_features)
-                print(f"Layer {i}: Predicted features shape: {predicted_features.shape}, Target features shape: {target_features.shape}")
+            elif isinstance(layer, nn.Linear):
+                predicted_features = predicted_features.view(predicted_features.size(0), -1)
+                target_features = target_features.view(target_features.size(0), -1)
+                predicted_features = layer(predicted_features)
+                target_features = layer(target_features)
+            else:
+                predicted_features = layer(predicted_features)
+                target_features = layer(target_features)
 
-                if i in self.vggface_layers:
-                    vggface_loss += torch.mean(torch.abs(predicted_features - target_features))
+            if i in layers:
+                if detach:
+                    loss += torch.mean(torch.abs(predicted_features - target_features.detach()))
+                else:
+                    loss += torch.mean(torch.abs(predicted_features - target_features))
 
-        return vggface_loss
-
-    def compute_feature_matching_loss(self, predicted, target):
-        fm_loss = 0.0
-        predicted_features = predicted
-        target_features = target
-
-        for i, layer in enumerate(self.vgg19):
-            predicted_features = layer(predicted_features)
-            target_features = layer(target_features)
-
-            if i in self.vgg19_layers:
-                fm_loss += torch.mean(torch.abs(predicted_features - target_features.detach()))
-
-        return fm_loss
+        return loss
 
     def normalize_input(self, x):
-        return (x - 0.5) * 2.0
-
-
+        mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+        return (x - mean) / std
 
 
 
