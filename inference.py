@@ -48,7 +48,7 @@ def main():
       # Load pretrained base model
     Gbase = model.Gbase()
     # Load pretrained base model
-    checkpoint = torch.load("Gbase_epoch2.pth")
+    checkpoint = torch.load("Gbase_epoch1.pth")
     Gbase.load_state_dict(checkpoint, strict=False)
 
     # Set device
@@ -63,7 +63,7 @@ def main():
     output_frame = inference_base(source_image_path, driving_image_path, Gbase)
 
     # Save output frame
-    cv2.imwrite("output_base.jpg", output_frame)
+    cv2.imwrite("./output_images/output_base.jpg", output_frame)
 
 if __name__ == "__main__":
     main()
