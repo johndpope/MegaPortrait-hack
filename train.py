@@ -24,12 +24,6 @@ import torchvision.utils as vutils
 
 
 
-# # Define the transform for data preprocessing
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize([0.5], [0.5]),
-])
-
 
 
 
@@ -246,14 +240,22 @@ def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
   
+    # vanilla - dont normalize image - but slower convergence. saved images will look "correct"
+    # transform = transforms.Compose(
+    #         [
+    #             transforms.ToTensor(),
+    #             transforms.Resize((256, 256))
+    #         ]
+    #     )
+
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]),
+        transforms.Normalize([0.5], [0.5]), # makes the image red
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
     ])
 
-  #     transforms.RandomHorizontalFlip(),
-   #     transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
- 
+
     dataset = EMODataset(
         use_gpu=use_cuda,
         width=cfg.data.train_width,
@@ -276,5 +278,6 @@ def main(cfg: OmegaConf) -> None:
 
 
 if __name__ == "__main__":
+
     config = OmegaConf.load("./configs/training/stage1-base.yaml")
     main(config)

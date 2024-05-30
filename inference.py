@@ -44,17 +44,19 @@ def inference_base(source_image_path, driving_image_path, Gbase):
     return output_frame
 
 def main():
-    # Load pretrained base model
+      # Load pretrained base model
     Gbase = model.Gbase()
-    Gbase.load_state_dict(torch.load("Gbase.pth"))
+    # Load pretrained base model
+    checkpoint = torch.load("Gbase_epoch12.pth")
+    Gbase.load_state_dict(checkpoint, strict=False)
 
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     Gbase.to(device)
 
     # Specify paths to source and driving images
-    source_image_path = "path/to/source/image.jpg"
-    driving_image_path = "path/to/driving/image.jpg"
+    source_image_path = "./output_images/source_frame_0.png"
+    driving_image_path = "./output_images/driving_frame_0.png"
 
     # Perform inference
     output_frame = inference_base(source_image_path, driving_image_path, Gbase)

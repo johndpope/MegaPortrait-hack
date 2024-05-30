@@ -26,15 +26,7 @@ class EMODataset(Dataset):
         self.transform = transform
         self.stage = stage
 
-        # Reduce 512 images -> 256
-        self.pixel_transform = transforms.Compose(
-            [
-                # transforms.Resize((256, 256)), - just go HQ
-                transforms.ToTensor(),
-                # transforms.Normalize([0.5], [0.5]), - this makes picture go red
-            ]
-        )
-
+        self.pixel_transform = transform
         self.drop_ratio = drop_ratio
         with open(json_file, 'r') as f:
             self.celebvhq_info = json.load(f)
