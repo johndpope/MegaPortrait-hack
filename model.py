@@ -21,6 +21,13 @@ from resnet50 import ResNet50
 from memory_profiler import profile
 import logging
 import cv2
+import torchvision.models as models
+from facenet_pytorch import InceptionResnetV1
+import torchvision.transforms as transforms
+from torchvision.transforms.functional import to_pil_image, to_tensor
+from PIL import Image
+from skimage.transform import PiecewiseAffineTransform, warp
+import face_recognition
 
 
 from mysixdrepnet import SixDRepNet_Detector
@@ -251,7 +258,7 @@ class Eapp(nn.Module):
         
         out = self.resblock_512(out)
         logging.debug(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
-        # out = self.avgpool(out) 🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
+        out = self.avgpool(out) # at 512x512 image training - we need this  🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
         # logging.debug(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
    
         out = F.group_norm(out, num_groups=32)
@@ -1812,3 +1819,216 @@ class Discriminator(nn.Module):
         x = F.leaky_relu(self.bn4(self.conv4(x)), 0.2)
         x = self.fc(x)
         return torch.sigmoid(x)
+
+class PerceptualLoss(nn.Module):
+    def __init__(self, device, weights={'vgg19': 1.0, 'vggface': 1.0, 'gaze': 1.0}):
+        super(PerceptualLoss, self).__init__()
+        self.device = device
+        self.weights = weights
+
+        # VGG19 network
+        vgg19 = models.vgg19(pretrained=True).features
+        self.vgg19 = nn.Sequential(*[vgg19[i] for i in range(30)]).to(device).eval()
+        self.vgg19_layers = [1, 6, 11, 20, 29]
+
+        # VGGFace network
+        self.vggface = InceptionResnetV1(pretrained='vggface2').to(device).eval()
+        self.vggface_layers = [4, 5, 6, 7]
+
+        # Gaze loss
+        self.gaze_loss = MPGazeLoss(device)
+
+    def forward(self, predicted, target, use_fm_loss=False):
+        # Normalize input images
+        predicted = self.normalize_input(predicted)
+        target = self.normalize_input(target)
+
+        # Compute VGG19 perceptual loss
+        vgg19_loss = self.compute_vgg19_loss(predicted, target)
+
+        # Compute VGGFace perceptual loss
+        vggface_loss = self.compute_vggface_loss(predicted, target)
+
+        # Compute gaze loss
+        # gaze_loss = self.gaze_loss(predicted, target)
+
+        # Compute total perceptual loss
+        total_loss = (
+            self.weights['vgg19'] * vgg19_loss +
+            self.weights['vggface'] * vggface_loss +
+            self.weights['gaze'] * 1 #gaze_loss
+        )
+
+        if use_fm_loss:
+            # Compute feature matching loss
+            fm_loss = self.compute_feature_matching_loss(predicted, target)
+            total_loss += fm_loss
+
+        return total_loss
+
+    def compute_vgg19_loss(self, predicted, target):
+        return self.compute_perceptual_loss(self.vgg19, self.vgg19_layers, predicted, target)
+
+    def compute_vggface_loss(self, predicted, target):
+        return self.compute_perceptual_loss(self.vggface, self.vggface_layers, predicted, target)
+
+    def compute_feature_matching_loss(self, predicted, target):
+        return self.compute_perceptual_loss(self.vgg19, self.vgg19_layers, predicted, target, detach=True)
+
+    def compute_perceptual_loss(self, model, layers, predicted, target, detach=False):
+        loss = 0.0
+        predicted_features = predicted
+        target_features = target
+        #print(f"predicted_features:{predicted_features.shape}")
+        #print(f"target_features:{target_features.shape}")
+
+        for i, layer in enumerate(model.children()):
+            # print(f"i{i}")
+            if isinstance(layer, nn.Conv2d):
+                predicted_features = layer(predicted_features)
+                target_features = layer(target_features)
+            elif isinstance(layer, nn.Linear):
+                predicted_features = predicted_features.view(predicted_features.size(0), -1)
+                target_features = target_features.view(target_features.size(0), -1)
+                predicted_features = layer(predicted_features)
+                target_features = layer(target_features)
+            else:
+                predicted_features = layer(predicted_features)
+                target_features = layer(target_features)
+
+            if i in layers:
+                if detach:
+                    loss += torch.mean(torch.abs(predicted_features - target_features.detach()))
+                else:
+                    loss += torch.mean(torch.abs(predicted_features - target_features))
+
+        return loss
+
+    def normalize_input(self, x):
+        mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+        return (x - mean) / std
+
+
+
+
+'''
+As for driving image, before sending it to Emtn we do a center crop around the face of
+a person. Next, we augment it using a random warping based on
+thin-plate-splines, which severely degrades the shape of the facial
+features, yet keeps the expression intact (ex., it cannot close or open
+eyes or change the eyes’ direction). Finally, we apply a severe color
+jitter.
+'''
+
+from rembg import remove
+import io
+
+def crop_and_warp_face(image_tensor, pad_to_original=False):
+    # Check if the input tensor has a batch dimension and handle it
+    if image_tensor.ndim == 4:
+        # Assuming batch size is the first dimension, process one image at a time
+        image_tensor = image_tensor.squeeze(0)
+    
+    # Convert the single image tensor to a PIL Image
+    image = to_pil_image(image_tensor)
+    
+    # Remove the background from the image
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    bg_removed_bytes = remove(img_byte_arr)
+    bg_removed_image = Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA")
+    
+    # Convert the image to RGB format to make it compatible with face_recognition
+    bg_removed_image_rgb = bg_removed_image.convert("RGB")
+
+    # Detect the face in the background-removed RGB image using the numpy array
+    face_locations = face_recognition.face_locations(np.array(bg_removed_image_rgb))
+
+    if len(face_locations) > 0:
+        top, right, bottom, left = face_locations[0]
+
+        # Crop the face region from the image
+        face_image = bg_removed_image.crop((left, top, right, bottom))
+
+        # Convert the face image to a numpy array
+        face_array = np.array(face_image)
+
+        # Generate random control points for thin-plate-spline warping
+        rows, cols = face_array.shape[:2]
+        src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
+        dst_points = src_points + np.random.randn(4, 2) * (rows * 0.1)
+
+        # Create a PiecewiseAffineTransform object
+        tps = PiecewiseAffineTransform()
+        tps.estimate(src_points, dst_points)
+
+        # Apply the thin-plate-spline warping to the face image
+        warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
+
+        # Convert the warped face array back to a PIL image
+        warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+
+        if pad_to_original:
+            # Create a new blank image with the same size as the original image
+            padded_image = Image.new('RGBA', bg_removed_image.size)
+
+            # Paste the warped face image onto the padded image at the original location
+            padded_image.paste(warped_face_image, (left, top))
+
+            # Convert the padded PIL image back to a tensor
+            return to_tensor(padded_image)
+        else:
+            # Convert the warped PIL image back to a tensor
+            return to_tensor(warped_face_image)
+    else:
+        return None
+
+'''
+We load the pre-trained DeepLabV3 model using models.segmentation.deeplabv3_resnet101(pretrained=True). This model is based on the ResNet-101 backbone and is pre-trained on the COCO dataset.
+We define the necessary image transformations using transforms.Compose. The transformations include converting the image to a tensor and normalizing it using the mean and standard deviation values specific to the model.
+We apply the transformations to the input image using transform(image) and add an extra dimension to represent the batch size using unsqueeze(0).
+We move the input tensor to the same device as the model to ensure compatibility.
+We perform the segmentation by passing the input tensor through the model using model(input_tensor). The output is a dictionary containing the segmentation map.
+We obtain the predicted segmentation mask by taking the argmax of the output along the channel dimension using torch.max(output['out'], dim=1).
+We convert the segmentation mask to a binary foreground mask by comparing the predicted class labels with the class index representing the person class (assuming it is 15 in this example). The resulting mask will have values of 1 for foreground pixels and 0 for background pixels.
+Finally, we return the foreground mask.
+'''
+def get_foreground_mask(image):
+    # Load the pre-trained DeepLabV3 model
+    model = models.segmentation.deeplabv3_resnet101(pretrained=True)
+    model.eval()
+
+    # Define the image transformations
+    transform = transforms.Compose([
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    # Check if the input is a PyTorch tensor
+    if isinstance(image, torch.Tensor):
+        # Assume the tensor is already in the range [0, 1]
+        if image.dim() == 4 and image.shape[0] == 1:
+            # Remove the extra dimension if present
+            image = image.squeeze(0)
+        input_tensor = transform(image).unsqueeze(0)
+    else:
+        # Convert PIL Image or NumPy array to tensor
+        input_tensor = transforms.ToTensor()(image)
+        input_tensor = transform(input_tensor).unsqueeze(0)
+
+    # Move the input tensor to the same device as the model
+    device = next(model.parameters()).device
+    input_tensor = input_tensor.to(device)
+
+    # Perform the segmentation
+    with torch.no_grad():
+        output = model(input_tensor)
+
+    # Get the predicted segmentation mask
+    _, mask = torch.max(output['out'], dim=1)
+
+    # Convert the segmentation mask to a binary foreground mask
+    foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
+
+    return foreground_mask.to(device)
