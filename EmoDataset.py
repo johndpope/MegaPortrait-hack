@@ -31,7 +31,7 @@ class EMODataset(Dataset):
             [
                 # transforms.Resize((256, 256)), - just go HQ
                 transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),
+                # transforms.Normalize([0.5], [0.5]), - this makes picture go red
             ]
         )
 

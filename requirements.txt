@@ -10,8 +10,9 @@ git+https://github.com/johndpope/colored-traceback.py.git
 torchsummary
 moviepy
 decord
-eva-decord # mac m1 support
+# eva-decord # mac m1 support - is it broken?
 omegaconf
 memory_profiler
 face_recognition
 facenet_pytorch
+rembg

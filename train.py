@@ -171,15 +171,17 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 source_frame = source_frames[idx].to(device)
                 driving_frame = driving_frames[idx].to(device)
 
-                # Apply face cropping and random warping to the driving frame
-                warped_driving_frame =  driving_frame #crop_and_warp_face(driving_frame, pad_to_original=False)
-
+                # Apply face cropping and random warping to the driving frame for losses ONLY!
+                warped_driving_frame =  crop_and_warp_face(driving_frame, pad_to_original=True)
+                vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
+                                
                 if warped_driving_frame is not None:
                     # Train generator
                     optimizer_G.zero_grad()
-                    output_frame = Gbase(source_frame, warped_driving_frame)
-                    print(f"outputframe:{output_frame.shape}")
-                    # Resize output_frame to match the driving_frame size
+                    output_frame = Gbase(source_frame, driving_frame) 
+
+                    # 256 x 256 - Resize output_frame to match the driving_frame size
                     # output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
                     # Obtain the foreground mask for the target image

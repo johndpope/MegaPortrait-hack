@@ -1921,6 +1921,9 @@ eyes or change the eyes’ direction). Finally, we apply a severe color
 jitter.
 '''
 
+from rembg import remove
+import io
+
 def crop_and_warp_face(image_tensor, pad_to_original=False):
     # Check if the input tensor has a batch dimension and handle it
     if image_tensor.ndim == 4:
@@ -1929,15 +1932,25 @@ def crop_and_warp_face(image_tensor, pad_to_original=False):
     
     # Convert the single image tensor to a PIL Image
     image = to_pil_image(image_tensor)
+    
+    # Remove the background from the image
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    bg_removed_bytes = remove(img_byte_arr)
+    bg_removed_image = Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA")
+    
+    # Convert the image to RGB format to make it compatible with face_recognition
+    bg_removed_image_rgb = bg_removed_image.convert("RGB")
 
-    # Detect the face in the image using the numpy array
-    face_locations = face_recognition.face_locations(np.array(image))
+    # Detect the face in the background-removed RGB image using the numpy array
+    face_locations = face_recognition.face_locations(np.array(bg_removed_image_rgb))
 
     if len(face_locations) > 0:
         top, right, bottom, left = face_locations[0]
 
         # Crop the face region from the image
-        face_image = image.crop((left, top, right, bottom))
+        face_image = bg_removed_image.crop((left, top, right, bottom))
 
         # Convert the face image to a numpy array
         face_array = np.array(face_image)
@@ -1955,11 +1968,11 @@ def crop_and_warp_face(image_tensor, pad_to_original=False):
         warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
 
         # Convert the warped face array back to a PIL image
-        warped_face_image = Image.fromarray(warped_face_array.astype(np.uint8))
+        warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
 
         if pad_to_original:
             # Create a new blank image with the same size as the original image
-            padded_image = Image.new('RGB', image.size)
+            padded_image = Image.new('RGBA', bg_removed_image.size)
 
             # Paste the warped face image onto the padded image at the original location
             padded_image.paste(warped_face_image, (left, top))
@@ -1971,8 +1984,6 @@ def crop_and_warp_face(image_tensor, pad_to_original=False):
             return to_tensor(warped_face_image)
     else:
         return None
-
-
 
 '''
 We load the pre-trained DeepLabV3 model using models.segmentation.deeplabv3_resnet101(pretrained=True). This model is based on the ResNet-101 backbone and is pre-trained on the COCO dataset.
