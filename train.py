@@ -120,11 +120,21 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scaler = GradScaler()
 
     for epoch in range(cfg.training.base_epochs):
-        print("epoch:", epoch)
+        print("Epoch:", epoch)
         start_time = time.time()  # Start time for the epoch
+        data_loading_time = 0
+        face_cropping_warping_time = 0
+        generator_forward_time = 0
+        loss_calculation_time = 0
+        generator_backward_time = 0
+        discriminator_forward_time = 0
+        discriminator_backward_time = 0
+
         for batch in dataloader:
+            data_loading_start_time = time.time()
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
+            data_loading_time += time.time() - data_loading_start_time
 
             num_frames = len(driving_frames)
 
@@ -133,67 +143,73 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 driving_frame = driving_frames[idx].to(device)
 
                 # Apply face cropping and random warping to the driving frame for losses ONLY!
-                warped_driving_frame = crop_and_warp_face(driving_frame, pad_to_original=True)
+                # face_cropping_warping_start_time = time.time()
+                # warped_driving_frame = crop_and_warp_face(driving_frame, pad_to_original=True)
+                # face_cropping_warping_time += time.time() - face_cropping_warping_start_time
                       
-                if warped_driving_frame is not None:
+                # if warped_driving_frame is not None:
                     # Train generator
-                    optimizer_G.zero_grad()
+                optimizer_G.zero_grad()
 
-                    with autocast():
-                        output_frame = Gbase(source_frame, driving_frame)
+                with autocast():
+                    generator_forward_start_time = time.time()
+                    output_frame = Gbase(source_frame, driving_frame)
+                    generator_forward_time += time.time() - generator_forward_start_time
 
-                        # Obtain the foreground mask for the driving image
-                        foreground_mask = get_foreground_mask(driving_frame)
+                    # Obtain the foreground mask for the driving image
+                    foreground_mask = get_foreground_mask(driving_frame)
 
-                        # Move the foreground mask to the same device as output_frame
-                        foreground_mask = foreground_mask.to(output_frame.device)
+                    # Move the foreground mask to the same device as output_frame
+                    foreground_mask = foreground_mask.to(output_frame.device)
 
-                        # Multiply the predicted and driving images with the foreground mask
-                        masked_predicted_image = output_frame * foreground_mask
-                        masked_driving_image = driving_frame * foreground_mask
+                    # Multiply the predicted and driving images with the foreground mask
+                    masked_predicted_image = output_frame * foreground_mask
+                    masked_driving_image = driving_frame * foreground_mask
 
-                        save_images = True
-                        # Save the images
-                        if save_images:
-                            vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
-                            vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                            vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
-                            vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
-                            vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
-                            vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
-                            vutils.save_image(masked_driving_image, f"{output_dir}/masked_driving_image_{idx}.png")
-
-                        # Calculate perceptual losses
-                        perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_driving_image)
-
-                        # Calculate adversarial losses
-                        loss_adv = adversarial_loss(masked_predicted_image, Dbase)
-                        loss_fm = perceptual_loss_fn(masked_predicted_image, masked_driving_image, use_fm_loss=True)
-
-                        # Calculate cycle consistency loss
-                        loss_cos = contrastive_loss(masked_predicted_image, masked_driving_image, masked_predicted_image, encoder)
-
-                        # Combine the losses
-                        total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
-                    
-                    
+                    save_images = False
+                    # Save the images
+                    if save_images:
+                        vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
+                        vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                        # vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
+                        vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
+                        vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
+                        vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
+                        vutils.save_image(masked_driving_image, f"{output_dir}/masked_driving_image_{idx}.png")
+                    vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
+                        
+                    # Calculate losses
+                    loss_calculation_start_time = time.time()
+                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_driving_image)
+                    loss_adv = adversarial_loss(masked_predicted_image, Dbase)
+                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_driving_image, use_fm_loss=True)
+                    loss_cos = contrastive_loss(masked_predicted_image, masked_driving_image, masked_predicted_image, encoder)
+                    total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
+                    loss_calculation_time += time.time() - loss_calculation_start_time
+                
                     # Backpropagate and update generator
+                    generator_backward_start_time = time.time()
                     scaler.scale(total_loss).backward()
                     scaler.step(optimizer_G)
                     scaler.update()
+                    generator_backward_time += time.time() - generator_backward_start_time
 
                     # Train discriminator
                     optimizer_D.zero_grad()
 
                     with autocast():
+                        discriminator_forward_start_time = time.time()
                         real_pred = Dbase(driving_frame)
                         fake_pred = Dbase(output_frame.detach())
                         loss_D = discriminator_loss(real_pred, fake_pred)
+                        discriminator_forward_time += time.time() - discriminator_forward_start_time
 
                     # Backpropagate and update discriminator
+                    discriminator_backward_start_time = time.time()
                     scaler.scale(loss_D).backward()
                     scaler.step(optimizer_D)
                     scaler.update()
+                    discriminator_backward_time += time.time() - discriminator_backward_start_time
 
         # Update learning rates
         scheduler_G.step()
@@ -205,6 +221,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                   f"Loss_G: {total_loss.item():.4f}, Loss_D: {loss_D.item():.4f}")
         epoch_time = time.time() - start_time  # Calculate epoch duration
         print(f"Epoch [{epoch + 1}/{cfg.training.base_epochs}] completed in {epoch_time:.2f} seconds")
+        print(f"Data Loading Time: {data_loading_time:.2f} seconds")
+        print(f"Face Cropping and Warping Time: {face_cropping_warping_time:.2f} seconds")
+        print(f"Generator Forward Time: {generator_forward_time:.2f} seconds")
+        print(f"Loss Calculation Time: {loss_calculation_time:.2f} seconds")
+        print(f"Generator Backward Time: {generator_backward_time:.2f} seconds")
+        print(f"Discriminator Forward Time: {discriminator_forward_time:.2f} seconds")
+        print(f"Discriminator Backward Time: {discriminator_backward_time:.2f} seconds")
+
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
