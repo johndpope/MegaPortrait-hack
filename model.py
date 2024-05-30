@@ -92,42 +92,28 @@ class ResBlock_Custom(nn.Module):
         self.out_channels = out_channels
         if dimension == 2:
             self.conv_res = nn.Conv2d(self.in_channels, self.out_channels, 3, padding=1)
-            self.conv_ws = Conv2d_WS(in_channels=self.in_channels,
-                                     out_channels=self.out_channels,
-                                     kernel_size=3,
-                                     padding=1)
+            self.depthwise_conv = nn.Conv2d(self.in_channels, self.in_channels, 3, padding=1, groups=self.in_channels)
+            self.pointwise_conv = nn.Conv2d(self.in_channels, self.out_channels, 1)
             self.conv = nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1)
         elif dimension == 3:
             self.conv_res = nn.Conv3d(self.in_channels, self.out_channels, 3, padding=1)
-            self.conv_ws = Conv3D_WS(in_channels=self.in_channels,
-                                     out_channels=self.out_channels,
-                                     kernel_size=3,
-                                     padding=1)
+            self.depthwise_conv = nn.Conv3d(self.in_channels, self.in_channels, 3, padding=1, groups=self.in_channels)
+            self.pointwise_conv = nn.Conv3d(self.in_channels, self.out_channels, 1)
             self.conv = nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)
     
-#    @profile
     def forward(self, x):
-        logging.debug(f"ResBlock_Custom > x.shape:  %s",x.shape)
-        # logging.debug(f"x:",x)
-        
         out2 = self.conv_res(x)
-
+        
         out1 = F.group_norm(x, num_groups=32)
         out1 = F.relu(out1)
-        out1 = self.conv_ws(out1)
+        out1 = self.depthwise_conv(out1)
+        out1 = self.pointwise_conv(out1)
         out1 = F.group_norm(out1, num_groups=32)
         out1 = F.relu(out1)
         out1 = self.conv(out1)
-
+        
         output = out1 + out2
-
-        # Assertions for shape and values
-        assert output.shape[1] == self.out_channels, f"Expected {self.out_channels} channels, got {output.shape[1]}"
-        assert output.shape[2] == x.shape[2] and output.shape[3] == x.shape[3], \
-            f"Expected spatial dimensions {(x.shape[2], x.shape[3])}, got {(output.shape[2], output.shape[3])}"
-
         return output
-
 
 
 # we need custom resnet blocks - so use the ResNet50  es.shape: torch.Size([1, 512, 1, 1])
@@ -501,9 +487,11 @@ class ResBlock3D(nn.Module):
         super(ResBlock3D, self).__init__()
         self.upsample = upsample
         self.scale_factors = scale_factors
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.depthwise_conv1 = nn.Conv3d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
+        self.pointwise_conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=1)
         self.gn1 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.depthwise_conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1, groups=out_channels)
+        self.pointwise_conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=1)
         self.gn2 = nn.GroupNorm(num_groups=32, num_channels=out_channels)
         
         self.shortcut = nn.Conv3d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
@@ -511,11 +499,13 @@ class ResBlock3D(nn.Module):
     def forward(self, x):
         identity = self.shortcut(x)
         
-        out = self.conv1(x)
+        out = self.depthwise_conv1(x)
+        out = self.pointwise_conv1(out)
         out = self.gn1(out)
         out = F.relu(out, inplace=True)
         
-        out = self.conv2(out)
+        out = self.depthwise_conv2(out)
+        out = self.pointwise_conv2(out)
         out = self.gn2(out)
         
         out += identity
@@ -566,7 +556,6 @@ Forward Pass:
 In summary, the G3d class in the code aligns well with the 3D convolutional network (G3D) shown in the diagram. The downsampling path, upsampling path, and final convolution layer in the code correspond to the respective blocks in the diagram. The ResBlock3D and pooling/upsampling operations are consistent with the diagram, and the forward pass follows the expected flow of data through the network.
 '''
 
-
 class G3d(nn.Module):
     def __init__(self, in_channels):
         super(G3d, self).__init__()
@@ -587,7 +576,15 @@ class G3d(nn.Module):
             ResBlock3D(192, 96),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
         ).to(device)
-        self.final_conv = nn.Conv3d(96, 96, kernel_size=3, padding=1).to(device)
+        self.final_conv = nn.Sequential(
+            nn.Conv3d(96, 96, kernel_size=1),
+            nn.GroupNorm(num_groups=32, num_channels=96),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(96, 96, kernel_size=3, padding=1, groups=96),
+            nn.GroupNorm(num_groups=32, num_channels=96),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(96, 96, kernel_size=1),
+        ).to(device)
 
     def forward(self, x):
         x = self.downsampling(x)
@@ -595,14 +592,15 @@ class G3d(nn.Module):
         x = self.final_conv(x)
         return x
 
-
 class ResBlock2D(nn.Module):
     def __init__(self, in_channels, out_channels, downsample=False):
         super(ResBlock2D, self).__init__()
         self.downsample = downsample
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.depthwise_conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, groups=in_channels)
+        self.pointwise_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.depthwise_conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, groups=out_channels)
+        self.pointwise_conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         
         if self.downsample:
@@ -620,11 +618,13 @@ class ResBlock2D(nn.Module):
     def forward(self, x):
         identity = x
         
-        out = self.conv1(x)
+        out = self.depthwise_conv1(x)
+        out = self.pointwise_conv1(out)
         out = self.bn1(out)
         out = nn.ReLU(inplace=True)(out)
         
-        out = self.conv2(out)
+        out = self.depthwise_conv2(out)
+        out = self.pointwise_conv2(out)
         out = self.bn2(out)
         
         if self.downsample:
@@ -679,17 +679,41 @@ class G2d(nn.Module):
 
         self.upsample1 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(512, 256)
+            nn.Conv2d(512, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1, groups=256),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
         ).to(device)
 
         self.upsample2 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(256, 128)
+            nn.Conv2d(256, 128, kernel_size=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, groups=128),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
         ).to(device)
 
         self.upsample3 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ResBlock2D(128, 64)
+            nn.Conv2d(128, 64, kernel_size=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, groups=64),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
         ).to(device)
 
         self.final_conv = nn.Sequential(

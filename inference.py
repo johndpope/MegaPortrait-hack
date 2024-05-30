@@ -48,7 +48,7 @@ def main():
       # Load pretrained base model
     Gbase = model.Gbase()
     # Load pretrained base model
-    checkpoint = torch.load("Gbase_epoch1.pth")
+    checkpoint = torch.load("Gbase_epoch2.pth")
     Gbase.load_state_dict(checkpoint, strict=False)
 
     # Set device

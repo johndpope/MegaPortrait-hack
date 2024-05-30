@@ -21,6 +21,7 @@ import mediapipe as mp
 import torchvision.transforms as transforms
 import os
 import torchvision.utils as vutils
+import time
 
 
 
@@ -36,7 +37,7 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_face
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
+# torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
 
 
 
@@ -154,8 +155,11 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
     for epoch in range(cfg.training.base_epochs):
+        start_time = time.time()  # Start time for the epoch
+
         print("epoch:", epoch)
         for batch in dataloader:
+            
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
 
@@ -232,6 +236,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
                   f"Loss_G: {total_loss.item():.4f}, Loss_D: {loss_D.item():.4f}")
+        epoch_time = time.time() - start_time  # Calculate epoch duration
+        print(f"Epoch [{epoch + 1}/{cfg.training.base_epochs}] completed in {epoch_time:.2f} seconds")
+
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
