@@ -194,7 +194,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     masked_predicted_image = output_frame * foreground_mask
                     masked_target_image = source_frame * foreground_mask
                     
-                    save_images = True
+                    save_images = False
                     # Save the images
                     if save_images:
                         vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
