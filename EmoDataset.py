@@ -34,17 +34,6 @@ class EMODataset(Dataset):
                 transforms.Normalize([0.5], [0.5]),
             ]
         )
-        self.cond_transform = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(
-                    (height, width),
-                    scale=self.img_scale,
-                    ratio=self.img_ratio,
-                    interpolation=transforms.InterpolationMode.BILINEAR,
-                ),
-                transforms.ToTensor(),
-            ]
-        )
 
         self.drop_ratio = drop_ratio
         with open(json_file, 'r') as f:
