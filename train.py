@@ -271,7 +271,7 @@ def main(cfg: OmegaConf) -> None:
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
     
     Gbase = model.Gbase().to(device)
-    Dbase = model.Discriminator(input_nc=3).to(device) # 🤷
+    Dbase = model.Discriminator(input_nc=3).to(device) # patchgan descriminator - 3 channels RGB
     
     train_base(cfg, Gbase, Dbase, dataloader)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')

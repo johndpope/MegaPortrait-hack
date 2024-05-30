@@ -11,6 +11,7 @@ def load_image(image_path, transform):
     return image
 
 def inference_base(source_image_path, driving_image_path, Gbase):
+    print("fyi - using normalize.")
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5])
