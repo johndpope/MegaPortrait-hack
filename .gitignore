@@ -5,4 +5,4 @@ models/gaze_model_pytorch_vgg16_prl_mpii_allsubjects1.model
 *.pt
 *.dat
 *.pth
-output_images/*.*
+# output_images/*.*
