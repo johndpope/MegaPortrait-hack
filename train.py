@@ -15,11 +15,13 @@ from omegaconf import OmegaConf
 from torchvision import models
 from model import Encoder,PerceptualLoss,crop_and_warp_face,get_foreground_mask
 # from rome_losses import Vgg19 # use vgg19 for perceptualloss 
-import cv2
+
 import mediapipe as mp
 # from memory_profiler import profile
 import torchvision.transforms as transforms
 import os
+import torchvision.utils as vutils
+
 
 
 # # Define the transform for data preprocessing
@@ -170,13 +172,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 driving_frame = driving_frames[idx].to(device)
 
                 # Apply face cropping and random warping to the driving frame
-                warped_driving_frame =  driving_frame #crop_and_warp_face(driving_frame, pad_to_original=True)
+                warped_driving_frame =  driving_frame #crop_and_warp_face(driving_frame, pad_to_original=False)
 
                 if warped_driving_frame is not None:
                     # Train generator
                     optimizer_G.zero_grad()
                     output_frame = Gbase(source_frame, warped_driving_frame)
-
+                    
                     # Resize output_frame to match the driving_frame size
                     output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
@@ -189,6 +191,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     # Multiply the predicted and target images with the foreground mask
                     masked_predicted_image = output_frame * foreground_mask
                     masked_target_image = source_frame * foreground_mask
+                    
+                    save_images = True
+                    # Save the images
+                    if save_images:
+                        vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
+                        vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                        vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
+                        vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
+                        vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
+                        vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
+                        vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
+                                            
                     # Calculate perceptual losses
                     perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
 
@@ -235,10 +249,11 @@ def main(cfg: OmegaConf) -> None:
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
     ])
 
+  #     transforms.RandomHorizontalFlip(),
+   #     transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
+ 
     dataset = EMODataset(
         use_gpu=use_cuda,
         width=cfg.data.train_width,

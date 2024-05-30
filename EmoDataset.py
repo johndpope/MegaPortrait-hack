@@ -25,22 +25,7 @@ class EMODataset(Dataset):
         self.video_dir = video_dir
         self.transform = transform
         self.stage = stage
-        # self.face_alignment = face_alignment.FaceAlignment(face_alignment.LandmarksType.THREE_D, device='cpu')
 
-        # self.feature_extractor = Wav2VecFeatureExtractor(model_name='facebook/wav2vec2-base-960h', device='cuda')
-        # self.face_mask_generator = FaceHelper()
-        # self.pixel_transform = transforms.Compose(
-        #     [
-        #         transforms.RandomResizedCrop(
-        #             (height, width),
-        #             scale=self.img_scale,
-        #             ratio=self.img_ratio,
-        #             interpolation=transforms.InterpolationMode.BILINEAR,
-        #         ),
-        #         transforms.ToTensor(),
-        #         transforms.Normalize([0.5], [0.5]),
-        #     ]
-        # )
         # Reduce 512 images -> 256
         self.pixel_transform = transforms.Compose(
             [
@@ -82,9 +67,7 @@ class EMODataset(Dataset):
         for frame_idx in range(video_length):
             # Read frame and convert to PIL Image
             frame = Image.fromarray(video_drv_reader[frame_idx].numpy())
-
-
-            # Transform the frame
+                        # Transform the frame
             state = torch.get_rng_state()
             pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
             self.driving_vid_pil_image_list.append(pixel_values_frame)
@@ -120,14 +103,6 @@ class EMODataset(Dataset):
 
             # Read frame and convert to PIL Image
             frame = Image.fromarray(video_reader[frame_idx].numpy())
-
-
-            # Detect keypoints using face_alignment - NOT USED BY Megaportraits
-            # keypoints = self.face_alignment.get_landmarks(video_reader[frame_idx].numpy())
-            # if keypoints is not None:
-            #     keypoints_list.append(keypoints[0])
-            # else:
-            #     keypoints_list.append(None)
 
             # Transform the frame
             state = torch.get_rng_state()
