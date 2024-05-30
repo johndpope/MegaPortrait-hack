@@ -173,9 +173,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                 # Apply face cropping and random warping to the driving frame for losses ONLY!
                 warped_driving_frame =  crop_and_warp_face(driving_frame, pad_to_original=True)
-                vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
-                                
+                      
                 if warped_driving_frame is not None:
                     # Train generator
                     optimizer_G.zero_grad()
