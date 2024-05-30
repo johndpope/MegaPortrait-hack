@@ -29,7 +29,7 @@ class EMODataset(Dataset):
         # Reduce 512 images -> 256
         self.pixel_transform = transforms.Compose(
             [
-                transforms.Resize((256, 256)),
+                # transforms.Resize((256, 256)), - just go HQ
                 transforms.ToTensor(),
                 transforms.Normalize([0.5], [0.5]),
             ]
@@ -76,13 +76,13 @@ class EMODataset(Dataset):
             return ret_tensor
     
     def __getitem__(self, index: int) -> Dict[str, Any]:
-        # print("__getitem__")
+        print("__getitem__")
         video_id = self.video_ids[index]
         mp4_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
 
         video_reader = VideoReader(mp4_path, ctx=self.ctx)
-        video_length = 2 # frames len(video_reader)
+        video_length = len(video_reader)
         
 
         vid_pil_image_list = []

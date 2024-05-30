@@ -178,9 +178,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     # Train generator
                     optimizer_G.zero_grad()
                     output_frame = Gbase(source_frame, warped_driving_frame)
-                    
+                    print(f"outputframe:{output_frame.shape}")
                     # Resize output_frame to match the driving_frame size
-                    output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
+                    # output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
                     # Obtain the foreground mask for the target image
                     foreground_mask = get_foreground_mask(source_frame)
