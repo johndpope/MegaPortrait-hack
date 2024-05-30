@@ -165,7 +165,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
 
-            num_frames = len(source_frames)
+            num_frames = len(driving_frames)
 
             for idx in range(num_frames):
                 source_frame = source_frames[idx].to(device)
