@@ -51,39 +51,38 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Conv2d_WS(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
-        self.register_buffer('weight_std', torch.ones(self.weight.shape))
-    
-#    @profile
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2d_WS, self).__init__(in_channels, out_channels, kernel_size, stride,
+                 padding, dilation, groups, bias)
+
     def forward(self, x):
         weight = self.weight
-        weight_mean = weight.mean(dim=[1, 2, 3], keepdim=True)
-        weight_std = weight.std(dim=[1, 2, 3], keepdim=True)
-        self.weight_mean = weight_mean.detach()  # Ensure it is not part of the computational graph
-        self.weight_std = weight_std.detach()    # Ensure it is not part of the computational graph
-        standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
-        return F.conv2d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
+                                  keepdim=True).mean(dim=3, keepdim=True)
+        weight = weight - weight_mean
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
+        weight = weight / std.expand_as(weight)
+        return F.conv2d(x, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
 
 class Conv3D_WS(nn.Conv3d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        self.register_buffer('weight_mean', torch.zeros(self.weight.shape))
-        self.register_buffer('weight_std', torch.ones(self.weight.shape))
-    
-#    @profile
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
+        super(Conv3D_WS, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                        padding, dilation, groups, bias)
+
     def forward(self, x):
         weight = self.weight
-        weight_mean = weight.mean(dim=[1, 2, 3, 4], keepdim=True)
-        weight_std = weight.std(dim=[1, 2, 3, 4], keepdim=True)
-        self.weight_mean = weight_mean.detach()  # Ensure it is not part of the computational graph
-        self.weight_std = weight_std.detach()    # Ensure it is not part of the computational graph
-        
-        standardized_weight = (weight - self.weight_mean) / (self.weight_std + 1e-5)
-        return F.conv3d(x, standardized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
+                                  keepdim=True).mean(dim=3, keepdim=True).mean(
+                                  dim=4, keepdim=True)
+        weight = weight - weight_mean
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1, 1) + 1e-5
+        weight = weight / std.expand_as(weight)
+        return F.conv3d(x, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
 
 class ResBlock_Custom(nn.Module):
     def __init__(self, dimension, in_channels, out_channels):
