@@ -22,7 +22,7 @@ import torchvision.transforms as transforms
 import os
 import torchvision.utils as vutils
 import time
-
+from torch.cuda.amp import autocast, GradScaler
 
 
 
@@ -41,44 +41,6 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 
 
-
-
-
-'''
-Perceptual Loss:
-
-The PerceptualLoss class combines losses from VGG19, VGG Face, and a specialized gaze loss.
-It computes the perceptual losses by passing the output and target frames through the respective models and calculating the MSE loss between the features.
-The total perceptual loss is a weighted sum of the individual losses.
-
-
-Adversarial Loss:
-
-The adversarial_loss function computes the adversarial loss for the generator.
-It passes the generated output frame through the discriminator and calculates the MSE loss between the predicted values and a tensor of ones (indicating real samples).
-
-
-Cycle Consistency Loss:
-
-The cycle_consistency_loss function computes the cycle consistency loss.
-It passes the output frame and the source frame through the generator to reconstruct the source frame.
-The L1 loss is calculated between the reconstructed source frame and the original source frame.
-
-
-Contrastive Loss:
-
-The contrastive_loss function computes the contrastive loss using cosine similarity.
-It calculates the cosine similarity between positive pairs (output-source, output-driving) and negative pairs (output-random, source-random).
-The loss is computed as the negative log likelihood of the positive pairs over the sum of positive and negative pair similarities.
-The neg_pair_loss function calculates the loss for negative pairs using a margin.
-
-
-Discriminator Loss:
-
-The discriminator_loss function computes the loss for the discriminator.
-It calculates the MSE loss between the predicted values for real samples and a tensor of ones, and the MSE loss between the predicted values for fake samples and a tensor of zeros.
-The total discriminator loss is the sum of the real and fake losses.
-'''
 
 # @profile
 def adversarial_loss(output_frame, discriminator):
@@ -154,12 +116,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
     encoder = Encoder(input_nc=3, output_nc=256).to(device)
 
-    for epoch in range(cfg.training.base_epochs):
-        start_time = time.time()  # Start time for the epoch
+    # Create a GradScaler for mixed precision training
+    scaler = GradScaler()
 
+    for epoch in range(cfg.training.base_epochs):
         print("epoch:", epoch)
+        start_time = time.time()  # Start time for the epoch
         for batch in dataloader:
-            
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
 
@@ -170,63 +133,69 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 driving_frame = driving_frames[idx].to(device)
 
                 # Apply face cropping and random warping to the driving frame for losses ONLY!
-                warped_driving_frame =  crop_and_warp_face(driving_frame, pad_to_original=True)
+                warped_driving_frame = crop_and_warp_face(driving_frame, pad_to_original=True)
                       
                 if warped_driving_frame is not None:
                     # Train generator
                     optimizer_G.zero_grad()
-                    output_frame = Gbase(source_frame, driving_frame) 
 
-                    # 256 x 256 - Resize output_frame to match the driving_frame size
-                    # output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
+                    with autocast():
+                        output_frame = Gbase(source_frame, driving_frame) 
 
-                    # Obtain the foreground mask for the target image
-                    foreground_mask = get_foreground_mask(source_frame)
-                    
-                    # Move the foreground mask to the same device as output_frame
-                    foreground_mask = foreground_mask.to(output_frame.device)
+                        # Obtain the foreground mask for the target image
+                        foreground_mask = get_foreground_mask(source_frame)
+                        
+                        # Move the foreground mask to the same device as output_frame
+                        foreground_mask = foreground_mask.to(output_frame.device)
 
-                    # Multiply the predicted and target images with the foreground mask
-                    masked_predicted_image = output_frame * foreground_mask
-                    masked_target_image = source_frame * foreground_mask
-                    
-                    save_images = False
-                    # Save the images
-                    if save_images:
-                        vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
-                        vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                        vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
-                        vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
-                        vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
-                        vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
-                        vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
-                                            
-                    # Calculate perceptual losses
-                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+                        # Multiply the predicted and target images with the foreground mask
+                        masked_predicted_image = output_frame * foreground_mask
+                        masked_target_image = source_frame * foreground_mask
+                                                
 
-                    # Calculate adversarial losses
-                    loss_adv = adversarial_loss(masked_predicted_image, Dbase)
-                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
+                        save_images = True
+                        # Save the images
+                        if save_images:
+                            # vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
+                            # vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                            # vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
+                            vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
+                            # vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
+                            # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
+                            # vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
+            
 
-                    # Calculate cycle consistency loss
-                    loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
 
-                    # Combine the losses
-                    total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
+                        # Calculate perceptual losses
+                        perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+
+                        # Calculate adversarial losses
+                        loss_adv = adversarial_loss(masked_predicted_image, Dbase)
+                        loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
+
+                        # Calculate cycle consistency loss
+                        loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
+
+                        # Combine the losses
+                        total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
 
                     # Backpropagate and update generator
-                    total_loss.backward()
-                    optimizer_G.step()
+                    scaler.scale(total_loss).backward()
+                    scaler.step(optimizer_G)
+                    scaler.update()
 
                     # Train discriminator
                     optimizer_D.zero_grad()
-                    real_pred = Dbase(driving_frame)
-                    fake_pred = Dbase(output_frame.detach())
-                    loss_D = discriminator_loss(real_pred, fake_pred)
+
+                    with autocast():
+                        real_pred = Dbase(driving_frame)
+                        fake_pred = Dbase(output_frame.detach())
+                        loss_D = discriminator_loss(real_pred, fake_pred)
 
                     # Backpropagate and update discriminator
-                    loss_D.backward()
-                    optimizer_D.step()
+                    scaler.scale(loss_D).backward()
+                    scaler.step(optimizer_D)
+                    scaler.update()
 
         # Update learning rates
         scheduler_G.step()
@@ -238,7 +207,6 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                   f"Loss_G: {total_loss.item():.4f}, Loss_D: {loss_D.item():.4f}")
         epoch_time = time.time() - start_time  # Calculate epoch duration
         print(f"Epoch [{epoch + 1}/{cfg.training.base_epochs}] completed in {epoch_time:.2f} seconds")
-
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
@@ -257,7 +225,7 @@ def main(cfg: OmegaConf) -> None:
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]), # makes the image red
+        # transforms.Normalize([0.5], [0.5]), # makes the image red - this breaks the cropping / warping 
         transforms.RandomHorizontalFlip(),
         transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
     ])
@@ -275,7 +243,7 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
     
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=10)
     
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator(input_nc=3).to(device) # patchgan descriminator - 3 channels RGB

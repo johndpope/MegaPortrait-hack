@@ -576,21 +576,14 @@ class G3d(nn.Module):
             ResBlock3D(192, 96),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
         ).to(device)
-        self.final_conv = nn.Sequential(
-            nn.Conv3d(96, 96, kernel_size=1),
-            nn.GroupNorm(num_groups=32, num_channels=96),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(96, 96, kernel_size=3, padding=1, groups=96),
-            nn.GroupNorm(num_groups=32, num_channels=96),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(96, 96, kernel_size=1),
-        ).to(device)
+        self.final_conv = nn.Conv3d(96, 96, kernel_size=3, padding=1).to(device)
 
     def forward(self, x):
         x = self.downsampling(x)
         x = self.upsampling(x)
         x = self.final_conv(x)
         return x
+
 
 class ResBlock2D(nn.Module):
     def __init__(self, in_channels, out_channels, downsample=False):
@@ -679,41 +672,17 @@ class G2d(nn.Module):
 
         self.upsample1 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(512, 256, kernel_size=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1, groups=256),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
+            ResBlock2D(512, 256)
         ).to(device)
 
         self.upsample2 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(256, 128, kernel_size=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1, groups=128),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
+            ResBlock2D(256, 128)
         ).to(device)
 
         self.upsample3 = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(128, 64, kernel_size=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1, groups=64),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
+            ResBlock2D(128, 64)
         ).to(device)
 
         self.final_conv = nn.Sequential(
@@ -733,6 +702,7 @@ class G2d(nn.Module):
         x = self.upsample3(x)
         x = self.final_conv(x)
         return x
+
 
 
 '''
