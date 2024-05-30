@@ -5,7 +5,7 @@ data:
   n_sample_frames: 1
   n_motion_frames: 2
 training:
-  save_interval: 1000
+  save_interval: 100
   log_interval: 100
   lambda_perceptual: 1.0
   lambda_adversarial: 1.0
@@ -25,7 +25,7 @@ training:
   video_dir:  '/media/oem/12TB/Downloads/CelebV-HQ/celebvhq/35666'
   sample_rate: 25  
   n_sample_frames: 100
-  json_file: './data/overfit.json'
+  json_file: './data/celebvhq_info.json'
 
   
   w_per: 20  # perceptual loss

@@ -816,6 +816,7 @@ class Emtn(nn.Module):
         self.head_pose_net.fc = nn.Linear(self.head_pose_net.fc.in_features, 6).to(device)  # 6 corresponds to rotation and translation parameters
         self.rotation_net =  SixDRepNet_Detector()
 
+
         model = resnet18(pretrained=False,num_classes=512).to(device)  # 512 feature_maps = resnet18(input_image) ->   Should print: torch.Size([1, 512, 7, 7])
         # Remove the fully connected layer and the adaptive average pooling layer
         self.expression_net = nn.Sequential(*list(model.children())[:-1])
@@ -1892,7 +1893,7 @@ jitter.
 from rembg import remove
 import io
 
-def crop_and_warp_face(image_tensor, pad_to_original=False):
+def crop_and_warp_face(image_tensor, pad_to_original=False, apply_warping=True):
     # Check if the input tensor has a batch dimension and handle it
     if image_tensor.ndim == 4:
         # Assuming batch size is the first dimension, process one image at a time
@@ -1923,20 +1924,23 @@ def crop_and_warp_face(image_tensor, pad_to_original=False):
         # Convert the face image to a numpy array
         face_array = np.array(face_image)
 
-        # Generate random control points for thin-plate-spline warping
-        rows, cols = face_array.shape[:2]
-        src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
-        dst_points = src_points + np.random.randn(4, 2) * (rows * 0.1)
+        if apply_warping:
+            # Generate random control points for thin-plate-spline warping
+            rows, cols = face_array.shape[:2]
+            src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
+            dst_points = src_points + np.random.randn(4, 2) * (rows * 0.1)
 
-        # Create a PiecewiseAffineTransform object
-        tps = PiecewiseAffineTransform()
-        tps.estimate(src_points, dst_points)
+            # Create a PiecewiseAffineTransform object
+            tps = PiecewiseAffineTransform()
+            tps.estimate(src_points, dst_points)
 
-        # Apply the thin-plate-spline warping to the face image
-        warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
+            # Apply the thin-plate-spline warping to the face image
+            warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
 
-        # Convert the warped face array back to a PIL image
-        warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+            # Convert the warped face array back to a PIL image
+            warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+        else:
+            warped_face_image = face_image
 
         if pad_to_original:
             # Create a new blank image with the same size as the original image
