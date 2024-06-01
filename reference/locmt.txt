@@ -1,0 +1,961 @@
+Multimodal Transformer with a Low-Computational-Cost Guarantee
+Abstract
+Transformer-based models have significantly improved performance across a range of multimodal understanding tasks, such as visual question answering [1, 2] and action recognition [3, 4, 5]. However, multimodal Transformers significantly suffer from a quadratic complexity of the multi-head attention with the input sequence length, especially as the number of modalities increases. To address this, we introduce Low-Cost Multimodal Transformer (LoCoMT), a novel multimodal attention mechanism that aims to reduce computational cost during training and inference with minimal performance loss. Specifically, by assigning different multimodal attention patterns to each attention head, LoCoMT can flexibly control multimodal signals and theoretically ensures a reduced computational cost compared to existing multimodal Transformer variants. Experimental results on two multimodal datasets, namely Audioset and MedVidCL demonstrate that LoCoMT not only reduces GFLOPs but also matches or even outperforms established models.
+
+Index Terms—  Efficient Transformer, Multimodal Fusion
+
+1Introduction
+Transformer [6] has become a de facto backbone for multimodal learning, thanks to its flexibility [7, 8] and superior performance [9, 10, 11]. One significant limitation, however, is the computational cost of multi-head attention, which scales quadratically with the input sequence length. Previous studies have developed efficient Transformers to reduce the computational complexity of the attention mechanism. Several approaches compute attention scores between a subset of query-key pairs, resulting in a sparse attention matrix. Specifically, they used fixed patterns [12, 13, 14] or learnable patterns [15, 16] to sparsify the attention matrix. Another emerging type of efficient transformer is to improve efficiency by leveraging the approximation of the attention matrix [17, 18]. However, when these efficient methods are applied to multimodal Transformers, new challenges arise.
+
+Multimodal Transformers typically encode multimodal inputs by employing different combinations of attention mechanisms (Fig. 1), such as early-fusion (i.e., multimodal attention from the first layer to the last), mid-fusion (i.e., self-attention until the middle layer, then multimodal attention or cross-attention to the last), and late-fusion (i.e., self-attention until the last layer, then concatenation of each modality-specific representation vectors). This diversity in attention types makes addressing their computational complexity a challenge. Moreover, the interplay and relevance between different modalities, and their collective contribution to the final prediction, are not always straightforward, especially when compared to unimodal inputs. The recently proposed Multimodal Bottleneck Transformer (MBT) [19] aims to reduce computational cost by introducing bottleneck tokens into the input sequence. In particular, MBT reduces the effective input length of the attention mechanism by allowing interaction between modalities only through the few bottleneck tokens. Yet, as we will discuss in Sec. 2, MBT still requires more computations than existing late-fusion models [20].
+
+Refer to caption
+Fig. 1: Attention map of a)-d) common multimodal Transformers e) LoCoMT when the input consists of two modalities with length 
+L
+1
+ and 
+L
+2
+ and the number of attention head is 
+ℎ
+. We indicate masked tokens as gray, active tokens as green, and bottleneck tokens as purple. We denote the number of attention view 
+�
+�
+ assigned to the attention head by 
+�
+�
+.
+In this work, we introduce Low-Cost Multimodal Transformer (LoCoMT), a novel attention mechanism for efficient multimodal fusion in Transformer. Each attention head in LoCoMT computes an attention matrix based on one of the predefined patterns by limiting the set of keys to which queries can refer. Specifically, we consider two patterns commonly employed in multimodal Transformers: self-attention and cross-attention (Fig. 1). While self-attention extracts the contextualized representation of inputs belonging to the same modality, cross-attention captures the cross-modal interaction between two different modalities. Through theoretical analysis, we established that LoCoMT reduces the attention cost in proportion to the square of the difference between the sequence lengths of the modalities. Consequently, LoCoMT not only processes inputs more efficiently than conventional multimodal Transformers, but it also becomes more efficient for multimodal datasets where sequence lengths vary greatly between modalities, such as in video classification.
+
+We evaluated LoCoMT on two datasets: Audioset, an audio-video classification dataset [21], and MedVidCL, an audio-video-text classification dataset [22]. As per standard practice [19, 22, 23], the number of video tokens in both datasets is larger than that of audio and text tokens. Our empirical results show that LoCoMT indeed reduces computational cost, while achieving comparable or superior performance compared to existing multimodal Transformers in both datasets. We further investigated the trade-off between performance and efficiency with various configurations of LoCoMT. As shown in Fig. 3, LoCoMT can save GFLOPs by nearly half while still maintaining performance on par with the most expensive baseline. Additionally, we explored the impact of assigning different attention patterns across layers. We found that self-attention in low-level layers helps increase performance, while in high-level layers, even a random attention pattern works well.
+
+2Methods
+Refer to caption
+Fig. 2: Two consecutive Low-Cost Multimodal Transformer (LoCoMT) layers. Our model can assign different attention patterns across the attention heads and layers, allowing for flexible control over multimodal signals.
+We begin with a summary of the standard multi-head attention [6]. Afterwards, we compare the computational cost of the common attention patterns used in multimodal Transformers. Finally, we introduce Low-Cost Multimodal Transformer (LoCoMT), a novel attention mechanism that can further reduce the cost compared to existing attention patterns.
+
+2.1Preliminary: Multi-head Attention
+Multi-head attention (MHA) [6] linearly projects queries, keys, and values 
+�
+ℎ
+ times (i.e., number of attention heads) with learned linear projections and applies the scaled dot product to the projected features in parallel. The scaled dot product receives queries and keys of dimension 
+�
+�
+ and values of dimension 
+�
+�
+ as input and then calculates the dot product of the query with all keys. In practice, we pack all queries, keys, and values into the matrix 
+�
+∈
+ℝ
+�
+�
+×
+�
+�
+, 
+�
+∈
+ℝ
+�
+�
+​
+�
+×
+�
+�
+, and 
+�
+∈
+ℝ
+�
+�
+​
+�
+×
+�
+�
+ and apply multi-head attention.
+
+The computational cost 
+�
+ of the scaled-dot product is
+
+�
+=
+�
+�
+​
+�
+�
+​
+�
+​
+�
+�
+,
+(1)
+where 
+�
+�
+ is the sequence length of queries, 
+�
+�
+​
+�
+ is the sequence length of keys and values. This becomes the most expensive operation in the Transformer when 
+�
+�
+,
+�
+�
+​
+�
+≫
+�
+�
+.
+
+2.2Common Attention Patterns in Multimodal Transformer
+We analyze the computational cost of four attention patterns (Fig. 1 a)-d) deployed in the multimodal Transformer, specifically the cost of query-key matrix multiplication in a single layer. For simplicity in cost computation, we assume two input modalities with lengths of 
+�
+1
+ and 
+�
+2
+, respectively. We also assume that the hidden dimensions for the query, key, and value are all 
+�
+. Cross-modal encoders in previous studies [24, 25] consecutively applied self-attention and cross-attention to input. Specifically, self-attention first updates the unimodal representation, and then cross-attention merges information from other modalities. The associated computational costs 
+�
+�
+​
+�
+​
+�
+​
+�
+ and 
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+ are, respectively,
+
+�
+�
+​
+�
+​
+�
+​
+�
+=
+(
+�
+1
+2
++
+�
+2
+2
+)
+​
+�
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+=
+2
+​
+�
+1
+​
+�
+2
+​
+�
+.
+(2)
+The multimodal attention mechanism [26], another common attention pattern in the multimodal Transformer, allows each token to refer to any other tokens in the sequence. However, its computational cost, 
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+,
+
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+=
+(
+�
+1
++
+�
+2
+)
+2
+​
+�
+(3)
+is larger than both self and cross attention.
+
+The bottleneck attention was proposed in Multimodal Bottleneck Transformer (MBT) [19] to reduce the cost of multimodal attention. The core component of the bottleneck attention is a small set of bottleneck tokens, where multimodal interaction occurs only through this. During the forward process, MBT creates copies of bottleneck tokens that are contextualized separately with different modalities. Then MBT takes the mean of copies to get the updated representation of bottleneck tokens. The computational cost 
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+​
+�
+ of bottleneck attention is
+
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+​
+�
+=
+{
+(
+�
+1
++
+�
+)
+2
++
+(
+�
+2
++
+�
+)
+2
+}
+​
+�
+(4)
+where 
+�
+ is the number of bottleneck tokens. In summary, the computational costs follow the relationship:
+
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+≤
+�
+�
+​
+�
+​
+�
+​
+�
+<
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+​
+�
+<
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+(5)
+when 
+�
+≪
+�
+1
+,
+�
+2
+. The use of bottleneck tokens in bottleneck attention reduces its cost compared to multimodal attention, but it still incurs a higher cost than self-attention.
+
+2.3Low-Cost Multimodal Transformer
+We introduce a new attention mechanism, namely Low-Cost Multimodal Transformer (LoCoMT), that enables multimodal fusion at a lower computational cost than self-attention. By limiting the input modalities to which each attention head can refer, LoCoMT can efficiently compute the attention matrix. The constraint that we apply to each attention head is denoted as the attention view, which is chosen from the predefined set 
+�
+=
+{
+�
+1
+,
+…
+,
+�
+�
+2
+�
++
+1
+}
+, where 
+�
+ is the number of input modalities. Specifically, 
+�
+1
+ represents self-attention, while others, 
+�
+�
+,
+�
+∈
+[
+2
+,
+�
+2
+�
++
+1
+]
+, facilitate cross-attention between pairs of 
+�
+ input modalities. For example, with image, audio and text as input, 
+�
+1
+ is self-attention, and 
+�
+2
+, 
+�
+3
+, and 
+�
+4
+ are cross-attention between image-text, image-audio, and audio-text, respectively. We assign a view 
+�
+�
+ to each attention head during initialization, which remains fixed for training and inference. Note that we have the freedom to choose which views are prominently assigned to attention heads and apply these allocations variably across layers, as depicted in Fig. 2. For example, 
+�
+2
+ can be assigned to more heads to emphasize the interaction between the first and second modalities in Fig. 1. Owing to this design, LoCoMT enables flexible control of multimodal signals and we investigate its effectiveness in Sec. 3.3. Formally, we compute the output 
+𝐨
+ of LoCoMT as follows:
+
+𝐨
+=
+FFN
+​
+(
+𝐱
+)
+​
+𝐱
+=
+[
+𝐡
+𝟏
+;
+…
+;
+𝐡
+𝐧
+𝐡
+]
+​
+�
+�
+𝐡
+𝐢
+=
+(
+�
+​
+(
+�
+�
+(
+�
+)
+,
+�
+(
+�
+)
+,
+�
+(
+�
+)
+,
+�
+�
+(
+�
+)
+)
+)
+�
+∈
+{
+1
+,
+…
+,
+∑
+�
+�
+�
+}
+�
+​
+(
+�
+�
+(
+�
+)
+,
+�
+(
+�
+)
+,
+�
+(
+�
+)
+,
+�
+�
+(
+�
+)
+)
+=
+�
+​
+(
+�
+�
+(
+�
+)
+​
+�
+∗
+(
+�
+)
+�
+�
+�
+)
+​
+�
+∗
+(
+�
+)
+�
+∗
+(
+�
+)
+=
+(
+�
+�
+(
+�
+)
+)
+�
+∈
+�
+�
+(
+�
+)
+​
+�
+∗
+(
+�
+)
+=
+(
+�
+�
+(
+�
+)
+)
+�
+∈
+�
+�
+(
+�
+)
+(6)
+where 
+�
+�
+ is the linear projection for the output, 
+�
+(
+�
+)
+∈
+�
+ is the attention view assigned to the head 
+�
+, and 
+�
+�
+(
+�
+)
+ consists of indices of the keys and values to which the 
+�
+-th query vector attends.
+
+This design choice effectively reduces the cost 
+�
+LoCoMT
+ of LoCoMT to:
+
+�
+LoCoMT
+=
+�
+0
+�
+ℎ
+​
+∑
+�
+=
+1
+�
+�
+�
+2
++
+2
+​
+∑
+�
+=
+2
+�
+∑
+�
+=
+1
+�
+−
+1
+�
+�
+​
+�
+�
+ℎ
+​
+�
+�
+​
+�
+�
+(7)
+where 
+�
+0
++
+∑
+�
+=
+2
+�
+∑
+�
+=
+1
+�
+−
+1
+�
+�
+​
+�
+=
+�
+ℎ
+. The difference between the cost of self-attention and LoCoMT 
+�
+�
+​
+�
+​
+�
+​
+�
+−
+�
+LoCoMT
+ satisfies the inequality:
+
+�
+�
+​
+�
+​
+�
+​
+�
+−
+�
+LoCoMT
+=
+∑
+�
+=
+2
+�
+∑
+�
+=
+1
+�
+−
+1
+�
+�
+​
+�
+�
+ℎ
+​
+{
+∑
+�
+=
+1
+,
+�
+≠
+�
+,
+�
+�
+�
+�
+2
++
+(
+�
+�
+−
+�
+�
+)
+2
+}
+≥
+0
+,
+
+leading to the subsequent inequality:
+
+�
+LoCoMT
+≤
+�
+�
+​
+�
+​
+�
+​
+�
+<
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+​
+�
+<
+�
+�
+​
+�
+​
+�
+​
+�
+​
+�
+(8)
+Since the equality holds if and only if 
+�
+=
+2
+ and 
+�
+1
+=
+�
+2
+, LoCoMT achieves the lower computational cost compared to self-attention, while also providing adaptive control of multimodal fusion.
+
+3Experiments
+3.1Experiment Settings
+Dataset We train and evaluate our model on two YouTube video classification datasets: Audioset [21] and MedVidCL [22]. We utilized the labeled data available as of January 2023 because some videos became inaccessible after the dataset’s release. This resulted in 18,629 Audioset samples for training and 17,072 for evaluation, and 4,096 MedVidCL samples for training and 1,832 for evaluation.
+
+Evaluation Metrics We report the mean average precision (mAP) for Audioset and both precision and recall for MedVidCL as quantitative performance metrics. Additionally, we report giga floating point operations (GFLOPs) of matrix multiplication to compare efficiency.
+
+Models In all experiments, multimodal Transformers first encode each modality using 
+�
+−
+�
+�
+ unimodal layers and then pass the concatenation of them through 
+�
+�
+ fusion layers. Classification logits are obtained by applying a linear projection to the mean output representation of the [CLS] tokens from each modality. The fusion layer computes the attention matrix by adopting one of the attention patterns: self-, cross-, multimodal, bottleneck or LoCoMT in Fig. 1. Furthermore, we also tested two sparse attention mechanisms proposed in Longformer [14] and Bigbird [27] for multimodal fusion. If the model is made up entirely of fusion layers, we signify the model by 
+�
+​
+�
+​
+�
+. We refer to the number of attention views assigned to the attention heads as the view frequency 
+�
+=
+(
+�
+1
+,
+�
+2
+,
+…
+,
+�
+�
+2
+�
++
+1
+)
+, where 
+�
+�
+ is the number of attention heads that 
+�
+�
+ is assigned. For the experiments, we applied the same view frequency across all fusion layers, except for the experiments in Tab. 2. Note that we evaluated all possible 
+�
+�
+ and 
+�
+ and then reported the best result.
+
+Implementation Details We used ViT-base/16 trained on ImageNet-21k as a backbone architecture. During training, we sampled frames and spectrograms from a randomly selected temporal crop. For inference, we sampled four temporal segments with a uniform stride, averaging logits calculated from these segments. From the 8-second temporal crop, we extracted eight 
+224
+×
+224
+ RGB frames and a 
+128
+×
+800
+ log-mel spectrogram. Specifically, the spectrogram was computed using a 25 ms Hamming window with a hop length of 10 ms from 16kHz audio. We split both RGB frames and the spectrogram into 
+16
+×
+16
+ non-overlapping patches and flattened them into 768-dimensional vectors. For text, we used the BERT [28] tokenizer and embedding. We applied the data augmentation used in AST [29] for audio and ViViT [30] for video. We trained the model using cross-entropy loss for 20 epochs and with a batch size of 64. We used a synchronous SGD optimizer with a momentum of 0.9 following a cosine learning rate schedule with a linear warm-up.
+
+Task	Audioset	MedVidCL
+Model	mAP	GFLOPs	Precision	Recall	GFLOPs
+unimodal					
+   ViT [31] 	23.1	45.3	81.1	79.9	45.3
+   AST [29] 	28.2	2.9	52.9	50.7	2.9
+   BERT [28] 	-	-	80.4	79.3	0.1
+multimodal					
+   Selfall 	37.8	48.2	77.2	66.4	48.3
+   Multiall 	35.1	71.4	82.5	81.6	76.1
+   Multi	39.0	52.1	81.8	80.9	62.2
+   Crossall 	25.9	23.2	71.8	69.4	27.8
+   Cross	38.2	39.9	81.5	80.5	44.8
+   MBT [19] 	39.6	48.4	81.1	80.3	48.4
+   Longformer [14] 	33.0	41.8	80.3	79.4	41.8
+   Bigbird [27] 	38.8	45.8	81.4	80.6	46.0
+   LoCoMT	39.4	45.4	82.0	81.1	36.8
+Table 1:Test-set results on Audioset and MedVidCL.
+3.2Results
+As shown in Tab. 1, LoCoMT demonstrated performance comparable to the best models. Furthermore, LoCoMT reduced GFLOPs by 6.2% on Audioset and by a significant 51.3% on MedVidCL, compared to the best-performing model of each dataset. This suggests that LoCoMT can reduce computational cost with only a minimal decrease in performance. In contrast, MBT fell behind Cross in performance and required more computational resources in MedVidCL. This may be due to bottleneck fusion that compresses multimodal signals into a small number of bottleneck tokens, potentially resulting in loss of information. Both Longformer and Bigbird show a less favorable performance-cost trade-off than LoCoMT in all datasets, underscoring the limitation of traditional sparse attention mechanisms in handling multimodal input.
+
+Refer to caption
+Fig. 3:a) The performance-efficiency trade-off. b) Effect of varying the number of fusion layers and the view frequency. c) Effect of varying the view frequency while keeping the number of fusion layers constant.
+3.3Analysis
+Performance-Cost Trade-off We investigate how much computational cost we can save with a negligible reduction in performance. To this end, we trained LoCoMT on MedVidCL while changing the view frequency and the number of fusion layers that affect both the F1 score and the GFLOPs. We also examined the F1 score and GFLOPs of Multi and MBT while varying the number of fusion layers. Fig. 3a illustrates the trade-off between the F1 score and the GFLOPs of the models. We observed that LoCoMT reduced the GFLOPs by 81%, 43.2%, and 31.5% compared to Self, Multi, and MBT, respectively, while losing only 1% of the F1 score. We note that, despite similar computational costs, the models demonstrate varying performance levels depending on the configuration of the attention view. It suggests that the proper combination of the number of fusion layers and the view frequency can compensate for the decrease in the capacity of multi-head attention.
+
+Effect of Fusion Layers As is known from previous studies [32], the level of fusion has a great effect on the performance of multimodal models. Furthermore, the number of fusion layers also affects the computational cost of LoCoMT. To analyze the effect of the level of fusion, we measured the performance against the number of fusion layers on Audioset as shown in Fig. 3b. We also evaluated the impact of the view frequency and illustrated with a different color. We found that multimodal fusion at lower-level features achieved a worse mAP. Furthermore, the decision-level fusion (i.e., without fusion layers) performed worse than LoCoMT with a small number of fusion layers. This implies that constraining cross-modal connections to higher layers in the model enhances the ability of earlier layers to learn unimodal features while continuing to benefit from the multimodal interaction across multiple layers. We further note that as the number of self-attention heads increases, there is a slower reduction in performance when the number of fusion layers increases. The larger number of self-attention heads increases the capacity to model the correlation between inputs belonging to the same modality, so it may replace some functionalities of unimodal encoders.
+
+Effect of View Frequency We fixed the number of fusion layers at 4 and measured mAP and GFLOPs against the view frequency on Audioset. Here, we refer to the number of self-attention heads as the view frequency because the set of patterns consists of one self- and one cross-attention. We illustrate the result in Fig. 3c. We observed that performance always improved when mixing heads with different patterns, rather than constructing all heads as a single pattern. Furthermore, the performance of LoCoMT increased as the number of self-attention heads increased. However, the GFLOPs increased in proportion to the number of self-attention heads, while the performance did not. This implies that we can improve the performance-cost trade-off by adjusting the view frequency.
+
+Layer-wise Assignment of View Frequency Since LoCoMT can flexibly control the multimodal signal by assigning a different view frequency to each layer, it enables the optimization of performance-cost trade-offs. We assessed four allocation strategies—spread, bottleneck, alternating, and random—for view frequencies. Both spread and bottleneck strategies progressively decrease the number of self-attention heads by 
+⌊
+�
+ℎ
+�
+�
+⌋
+ in the first 
+�
+�
+2
+ layers. The spread strategy maintains this decrease in subsequent layers, while the bottleneck strategy reverses this and increases the number of self-attention heads. Inspired by the cross-modal encoder in LXMERT [24], the alternating strategy iteratively applies a cross-attention layer following a self-attention layer. To verify the effectiveness of human-crafted attention patterns, we compare them with randomly generated attention patterns. For this, we sample view frequencies with five random seeds and report the mean and standard deviation. We evaluated four strategies on Audioset with 
+�
+�
+=
+4
+,
+12
+ and report mAP in Tab. 2. The results show that the spread strategy outperform others at 
+�
+�
+=
+12
+. On the contrary, when applied to high-level features (
+�
+�
+=
+4
+), the spread strategy fails to integrate the multimodal signal due to an insufficient number of cross-attention heads. The results suggest that allocating more self-attention heads for low-level features and cross-attention heads for high-level features can enhance multimodal understanding. Interestingly, our findings also indicate that the random strategy can match or even exceed the performance of human-crafted attention patterns. This potentially indicates the existence of optimal view frequencies for different 
+�
+�
+, and we leave the search algorithm for optimal view frequencies for future work.
+
+Strategy	
+�
+�
+=
+4
+�
+�
+=
+12
+spread	38.5	37.2
+alternating	38.1	31.6
+bottleneck	39.0	27.4
+random	39.2 (0.2)	33.7 (3.5)
+Table 2:Test-set results of four strategies on Audioset.
+4Conclusion
+We propose Low-Cost Multimodal Transformer (LoCoMT), a novel attention mechanism designed for efficient multimodal fusion. Through our experiments, we show that LoCoMT matches or outperforms existing multimodal Transformers in classification tasks, while requiring fewer operations. Moreover, we have found that certain combinations of attention heads with different functionalities can significantly reduce the computational cost with only a minimal drop in performance. A limitation of LoCoMT is the need to adjust the view frequency to achieve the optimal balance between performance and cost. However, as shown in Tab. 2, even a random strategy outperforms other strategies at 
+�
+=
+4
+. This result suggests that suboptimal configurations of attention views can achieve satisfactory performance. For future work, we plan to develop a search algorithm for the optimal configuration of views.
+
+5Acknowledgement
+This work was supported by the Institute of Information & Communications Technology Planning & Evaluation (IITP) grant (No.2019-0-00075, No.2022-0-00984), and National Research Foundation of Korea (NRF) grant (NRF-2020H1D3A2A03100945), funded by the Korea government (MSIT).
+
+References
+[1]P. Zhang, Y. Goyal, D. Summers-Stay, D. Batra, and D. Parikh,“Yin and yang: Balancing and answering binary visual questions,”in Proc. CVPR, 2016.
+[2]Y. Goyal, T. Khot, D. Summers-Stay, D. Batra, and D. Parikh,“Making the V in VQA matter: Elevating the role of image understanding in Visual Question Answering,”in Proc. CVPR, 2017.
+[3]W. Kay, J. Carreira, K. Simonyan, B. Zhang, C. Hillier, S. Vijayanarasimhan, F. Viola, T. Green, T. Back, P. Natsev, M. Suleyman, and A. Zisserman,“The kinetics human action video dataset,”arXiv:1705.06950, 2017.
+[4]S. Abu-El-Haija, N. Kothari, J. Lee, P. Natsev, G. Toderici, B. Varadarajan, and S. Vijayanarasimhan,“Youtube-8m: A large-scale video classification benchmark,”arXiv:1609.08675, 2016.
+[5]D. Damen, H. Doughty, G. M. Farinella, A. Furnari, E. Kazakos, J. Ma, D. Moltisanti, J. Munro, T. Perrett, W. Price, and M. Wray,“Rescaling egocentric vision: Collection, pipeline and challenges for epic-kitchens-100,”International Journal of Computer Vision (IJCV), 2021.
+[6]A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin,“Attention is all you need,”in Proc. NeurIPS, 2017, vol. 30.
+[7]A. Jaegle, F. Gimeno, A. Brock, A. Zisserman, O. Vinyals, and J. Carreira,“Perceiver: General perception with iterative attention,”in Proc. ICML, 2021, pp. 4651–4664.
+[8]M. Dehghani, S. Gouws, O. Vinyals, J. Uszkoreit, and Ł. Kaiser,“Universal transformers,”in Proc. ICLR, 2019.
+[9]W. Wang, H. Bao, L. Dong, J. Bjorck, Z. Peng, Q. Liu, K. Aggarwal, O. K. Mohammed, S. Singhal, S. Som, and F. Wei,“Image as a foreign language: Beit pretraining for vision and vision-language tasks,”in Proc. CVPR, June 2023, pp. 19175–19186.
+[10]X. Chen, X. Wang, S. Changpinyo, A. J. Piergiovanni, P. Padlewski, D. Salz, S. Goodman, A. Grycner, B. Mustafa, L. Beyer, A. Kolesnikov, J. Puigcerver, N. Ding, K. Rong, H. Akbari, G. Mishra, L. Xue, A. Thapliyal, J. Bradbury, W. Kuo, M. Seyedhosseini, C. Jia, B. K. Ayan, C. Riquelme, A. Steiner, A. Angelova, X. Zhai, N. Houlsby, and R. Soricut,“Pali: A jointly-scaled multilingual language-image model,”in Proc. ICLR, 2023.
+[11]P. Wang, A. Yang, R. Men, J. Lin, S. Bai, Z. Li, J. Ma, C. Zhou, J. Zhou, and H. Yang,“OFA: Unifying architectures, tasks, and modalities through a simple sequence-to-sequence learning framework,”in Proc. ICML, 17–23 Jul 2022, vol. 162, pp. 23318–23340.
+[12]J. Qiu, H. Ma, O. Levy, S. W.-T. Yih, S. Wang, and J. Tang,“Blockwise self-attention for long document understanding,”in Findings of the Association for Computational Linguistics: EMNLP 2020, 2020, pp. 2555–2565.
+[13]R. Child, S. Gray, A. Radford, and I. Sutskever,“Generating long sequences with sparse transformers,”arXiv:1912.12180, 2019.
+[14]I. Beltagy, M. E. Peters, and A. Cohan,“Longformer: The long-document transformer,”arXiv:2004.05150, 2020.
+[15]N. Kitaev, L. Kaiser, and A. Levskaya,“Reformer: The efficient transformer,”in Proc. ICLR, 2020.
+[16]A. Roy, M. Saffar, A. Vaswani, and D. Grangier,“Efficient content-based sparse attention with routing transformers,”Transactions of the Association for Computational Linguistics, vol. 9, pp. 53–68, 2021.
+[17]S. Wang, B. Z. Li, M. Khabsa, H. Fang, and H. Ma.,“Linformer: Self-attention with linear complexity,”arXiv:2006.04768, 2020.
+[18]K. Choromanski, V. Likhosherstov, D. Dohan, X. Song, A. Gane, T. Sarlos, P. Hawkins, J. Davis, A. Mohiuddin, L. Kaiser, D. Belanger, L. Colwell, and A. Weller,“Rethinking attention with performers,”in Proc. ICLR, 2021.
+[19]A. Nagrani, S. Yang, A. Arnab, A. Jansen, C. Schmid, and C. Sun,“Attention bottlenecks for multimodal fusion,”in Proc. NeurIPS, 2021, pp. 14200–14213.
+[20]A. Owens and A. A. Efros.,“Audio-visual scene analysis with self-supervised multisensory features,”arXiv:1804.03641, 2018.
+[21]J. F. Gemmeke, D. P. W. Ellis, D. Freedman, A. Jansen, W. Lawrence, R. C. Moore, M. Plakal, and M. Ritter,“Audio set: An ontology and human-labeled dataset for audio events,”in Proc. ICASSP, 2017, pp. 776–780.
+[22]D. Gupta, K. Attal, and D. Demner-Fushman,“A dataset for medical instructional video classification and question answering,”Scientific Data, 2023.
+[23]M.-I. Georgescu, E. Fonseca, R. T. Ionescu, M. Lucic, C. Schmid, and A. Arnab.,“Audiovisual masked autoencoders,”in Proc. ICCV, 2023.
+[24]H. Tan and M. Bansal,“LXMERT: Learning cross-modality encoder representations from transformers,”in Proc. EMNLP-IJCNLP, 2019, pp. 5100–5111.
+[25]J. Lu, D. Batra, D. Parikh, and S. Lee,“Vilbert: Pretraining task-agnostic visiolinguistic representations for vision-and-language tasks,”in Proc. NeurIPS, 2019, vol. 32.
+[26]W. Kim, B. Son, and I. Kim,“Vilt: Vision-and-language transformer without convolution or region supervision,”in Proc. ICML, 2021.
+[27]M. Zaheer, G. Guruganesh, A. Dubey, J. Ainslie, C. Alberti, S. Ontanon, P. Pham, A. Ravula, Q. Wang, L. Yang, and A. Ahmed,“Big bird: Transformers for longer sequences,”in Proc. NeurIPS, 2020, vol. 33, pp. 17283–17297.
+[28]J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova,“BERT: Pre-training of deep bidirectional transformers for language understanding,”in Proc. NAACL-HLT, 2019, pp. 4171–4186.
+[29]Y. Gong, Y. Chung, and J. Glass,“Ast: Audio spectrogram transformer,”in Proc. Interspeech, 2021, pp. 571–575.
+[30]A. Arnab, M. Dehghani, G. Heigold, C. Sun, M. Lučić, and C. Schmid,“Vivit: A video vision transformer,”in Proc. ICCV, 2021.
+[31]A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, J. Uszkoreit, and N. Houlsby,“An image is worth 16x16 words: Transformers for image recognition at scale,”in Proc. ICLR, 2021.
+[32]P. K. Atrey, M. A. Hossain, A. El Saddik, and M. S. Kankanhalli,“Multimodal fusion for multimedia analysis: a survey,”in Multimedia Systems, 2010.
+◄ ar5iv homepage Feeling
+lucky? Conversion
+report Report
+an issue View original
+on arXiv►
+Copyright Privacy Policy Generated on Tue Mar 5 18:15:37 2024 by LaTeXMLMascot Sammy

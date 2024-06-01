@@ -1,0 +1,1980 @@
+CCNet: Criss-Cross Attention for Semantic Segmentation
+Zilong Huang, Xinggang Wang, , Yunchao Wei, Lichao Huang, Humphrey Shi, , Wenyu Liu, , and Thomas S. Huang
+Z. Huang, X. Wang and W. Liu are with the School of Electronic Information and Communications, Huazhong University of Science and Technology, Wuhan 430074, China (e-mail: hzl@hust.edu.cn, xgwang@hust.edu.cn, liuwy@hust.edu.cn). Y. Wei is with the Centre for Artificial Intelligence, Faculty of Engineering and Information Technology, University of Technology Sydney, Ultimo, NSW 2007, Australia. (e-mail: yunchao.wei@uts.edu.au). L. Huang is with Horizon Robotics. (e-mail: lichao.huang@horizon.ai). H. Shi is with the University of Oregon and the University of Illinois at Urbana-Champaign. (e-mail: shihonghui3@gmail.com). T. S. Huang was with the University of Illinois at Urbana-Champaign. (e-mail: t-huang1@illinois.edu). Corresponding author: Xinggang Wang. Zilong Huang and Xinggang Wang contributed equally to this work.
+Abstract
+Contextual information is vital in visual understanding problems, such as semantic segmentation and object detection. We propose a Criss-Cross Network (CCNet) for obtaining full-image contextual information in a very effective and efficient way. Concretely, for each pixel, a novel criss-cross attention module harvests the contextual information of all the pixels on its criss-cross path. By taking a further recurrent operation, each pixel can finally capture the full-image dependencies. Besides, a category consistent loss is proposed to enforce the criss-cross attention module to produce more discriminative features. Overall, CCNet is with the following merits: 1) GPU memory friendly. Compared with the non-local block, the proposed recurrent criss-cross attention module requires 
+11
+×
+ less GPU memory usage. 2) High computational efficiency. The recurrent criss-cross attention significantly reduces FLOPs by about 
+85
+%
+ of the non-local block. 3) The state-of-the-art performance. We conduct extensive experiments on semantic segmentation benchmarks including Cityscapes, ADE20K, human parsing benchmark LIP, instance segmentation benchmark COCO, video segmentation benchmark CamVid. In particular, our CCNet achieves the mIoU scores of 
+81.9
+%
+, 
+45.76
+%
+ and 
+55.47
+%
+ on the Cityscapes test set, the ADE20K validation set and the LIP validation set respectively, which are the new state-of-the-art results. The source codes are available at https://github.com/speedinghzl/CCNet.
+
+Index Terms: Semantic Segmentation, Graph Attention, Criss-Cross Network, Context Modeling
+1Introduction
+Semantic segmentation, which is a fundamental problem in the computer vision community, aims at assigning semantic class labels to each pixel in a given image. It has been extensively and actively studied in many recent works and is also critical for various significant applications such as autonomous driving [1], augmented reality [2],image editing [3], civil engineering [4], remote sensing imagery [5] and agricultural pattern analysis [6, 7]. Specifically, current state-of-the-art semantic segmentation approaches based on the fully convolutional network (FCN) [8] have made remarkable progress. However, due to the fixed geometric structures, the conventional FCN is inherently limited to local receptive fields that only provide short-range contextual information. The limitation of insufficient contextual information imposes a great adverse effect on its segmentation accuracy.
+
+Refer to caption
+Figure 1:Diagrams of two attention-based context aggregation methods. (a) For each position (e.g., blue), the Non-local module [9] generates a dense attention map which has 
+�
+ weights (in green). (b) For each position (e.g., blue), the criss-cross attention module generates a sparse attention map which only has about 
+2
+​
+�
+ weights. After the recurrent operation, each position (e.g., red) in the final output feature maps can collect information from all pixels. For clear display, residual connections are ignored.
+To make up for the above deficiency of FCN, some works have been proposed to introduce useful contextual information to benefit the semantic segmentation task. Specifically, Chen et al. [10] proposed atrous spatial pyramid pooling module with multi-scale dilation convolutions for contextual information aggregation. Zhao et al. [11] further introduced PSPNet with pyramid pooling module to capture contextual information. However, the dilated convolution based methods [12, 10, 13] collect information from a few surrounding pixels and cannot generate dense contextual information actually. Meanwhile, the pooling based methods [11, 14] aggregate contextual information in a non-adaptive manner and the homogeneous context extraction procedure is adopted by all image pixels, which does not satisfy the requirement that different pixels need different contextual dependencies.
+
+To incorporate dense and pixel-wise contextual information, some fully-connected graph neural network (GNN) [15] methods were proposed to augments traditional convolutional features with an estimated full-image context representation. PSANet [16] learns to aggregate contextual information for each position via a predicted attention map. Non-local Networks [9] utilizes a self-attention mechanism [17, 18], which enables a single feature from any position to perceive features of all the other positions, thus harvesting full-image contextual information, see Fig. 1 (a). These non-local operations could be viewed as a densely-connected GNN module based on attention mechanism [18]. This feature augmentation method allows a flexible way to represent non-local relations between features and has led to significant improvements in several vision recognition tasks. However, these GNN-based non-local neural networks need to generate huge attention maps to measure the relationships for each pixel-pair, leading to a very high complexity of 
+𝒪
+​
+(
+�
+2
+)
+ for both time and space, where 
+�
+ is the number of input features. Since the dense prediction tasks, such as semantic segmentation, inherently require high resolution feature maps, the non-local based methods will often with high computation complexity and occupy a huge number of GPU memory. Thus, is there an alternative solution to achieve such a target in a more efficient way?
+
+To address the above mentioned issue, our motivation is to replace the common single densely-connected graph with several consecutive sparsely-connected graphs, which usually require much lower computational resources. Without loss of generality, we use two consecutive criss-cross attention modules, in which each one only has sparse connections (about 
+�
+) for each position in the feature map. For each pixel/position, the criss-cross attention module aggregates contextual information in its horizontal and vertical directions. By serially stacking two criss-cross attention modules, each position can collect contextual information from all pixels in the given image. The above decomposition strategy will greatly reduce the complexities of both time and space from 
+𝒪
+​
+(
+�
+2
+)
+ to 
+𝒪
+​
+(
+�
+​
+�
+)
+.
+
+We compare the differences between the non-local module [9] and our criss-cross attention module in Fig. 1. Concretely, both non-local module and criss-cross attention module feed the input feature map to generate an attention map for each position and transform the input feature map into an adapted feature map. Then, a weighted sum is adopted to collecting contextual information from other positions in the adapted feature map based on the attention maps. Different from the dense connections adopted by the non-local module, each position (e.g., blue) in the feature map is sparsely connected with other ones which are in the same row and the same column in our criss-cross attention module, leading to the predicted attention map only has about 
+2
+​
+�
+ weights rather than 
+�
+ in non-local module.
+
+To achieve the goal of capturing the full-image dependencies, we innovatively and simply take a recurrent operation for the criss-cross attention module. In particular, the local features are firstly passed through one criss-cross attention module to collect the contextual information in horizontal and vertical directions. Then, by feeding the feature map produced by the first criss-cross attention module into the second one, the additional contextual information obtained from the criss-cross path finally enables the full-image dependencies for all positions. As demonstrated in Fig. 1 (b), each position (e.g.red) in the second feature map can collect information from all others to augment the position-wise representations. We share parameters of the criss-cross modules to keep our model slim. Since the input and output are both convolutional feature maps, criss-cross attention module can be easily plugged into any fully convolutional neural network, named as CCNet, for learning full-image contextual information in an end-to-end manner. Thanks to the good usability of criss-cross attention module, CCNet is straight forward to extend to 3D networks for capturing long-range temporal context information.
+
+In addition, to drive the proposed recurrent criss-cross attention method to learn more discriminative features, we introduce a category consistent loss to augment CCNet. Particularly, the category consistent loss enforces the network to map each pixel in the image to an n-dimensional vector in the feature space, such that feature vectors of pixels that belong to the same category lie close together while feature vectors of pixels that belong to different categories lie far apart.
+
+We have carried out extensive experiments on multiple large-scale datasets. Our proposed CCNet achieves top performance on four most competitive semantic segmentation datasets, i.e., Cityscapes [19], ADE20K [20], LIP [21] and CamVid [22]. In addition, the proposed criss-cross attention even improves the state-of-the-art instance segmentation method, i.e., Mask R-CNN with ResNet-101 [23]. These results well demonstrate that our criss-cross attention module is generally beneficial to the dense prediction tasks. In summary, our main contributions are three-fold:
+
+• We propose a novel criss-cross attention module in this work, which can be leveraged to capture contextual information from full-image dependencies in a more efficient and effective way.
+• We propose category consistent loss which can enforce criss-cross attention module to produce more discriminative features.
+• We propose CCNet by taking advantages of recurrent criss-cross attention module, achieving leading performance on segmentation-based benchmarks, including Cityscapes, ADE20K, LIP, CamVid and COCO.
+Compare with our original conference version [24], the following improvements are conducted: 1) We further enhance the segmentation ability of CCNet by augmenting a simple yet effective category consistent loss; 2) we propose a more generic CCNet by extending the criss-cross attention module from 2D to 3D; 3) we include more extensive experiments on the LIP, CamVid and COCO datasets to verify the effectiveness and generalization ability of our CCNet.
+
+The rest of this paper is organized as follows. We first review related work in Section 2 and describe the architecture of our network in Section 3. In Section 4, ablation studies are given and experimental results are analyzed. Section 5 presents our conclusion and future work.
+
+Refer to caption
+Figure 2:Overview of the proposed CCNet for semantic segmentation.
+2Related work
+2.1Semantic segmentation
+The last years have seen a renewal of interest on semantic segmentation. FCN [8] is the first approach to adopt fully convolutional network for semantic segmentation. Later, FCN-based methods have made remarkable progress in image semantic segmentation. Chen et al. [25] and Yu et al. [26] removed the last two downsample layers to obtain dense prediction and utilized dilated convolutions to enlarge the receptive field. Unet [27], DeepLabv3+ [28], MSCI [29], SPGNet [30], RefineNet [31] and DFN [32] adopted encoder-decoder structures that fuse the information in low-level and high-level layers to make dense predictions. The scale-adaptive convolutions (SAC) [33] and deformable convolutional networks (DCN) [34] methods improved the standard convolutional operator to handle the deformation and various scales of objects. CRF-RNN [26] and DPN [35] used Graph model, i.e., CRF, MRF, for semantic segmentation. AAF [36] used adversarial learning to capture and match the semantic relations between neighboring pixels in the label space. BiSeNet [37] was designed for real-time semantic segmentation. DenseDecoder [38] built feature-level long-range skip connections on cascaded architecture. VideoGCRF [39] used a densely-connected spatio-temporal graph for video semantic segmentation. RTA [40] proposed the region-based temporal aggregation for leveraging the temporal information in videos. In addition, some works focus on human parsing task. JPPNet [21] embed pose estimation into human parsing task. CE2P [41] proposed a simple yet effective framework for computing context embedding while preserving edges. SANet [42] used parallel branches with scale attention to handle large scale variance in human parsing. Semantic segmentation is also actively studied in the context of domain adaptation and dstillation [43, 44, 45] and weakly supervised setting [46, 47, 48], etc.
+
+2.2Contextual information aggregation
+It is a common practice to aggregate contextual information to augment the feature representation in semantic segmentation networks. Deeplabv2 [10] proposed atrous spatial pyramid pooling (ASPP) to use different dilation convolutions to capture contextual information. DenseASPP [49] brought dense connections into ASPP to generate features with various scale. DPC [50] utilized architecture search techniques to build multi-scale architectures for semantic segmentation. Chen et al. [51] made use of several attention masks to fuse feature maps or prediction maps from different branches. PSPNet [11] utilized pyramid spatial pooling to aggregate contextual information. Recently, Zhao et al. [16] proposed the point-wise spatial attention network which uses predicted attention map to guide contextual information collection. Auto-Deeplab [52] utilized neural architecture search to search an effective context modeling. He et al.[53] proposed an adaptive pyramid context module for semantic segmentation. Liu et al. [54] utilized recurrent neural networks (RNNs) to capture long-range dependencies.
+
+There are some works use graph models to model the contextual information. Conditional random field (CRF) [25, 55, 40], Markov random field (MRF) [35] were also utilized to capture long-range dependencies for semantic segmentation. Vaswani et al. [18] applied a self-attention model on machine translation. Wang et al. [9] proposed the non-local module to generate the huge attention map by calculating the correlation matrix between each spatial point on the feature maps, then the attention map guided dense contextual information aggregation. OCNet [56] and DANet [57] utilized Non-local module [9] to harvest the contextual information. PSA [16] learned an attention map to aggregate contextual information for each individual point adaptively and specifically. Chen et al. [58] proposed graph-based global reasoning networks which implements relation reasoning via graph convolution on a small graph.
+
+CCNet vs. Non-Local vs. GCN. Here, we specifically discuss the differences among GCN [59], Non-local Network [9] and CCNet. In term of contextual information aggregation, only the center point can perceive the contextual information from all pixels by the global convolution filters in GCN [59]. In contrast, Non-local Network [9] and CCNet guarantee that a pixel at any position perceives contextual information from all pixels. Though GCN [59] alternatively decomposes the square-shape convolutional operation to horizontal and vertical linear convolutional operations which is related to CCNet, CCNet takes the criss-cross way to harvest contextual information which is more effective than the horizontal-vertical separate way. Moreover, CCNet is proposed to mimic Non-local Network [9] for obtaining dense contextual information through a more effective and efficient recurrent criss-cross attention module, in which dissimilar features get low attention weights and features with high attention weights are similar ones. GCN [59] is a conventional convolution neural network, while CCNet is a graph neural network in which each pixel in the convolutional feature map is considered as a node and the relation/context among nodes can be utilized to generate better node features.
+
+2.3Graph neural networks
+Our work is related to deep graph neural network (GNN). Prior to graph neural networks, graphical models, such as the conditional random field (CRF) [25, 55, 40], markov random field (MRF) [35], were widely used to model the long-range dependencies for image understanding. GNNs were early studied in [60, 61, 15]. Inspired by the success of CNNs, a large number of methods adapt graph structure into CNNs. These methods could be divided into two main steams, the spectral-based approaches [62, 63, 64, 65] and the spatial-based approaches [66, 67, 68, 9]. The proposed CCNet belongs to the latter.
+
+3Approach
+In this section, we give the details of the proposed Criss-Cross Network (CCNet) for semantic segmentation. We first present a general framework of our CCNet. Then, the 2D criss-cross attention module which captures contextual information in horizontal and vertical directions will be introduced. To capture the dense and global contextual information, we propose to adopt a recurrent operation for the criss-cross attention module. To further improve RCCA, we introduce a discriminative loss function to drive RCCA to learn category consistent features. Finally we propose the 3D criss-cross attention module for leveraging temporal and spatial contextual information simultaneously.
+
+3.1Network Architecture
+The network architecture is given in Fig. 2. An input image is passed through a deep convolutional neural network (DCNN), which is designed in a fully convolutional fashion [10], to produce feature map 
+𝐗
+ with the spatial size of 
+�
+×
+�
+. In order to retain more details and efficiently produce dense feature maps, we remove the last two down-sampling operations and employ dilation convolutions in the subsequent convolutional layers, leading to enlarging the width/height of the output feature map 
+𝐗
+ to 1/8 of the input image.
+
+Given 
+𝐗
+, we first apply a convolutional layer to obtain the feature map 
+𝐇
+ of dimension reduction. Then, 
+𝐇
+ is fed into the criss-cross attention module to generate a new feature map 
+𝐇
+′
+ which aggregate contextual information together for each pixel in its criss-cross path. The feature map 
+𝐇
+′
+ only contains the contextual information in horizontal and vertical directions which are not powerful enough for accurate semantic segmentation. To obtain richer and denser context information, we feed the feature map 
+𝐇
+′
+ into the criss-cross attention module again and output the feature map 
+𝐇
+′′
+. Thus, each position in 
+𝐇
+′′
+ actually gathers the information from all pixels. Two criss-cross attention modules before and after share the same parameters to avoid adding too many extra parameters. We name this recurrent structure as recurrent criss-cross attention (RCCA) module.
+
+Then, we concatenate the dense contextual feature 
+𝐇
+′′
+ with the local representation feature 
+𝐗
+. It is followed by one or several convolutional layers with batch normalization and activation for feature fusion. Finally, the fused features are fed into the segmentation layer to predict the final segmentation result.
+
+3.2Criss-Cross Attention
+To model full-image dependencies over local feature representations using light-weight computation and memory, we introduce a criss-cross attention module. The criss-cross attention module collects contextual information in horizontal and vertical directions to enhance pixel-wise representative capability. As shown in Fig. 3, given a local feature map 
+𝐇
+∈
+ℝ
+�
+×
+�
+×
+�
+, the module first applies two convolutional layers with 
+1
+×
+1
+ filters on 
+𝐇
+ to generate two feature maps 
+𝐐
+ and 
+𝐊
+, respectively, where 
+{
+𝐐
+,
+𝐊
+}
+∈
+ℝ
+�
+′
+×
+�
+×
+�
+. 
+�
+′
+ is the number of channel, which is less than 
+�
+ for dimension reduction.
+
+After obtaining 
+𝐐
+ and 
+𝐊
+, we further generate an attention map 
+𝐀
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+(
+�
+×
+�
+)
+ via Affinity operation. At each position u in the spatial dimension of 
+𝐐
+, we can obtain a vector 
+𝐐
+𝐮
+∈
+ℝ
+�
+′
+. Meanwhile, we can also obtain the set 
+𝛀
+𝐮
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+�
+′
+ by extracting feature vectors from 
+𝐊
+ which are in the same row or column with position u. 
+𝛀
+�
+,
+u
+∈
+ℝ
+�
+′
+ is the 
+�
+-th element of 
+𝛀
+𝐮
+. The Affinity operation is then defined as follows.
+
+�
+�
+,
+u
+=
+𝐐
+𝐮
+​
+𝛀
+�
+,
+u
+⊺
+,
+(1)
+where 
+�
+�
+,
+u
+∈
+𝐃
+ is the degree of correlation between features 
+𝐐
+𝐮
+ and 
+𝛀
+�
+,
+u
+, 
+�
+=
+[
+1
+,
+…
+,
+�
++
+�
+−
+1
+]
+, and 
+𝐃
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+(
+�
+×
+�
+)
+. Then, we apply a softmax layer on 
+𝐃
+ over the channel dimension to calculate the attention map 
+𝐀
+.
+
+Another convolutional layer with 
+1
+×
+1
+ filters is applied on 
+𝐇
+ to generate 
+𝐕
+∈
+ℝ
+�
+×
+�
+×
+�
+ for feature adaptation. At each position u in the spatial dimension of 
+𝐕
+, we can obtain a vector 
+𝐕
+𝐮
+∈
+ℝ
+�
+ and a set 
+𝚽
+𝐮
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+�
+. The set 
+𝚽
+𝐮
+ is a collection of feature vectors in 
+𝐕
+ which are in the same row or column with position 
+�
+. The contextual information is collected by an Aggregation operation defined as follows.
+
+𝐇
+𝐮
+′
+=
+∑
+�
+=
+0
+�
++
+�
+−
+1
+𝐀
+�
+,
+u
+​
+𝚽
+𝐢
+,
+𝐮
++
+𝐇
+𝐮
+,
+(2)
+where 
+𝐇
+𝐮
+′
+ is a feature vector in 
+𝐇
+′
+∈
+ℝ
+�
+×
+�
+×
+�
+ at position 
+�
+ and 
+𝐀
+�
+,
+u
+ is a scalar value at channel 
+�
+ and position u in 
+𝐀
+. The contextual information is added to local feature 
+𝐇
+ to augment the pixel-wise representation. Therefore, it has a wide contextual view and selectively aggregates contexts according to the spatial attention map. These feature representations achieve mutual gains and are more robust for semantic segmentation.
+
+Refer to caption
+Figure 3:The details of criss-cross attention module.
+3.3Recurrent Criss-Cross Attention (RCCA)
+Despite the criss-cross attention module can capture contextual information in horizontal and vertical directions, the connections between one pixel and its around ones that are not in the criss-cross path are still absent. To tackle this problem, we innovatively and simply introduce a RCCA operation based on the criss-cross attention. The RCCA module can be unrolled into 
+�
+ loops. In the first loop, the criss-cross attention takes the feature map 
+𝐇
+ extracted from a CNN model as the input and output the feature map 
+𝐇
+′
+, where 
+𝐇
+ and 
+𝐇
+′
+ are with the same shape. In the second loop, the criss-cross attention takes the feature map 
+𝐇
+′
+ as the input and output the feature map 
+𝐇
+′′
+. As shown in Fig. 2, the RCCA module is equipped with two loops (
+�
+=
+2
+) which is able to harvest full-image contextual information from all pixels to generate new features with dense and rich contextual information.
+
+Refer to caption
+Figure 4:An example of information propagation when the loop number is 2.
+We denote 
+𝐀
+ and 
+𝐀
+′
+ as the attention maps in loop 1 and loop 2, respectively. Since we are interested only in contextual information spreads in spatial dimension rather than in channel dimension, the convolutional layer with 
+1
+×
+1
+ filters can be view as the identical connection. In the case of 
+�
+=
+2
+, the connections between any two spatial positions in the feature map built up by the RCCA module can be clearly and quantitatively described by introducing function 
+�
+ defined as follows.
+
+∃
+�
+∈
+ℝ
+�
++
+�
+−
+1
+,
+�
+.
+�
+.
+𝐀
+�
+,
+𝐮
+=
+�
+​
+(
+𝐀
+,
+�
+�
+�
+​
+�
+,
+�
+�
+�
+​
+�
+,
+�
+�
+,
+�
+�
+)
+,
+where 
+𝐮
+​
+(
+�
+�
+,
+�
+�
+)
+∈
+ℝ
+�
+×
+�
+ is any spatial position in 
+𝐇
+ and 
+𝐮
+�
+​
+�
+​
+(
+�
+�
+�
+​
+�
+,
+�
+�
+�
+​
+�
+)
+∈
+ℝ
+�
++
+�
+−
+1
+ is a position in the criss-cross structure centered at 
+𝐮
+. The function 
+�
+ is actually an one-to-one mapping from the position pair 
+(
+𝐮
+�
+​
+�
+,
+𝐮
+)
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+(
+�
+×
+�
+)
+ in the feature map to a particular element 
+𝐀
+�
+,
+𝐮
+∈
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+(
+�
+×
+�
+)
+ in the attention map 
+𝐀
+⊂
+ℝ
+(
+�
++
+�
+−
+1
+)
+×
+(
+�
+×
+�
+)
+, where 
+𝐮
+�
+​
+�
+ maps to a particular row 
+�
+ in 
+𝐀
+ and 
+𝐮
+ maps to a particular column in 
+𝐀
+.
+
+With the help of function 
+�
+, we can easily describe the information propagation between any position 
+𝐮
+ in 
+𝐇
+′′
+ and any position 
+𝜽
+ in 
+𝐇
+. It is obvious that information could flow from 
+𝜽
+ to 
+𝐮
+ when 
+𝜽
+ is in the criss-cross path of 
+𝐮
+.
+
+Then, we focus on another situation in which 
+𝜽
+​
+(
+�
+�
+,
+�
+�
+)
+ is NOT in the criss-cross path of 
+𝐮
+​
+(
+�
+�
+,
+�
+�
+)
+. To make it easier to understand, we visualize the information propagation in Fig. 4. The position 
+(
+�
+�
+,
+�
+�
+)
+, which is blue, firstly passes the information into the 
+(
+�
+�
+,
+�
+�
+)
+ and 
+(
+�
+�
+,
+�
+�
+)
+ (light green) in the loop 1. The propagation could be quantified by function 
+�
+. It should be noted that these two points 
+(
+�
+�
+,
+�
+�
+)
+ and 
+(
+�
+�
+,
+�
+�
+)
+ are in the criss-cross path of 
+𝐮
+​
+(
+�
+�
+,
+�
+�
+)
+. Then, the positions 
+(
+�
+�
+,
+�
+�
+)
+ and 
+(
+�
+�
+,
+�
+�
+)
+ pass the information into the 
+(
+�
+�
+,
+�
+�
+)
+ (dark green) in the loop 2. Thus, the information in 
+𝜽
+​
+(
+�
+�
+,
+�
+�
+)
+ could eventually flow into 
+𝐮
+​
+(
+�
+�
+,
+�
+�
+)
+ even if 
+𝜽
+​
+(
+�
+�
+,
+�
+�
+)
+ is NOT in the criss-cross path of 
+𝐮
+​
+(
+�
+�
+,
+�
+�
+)
+.
+
+In general, our RCCA module makes up for the deficiency of criss-cross attention that cannot obtain the dense contextual information from all pixels. Compared with criss-cross attention, the RCCA module (
+�
+=
+2
+) does not bring extra parameters and can achieve better performance with the cost of a minor computation increment.
+
+3.4Learning Category Consistent Features
+For semantic segmentation tasks, the pixels belonging to the same category should have the similar features, while the pixels from different categories should have far apart features. We name such a characteristic as category consistency. The deep features produced by RCCA have full-image context; however, the aggregated feature may have the problem of over-smoothing, which is a common issue in graph neural networks. To address this potential issue, beside the cross-entropy loss 
+ℓ
+�
+​
+�
+​
+�
+ to penalize the mismatch between the final predicted segmentation maps and ground truth, we further introduce the category consistent loss to drive RCCA module to learn category consistent features directly.
+
+In [69], a discriminative loss function with three competing terms is proposed for instance segmentation. In particular, the three terms, denoted as 
+ℓ
+�
+​
+�
+​
+�
+,
+ℓ
+�
+​
+�
+​
+�
+,
+ℓ
+�
+​
+�
+​
+�
+, are adopted to 1) penalize large distances between features with the same label for each instance, 2) penalize small distances between the mean features of different labels, and 3) draw mean features of all categories towards the origin, respectively.
+
+Motivated by [69], we first adapt a discriminative loss for semantic segmentation rather than instance segmentation, then replace the first term with more robust one: instead of using quadratic function as the distance function to penalize mismatch all along, we design a piece-wise distance function to make the optimization more robust.
+
+Let 
+�
+ be the set of classes that are present in the mini-batch images. 
+�
+�
+ is the number of valid elements belonging to category 
+�
+∈
+�
+. 
+ℎ
+�
+∈
+H
+ is the feature vector at spatial position 
+�
+. 
+�
+�
+ is the mean feature of category 
+�
+∈
+�
+ (the cluster center). 
+�
+ is a piece-wise distance function. 
+�
+�
+ and 
+�
+�
+ are respectively the margins. In particular, Eq. 6 is a piece-wise distance function and the function 
+�
+�
+​
+�
+​
+�
+ will be zero, quadratic, and linear function when the distance from the center 
+�
+�
+ is within 
+�
+�
+, in range of 
+(
+�
+�
+,
+�
+�
+]
+, and exceeds 
+�
+�
+, respectively.
+
+ℓ
+�
+​
+�
+​
+�
+=
+1
+|
+�
+|
+​
+∑
+�
+∈
+�
+1
+�
+�
+​
+∑
+�
+=
+1
+�
+�
+�
+�
+​
+�
+​
+�
+​
+(
+ℎ
+�
+,
+�
+�
+)
+,
+(3)
+ℓ
+�
+​
+�
+​
+�
+=
+1
+|
+�
+|
+​
+(
+|
+�
+|
+−
+1
+)
+​
+∑
+�
+�
+∈
+�
+∑
+�
+�
+∈
+�
+�
+�
+≠
+�
+�
+​
+�
+�
+​
+�
+​
+�
+​
+(
+�
+�
+�
+,
+�
+�
+�
+)
+,
+(4)
+ℓ
+�
+​
+�
+​
+�
+=
+1
+|
+�
+|
+​
+∑
+�
+∈
+�
+‖
+�
+�
+‖
+,
+(5)
+�
+�
+​
+�
+​
+�
+=
+{
+‖
+�
+�
+−
+ℎ
+�
+‖
+−
+�
+�
++
+(
+�
+�
+−
+�
+�
+)
+2
+,
+‖
+�
+�
+−
+ℎ
+�
+‖
+>
+�
+�
+(
+‖
+�
+�
+−
+ℎ
+�
+‖
+−
+�
+�
+)
+2
+,
+�
+�
+<
+‖
+�
+�
+−
+ℎ
+�
+‖
+≤
+�
+�
+0
+,
+‖
+�
+�
+−
+ℎ
+�
+‖
+≤
+�
+�
+(6)
+�
+�
+​
+�
+​
+�
+=
+{
+(
+2
+​
+�
+�
+−
+‖
+�
+�
+�
+−
+�
+�
+�
+‖
+)
+2
+,
+‖
+�
+�
+�
+−
+�
+�
+�
+‖
+≤
+2
+​
+�
+�
+0
+,
+‖
+�
+�
+�
+−
+�
+�
+�
+‖
+>
+2
+​
+�
+�
+(7)
+To reduce the computation load, we first apply a convolutional layer with 
+1
+×
+1
+ filters on the output of RCCA module for dimension reduction and then apply these three loss on the feature map with fewer channels. The final loss 
+ℓ
+ is weighted sum of all losses.
+
+ℓ
+=
+ℓ
+�
+​
+�
+​
+�
++
+�
+​
+ℓ
+�
+​
+�
+​
+�
++
+�
+​
+ℓ
+�
+​
+�
+​
+�
++
+�
+​
+ℓ
+�
+​
+�
+​
+�
+,
+(8)
+where 
+�
+, 
+�
+ and 
+ℓ
+ are the weight parameters. In our experiments we set 
+�
+�
+=
+0.5
+, 
+�
+�
+=
+1.5
+, 
+�
+=
+�
+=
+1
+, 
+�
+=
+0.001
+ and 
+16
+ as the number of channels for dimension reduction.
+
+3.53D Criss-Cross Attention
+To adapt our method from 2D applications to 3D dense prediction tasks, we introduce 3D Criss-Cross Attention. In general, the architecture of 3D Criss-Cross Attention is an extension the 2D version by additional collecting more contextual information from the temporal dimension. As shown in Fig. 5, given a local feature map 
+𝐇
+∈
+ℝ
+�
+×
+�
+×
+�
+×
+�
+, where 
+�
+ is axial dimension (i.e., temporal dimension in video data). The module firstly applies two convolutional layers with 
+1
+×
+1
+×
+1
+ filters on 
+𝐇
+ to generate two feature maps 
+𝐐
+ and 
+𝐊
+, respectively, where 
+{
+𝐐
+,
+𝐊
+}
+∈
+ℝ
+�
+′
+×
+�
+×
+�
+×
+�
+.
+
+After obtaining the feature maps 
+𝐐
+ and 
+𝐊
+, we further generate an attention map 
+𝐀
+∈
+ℝ
+(
+�
++
+�
++
+�
+−
+2
+)
+×
+�
+×
+�
+×
+�
+ via the Affinity operation. At each position 
+�
+ of 
+𝐐
+, we can obtain a vector 
+𝐐
+𝐮
+∈
+ℝ
+�
+′
+. 
+�
+ contains three coordinate values 
+(
+�
+,
+�
+,
+�
+)
+. We can also obtain the set 
+𝛀
+𝐮
+∈
+ℝ
+(
+�
++
+�
++
+�
+−
+2
+)
+×
+�
+′
+ by extracting feature vectors from 
+𝐊
+ with at least two coordinate values equal to 
+�
+. 
+𝛀
+𝐢
+,
+𝐮
+∈
+ℝ
+�
+′
+ is the 
+�
+-th element of 
+𝛀
+𝐮
+. The Affinity operation is then defined as follows.
+
+�
+�
+,
+�
+=
+𝐐
+𝐮
+​
+𝛀
+𝐢
+,
+𝐮
+⊺
+,
+(9)
+where 
+�
+�
+,
+�
+∈
+𝐃
+ is the degree of correlation between feature 
+𝐐
+𝐮
+ and 
+𝛀
+𝐢
+,
+𝐮
+, 
+�
+=
+[
+1
+,
+…
+,
+(
+�
++
+�
++
+�
+−
+2
+)
+]
+, 
+𝐃
+∈
+ℝ
+(
+�
++
+�
++
+�
+−
+2
+)
+×
+�
+×
+�
+×
+�
+. Then, we apply a softmax layer on 
+𝐃
+ over the first dimension to calculate the attention map 
+𝐀
+.
+
+Another convolutional layer with 
+1
+×
+1
+×
+1
+ filters is applied on 
+𝐇
+ to generate 
+𝐕
+∈
+ℝ
+�
+×
+�
+×
+�
+×
+�
+ for feature adaptation. At each position 
+�
+ in the spatial dimension of 
+𝐕
+, we can obtain a vector 
+𝐕
+𝐮
+∈
+ℝ
+�
+ and a set 
+𝚽
+𝐮
+∈
+ℝ
+(
+�
++
+�
++
+�
+−
+2
+)
+×
+�
+. The the set 
+𝚽
+𝐮
+ is a collection of feature vectors in 
+𝐕
+ which are in the criss-cross structure centered at 
+�
+. The contextual information is collected by the Aggregation operation:
+
+𝐇
+𝐮
+′
+=
+∑
+�
+=
+0
+�
++
+�
++
+�
+−
+2
+𝐀
+𝐢
+,
+𝐮
+​
+𝚽
+𝐢
+,
+𝐮
++
+𝐇
+𝐮
+,
+(10)
+where 
+𝐇
+𝐮
+′
+ is a feature vector in the output feature map 
+𝐇
+′
+∈
+ℝ
+�
+×
+�
+×
+�
+×
+�
+ at position 
+�
+. 
+𝐀
+𝐢
+,
+𝐮
+ is a scalar value at channel 
+�
+ and position 
+�
+ in 
+𝐀
+.
+
+4Experiments
+To evaluate the effectiveness of the CCNet, we carry out comprehensive experiments on the Cityscapes dataset [19], the ADE20K dataset [20], the COCO dataset [70], the LIP dataset [21] and the CamVid dataset [71]. Experimental results demonstrate that CCNet achieves state-of-the-art performance on Cityscapes, ADE20K and LIP. Meanwhile, CCNet can bring constant performance gain on COCO for instance segmentation. In the following subsections, we first introduce the datasets and implementation details, then we perform a series of ablation experiments on Cityscapes dataset. Finally, we report our results on ADE20K, LIP, COCO and CamVid datasets.
+
+Refer to caption
+Figure 5:The details of 3D criss-cross attention module.
+4.1Datasets and Evaluation Metrics
+We adopt Mean IoU (mIOU, mean of class-wise intersection over union) for Cityscapes, ADE20K, LIP and CamVid and the standard COCO metrics Average Precision (AP) for COCO.
+
+• Cityscapes is tasked for urban segmentation. Only the 5,000 finely annotated images are used in our experiments and are divided into 2,975/500/1,525 images for training, validation, and testing, respectively.
+• ADE20K is a recent scene parsing benchmark containing dense labels of 150 stuff/object categories. The dataset includes 20k/2k/3k images for training, validation and testing, respectively.
+• LIP is a large-scale single human parsing dataset. There are 50,462 images with fine-grained annotations at pixel-level with 19 semantic human part labels and one background label. Those images are further divided into 30k/10k/10k for training, validation and testing, respectively.
+• COCO is a very challenging dataset for instance segmentation that contains 115k images over 80 categories for training, 5k images for validation and 20k images for testing.
+• CamVid is one of the datasets focusing on semantic segmentation for autonomous driving scenarios. It is composed of 701 densely annotated images with size 
+720
+×
+960
+ from five video sequences.
+4.2Implementation Details
+Network Structure For semantic segmentation, we choose the ImageNet pre-trained ResNet-101 [23] as our backbone network, remove its last two down-sampling operations, and employ dilated convolutions in the subsequent convolutional layers following the previous work [25], resulting in the output stride as 8. For human parsing, we choose CE2P [41] as our baseline and replace the Context Embedding module with RCCA. For instance segmentation, we choose Mask-RCNN [72] as our baseline. For video semantic segmentation, we also choose Cityscapes pre-trained ResNet-101 [23] as our backbone network with 3D RCCA.
+
+Training settings SGD with mini-batch is used for training. For semantic segmentation, the initial learning rate is 1e-2 for Cityscapes and ADE20K. Following the prior works [10, 14], we employ a poly learning rate policy where the initial learning rate is multiplied by 
+1
+−
+(
+�
+​
+�
+​
+�
+​
+�
+�
+​
+�
+​
+�
+​
+_
+​
+�
+​
+�
+​
+�
+​
+�
+)
+�
+​
+�
+​
+�
+​
+�
+​
+�
+ with 
+�
+​
+�
+​
+�
+​
+�
+​
+�
+ = 0.9. We use the momentum of 0.9 and a weight decay of 0.0001. For Cityscapes, the training images are augmented by randomly scaling (from 0.75 to 2.0), then randomly cropping out high-resolution patches (
+769
+×
+769
+) from the resulting images. Since the images from ADE20K are with various sizes, we adopt an augmentation strategy of resizing the short side of input image to a length randomly chosen from the set {300, 375, 450, 525, 600}. For human parsing, the model are trained and tested with the input size of 
+473
+×
+473
+. For instance segmentation, we take the same training settings as that of Mask-RCNN [72]. For video semantic segmentation, we sample 5 temporally ordered frames from a training video as training data and the input size is 
+504
+×
+504
+.
+
+4.3Experiments on Cityscapes
+4.3.1Comparisons with state-of-the-arts
+Results of other state-of-the-art semantic segmentation solutions on Cityscapes are summarized in Tab. I. For val set, we provide these results for reference and emphasize that these results should not be simply compared with our method, since these methods are trained on different (even larger) training sets or different basic network. Among these approaches, Deeplabv3 [12] adopts multi-scale testing strategy. Deeplabv3+ [28] and DPC [50] both use a more stronger backbone (i.e., Xception-65 & 71 vs. ResNet-101). In addition, DPC [50] makes use of additional dataset, i.e., COCO, for pre-training beyond the training set of Cityscapes. The results show that the proposed CCNet with single-scale testing still achieve comparable performance without bells and whistles.
+
+Additionally, we also train the best learned CCNet with ResNet-101 as the backbone using both training and validation sets and make the evaluation on the test set by submitting our test results to the official evaluation server. Most of methods [10, 31, 33, 59, 73, 11, 37, 36, 16, 32] adopt the same backbone as ours and the others [74, 49] utilize stronger backbones. From Tab. I, it can be observed that our CCNet substantially outperforms all the previous state-of-the-arts on test set. Among the approaches, PSANet [16] is the most related to our method which generates sub attention map for each pixel. One of the differences is that the sub attention map has 
+2
+×
+�
+×
+�
+ weights in PSANet and 
+�
++
+�
+−
+1
+ weights in CCNet. Even with lower computation cost and memory usage, our method still achieves better performance.
+
+TABLE I:Comparison with state-of-the-arts on Cityscapes (test).
+Method	Backbone	mIOU(%)
+Performance on val set
+DeepLabv3 [12] 	ResNet-101	79.3
+DeepLabv3+ [28] 	Xception-65	79.1
+DPC [50] † 	Xception-71	80.8
+CCNet	ResNet-101	80.5
+Performance on test set
+DeepLab-v2 [10] 	ResNet-101	70.4
+RefineNet [31] ‡ 	ResNet-101	73.6
+SAC [33] ‡ 	ResNet-101	78.1
+GCN [59] ‡ 	ResNet-101	76.9
+DUC [73] ‡ 	ResNet-101	77.6
+ResNet-38 [74] 	WiderResnet-38	78.4
+PSPNet [11] 	ResNet-101	78.4
+BiSeNet [37] ‡ 	ResNet-101	78.9
+AAF [36] 	ResNet-101	79.1
+PSANet [16] ‡ 	ResNet-101	80.1
+DFN [32] ‡ 	ResNet-101	79.3
+DenseASPP [49] ‡ 	DenseNet-161	80.6
+CCNet ‡	ResNet-101	81.9
+• † use extra COCO dataset for training.
+• ‡ train with both the train-fine and val-fine datasets.
+Refer to caption
+Figure 6:Visualization results of RCCA with different loops on Cityscapes validation set.
+4.3.2Ablation studies
+To verify the rationality of the CCNet, we conduct extensive ablation experiments on the validation set of Cityscapes with different settings for CCNet.
+
+TABLE II:Performance on Cityscapes (val) for different number of loops in RCCA. FLOPs and memory increment are estimated for an input of 
+1
+×
+3
+×
+769
+×
+769
+.
+Loops	GFLOPs(
+▲
+)	Memory(M
+▲
+)	mIOU(%)
+baseline	0	0	75.1
+�
+=
+1
+8.3	53	78.0
+�
+=
+2
+16.5	127	79.8
+�
+=
+3
+24.7	208	80.2
+The effect of the RCCA module Tab. II shows the performance on the Cityscapes validation set by adopting different number of loop in RCCA. All experiments are conducted using ResNet-101 as the backbone. Besides, the input size of training images is 
+769
+×
+769
+ and the size of the input feature map H of RCCA is 
+97
+×
+97
+. Our baseline network is the ResNet-based FCN with dilated convolutional module incorporated at stage 4 and 5, i.e., dilation rates are set to 2 and 4 for these two stages respectively. The increment of FLOPs and memory usage are estimated when 
+�
+=
+1
+,
+2
+,
+3
+, respectively.
+
+We observe that adding a criss-cross attention module into the baseline, donated as 
+�
+=
+1
+, improves the performance by 2.9%, which can effectively demonstrates the significance of criss-cross attention. Furthermore, increasing the number of loops from 1 to 2 can further improve the performance by 1.8%, demonstrating the effectiveness of dense contextual information. Finally, increasing loops from 2 to 3 slightly improves the performance by 0.4%. Meanwhile, with the increasing the number of loops, the FLOPs and usage of GPU memory keep increasing. These results prove that the proposed criss-cross attention can significantly improve the performance by capturing contextual information in horizontal and vertical direction. In addition, the proposed RCCA is effective in capturing the dense and global contextual information, which can finally benefit the performance of semantic segmentation. To balance the performance and resource usage, we choose 
+�
+=
+2
+ as default settings in all the following experiments.
+
+To further validate the effectiveness of the criss-cross module, we provide the qualitative comparisons in Fig. 6. We leverage the white circles to indicate those challenging regions that are easily to be misclassified. It can be seen that these challenging regions are progressively corrected with the increasing the number of loops, which can well prove the effectiveness of dense contextual information aggregation for semantic segmentation.
+
+TABLE III:Performance on Cityscapes (val) for different kinds of category consistent loss.
+Function Type	Successes	Mean mIOU(%)
+Quadratic function	6/10	79.2
+Piece-wise function	9/10	79.3
+The effect of the category consistent loss Tab. IV also shows the performance on the Cityscapes validation set by adopting the proposed category consistent loss. The category consistent loss is donated as “CCL” in the table. As we can see, adopting the category consistent loss could stably bring 0̃.7% mIoU gain with both Resnet-101 and Resnet-50, which prove the effectiveness of the proposed category consistent loss for semantic segmentation. To prove that the proposed piece-wise function is more robust than the original one, we conduct 10 times of the training processes using ResNet-50 for each kind of loss function. The training is deemed to fail when the loss value is NaN, thus we can calculate the success rate (number of successful training / total number of training). The experimental results in Table III demonstrate that using the piece-wise function has higher training success rate than using the original one. Besides, using the piece-wise function could achieve slightly better performance than a single quadratic function. Because we relax the punishment in the Eq. 6 to reduce the numerical values and gradients especially when the distance from the center exceeds 
+�
+�
+. This relaxation makes the optimization much more stable.
+
+TABLE IV:Comparison of context aggregation approaches on Cityscapes (val).
+Method	mIOU(%)
+ResNet101-Baseline	75.1
+ResNet101+GCN	78.1
+ResNet101+PSP	78.5
+ResNet101+ASPP	78.9
+ResNet101+NL	79.1
+ResNet101+RCCA(R=2)	79.8
+ResNet101+RCCA(R=2)+CCL	80.5
+ResNet50-Baseline	73.3
+ResNet50+GCN	76.2
+ResNet50+PSP	76.4
+ResNet50+ASPP	77.1
+ResNet50+NL	77.3
+ResNet50+HV	77.3
+ResNet50+HV&VH	77.8
+ResNet50+RCCA(R=2)	78.5
+ResNet50+RCCA(R=2)+CCL	79.3
+Refer to caption
+Figure 7:Visualization of attention module on Cityscapes validation set. The left column is the input images, the 2 and 3 columns are pixel-wise attention maps when 
+�
+=
+1
+ and 
+�
+=
+2
+ in RCCA.
+Comparison of other context aggregation approaches We compare the performance of several different context aggregation approaches on the Cityscapes validation set with ResNet-50 and ResNet-101 as backbone networks.
+
+Specifically, the baselines of context aggregation mainly include: 1) Peng et al. [59] utilized global convolution filters for contextual information aggregation, donated as “+GCN”. 2) Zhao et al. [11] proposed Pyramid pooling which is the simple and effective way to capture global contextual information, donated as “+PSP”; 3) Chen et al. [12] used different dilation convolutions to harvest pixel-wise contextual information at the different range, donated as “+ASPP”; 4) Wang et al. [9] introduced non-local network for context aggregation, donated as “+NL”.
+
+In Tab. IV, both “+NL” and “+RCCA” achieve better performance compared with the other context aggregation approaches, which demonstrates the importance of capturing full-image contextual information. More interestingly, our method achieves better performance than “+NL”. This reason may be attributed to the sequentially recurrent operation of criss-cross attention. Concretely, “+NL” generates an attention map directly from the feature which has limit receptive field and short-range dependencies. In contrast, our “+RCCA” takes two steps to form dense contextual information, leading to that the latter step can learn a better attention map benefiting from the feature map produced by the first step in which some long-range dependencies has already been embedded.
+
+To prove the effectiveness of attention with criss-cross shape, we compare criss-cross shape with other shapes in Tab. IV. “+HV” means stacking horizontal attention and vertical attention. “+HV&VH” means summing up features of two parallel branches, i.e. “HV” and “VH”.
+
+We further explore the amount of computation and memory footprint of RCCA. As shown in Tab. V, compared with “+NL” method, the proposed “+RCCA” requires 
+11
+×
+ less GPU memory usage and significantly reduces FLOPs by about 85% of non-local block in computing full-image dependencies, which shows that CCNet is an efficient way to capture full-image contextual information in the least amount of computation and memory footprint. To further prove the effectiveness of the recurrent operation, we also run non-local module in the recurrent way, donated as “+NL(R=2)”. As we can seen, the recurrent operation can bring more than 1 point gain. Because the recurrent operation leads to that the latter step can learn a better attention map benefiting from the feature map produced by the first step in which some long-range dependencies has already been embedded. However, compared with “+RCCA”, “+NL(R=2)” needs huge GPU memory usage, which limits the use of self-attention.
+
+Visualization of Attention Map To get a deeper understanding of our RCCA, we visualize the learned attention masks as shown in Fig. 7. For each input image, we select one point (cross in green) and show its corresponding attention maps when 
+�
+=
+1
+ and 
+�
+=
+2
+ in columns 2 and 3, respectively. It can be observed that only contextual information from the criss-cross path of the target point is captured when 
+�
+=
+1
+. By adopting one more criss-cross module, i.e., 
+�
+=
+2
+, RCCA can finally aggregate denser and richer contextual information compared with that of 
+�
+=
+1
+. Besides, we observe that the attention module could capture semantic similarity and full-image dependencies.
+
+TABLE V:Comparison of Non-local module and RCCA. FLOPs and memory increment are estimated for an input of 
+1
+×
+3
+×
+769
+×
+769
+.
+Method	GFLOPs(
+▲
+)	Memory(M
+▲
+)	mIOU(%)
+baseline	0	0	73.3
++NL	108	1411	77.3
++NL(R=2)	216	2820	78.7
++RCCA(R=2)	16.5	127	78.5
+Refer to caption
+Figure 8:Visualized examples on ADE20K val set with/without category consistent loss (CCL).
+4.4Experiments on ADE20K
+In this subsection, we conduct experiments on the AED20K dataset, which is a very challenging scene parsing dataset. As shown in Tab. VI, CCNet with CCL achieves the state-of-the-art performance of 45.76%, outperforms the previous state-of-the-art methods by more than 1.1% and also outperforms the conference version CCNet by 0.5%. Some successful segmentation results are given in Fig 8. Among the approaches, most of methods [33, 11, 16, 75, 76, 14] adopt the ResNet-101 as backbone and RefineNet [31] adopts a more powerful network, i.e., ResNet-152, as the backbone. EncNet [14] achieves previous best performance among the methods and utilizes global pooling with image-level supervision to collect image-level context information. In contrast, our CCNet adopts an alternative way to integrate contextual information by capture full-image dependencies and achieve better performance.
+
+Refer to caption
+Figure 9:Visualized examples for human parsing result on LIP val set.
+4.5Experiments on LIP
+In this subsection, we conduct experiments on the LIP dataset, which is a very challenging human parsing dataset. The framework of CE2P [41] is utilized, with ImageNet pre-trained ResNet-101 as bockbone and using RCCA (R=2) rather than PSP [11] as context embedding module. The category consistent loss is used to boost the performance. The hyper-parameter setting strictly follows that in the CE2P [41]. Among the approaches, Deeplab (VGG-16) [25], Attention [51] and SAN [42] adopt the VGG-16 as backbone and Deeplab (ResNet-101) [10], JPPNet [21], CE2P [41] and CCNet adopt ResNet-101 as the backbone. As shown in Tab. VII, CCNet achieves the state-of-the-art performance of 55.47%, outperforms the previous state-of-the-art methods by more than 2.3%. This significant improvement demonstrates the effectiveness of proposed method on human parsing task. Fig. 9 shows some visualized segmentation results. The top two rows show some successful segmentation results It shows our method can produce accurate segmentation even for complicated poses. The third row shows a failure segmentation result where the “skirt” is misclassified as “pants”. But it’s difficult to recognize even for humans.
+
+Refer to caption
+Figure 10:Visualized examples for instance segmentation result on COCO val set.
+4.6Experiments on COCO
+To further demonstrate the generality of CCNet, we conduct the instance segmentation task on COCO [70] using the competitive Mask R-CNN model [72] as the baseline. Following [9], we modify the Mask R-CNN backbone by adding the RCCA module right before the last convolutional residual block of res4. We evaluate a standard baseline of ResNet-50/101. All models are fine-tuned from ImageNet pre-training. We use the official implementation1 with end-to-end joint training whose performance is almost the same as the baseline reported in [9]. For fair comparison, we do not use the category consistent loss in our method. We report the results in terms of box AP and mask AP in Tab. VIII on COCO. The results demonstrate that our method substantially outperforms the baseline in all metrics. Some segmentation results for comparing baseline with “+RCCA” are given in Fig 10. Meanwhile, the network with “+RCCA” also achieves the better performance than the network with one non-local block “+NL”.
+
+4.7Experiments on CamVid
+To further demonstrate the effectiveness of 3D-RCCA, we carry out the experiments on CamVid [71], which is one of the first datasets focusing on video semantic segmentation for driving scenarios. We follow the standard protocol proposed in [77] to split the dataset into 367 training, 101 validation and 233 test images. For fair comparison, we only report single-scale evaluation scores. As can be seen in Tab. IX, we achieve an mIoU of 79.1%, outperforming all other methods by a large margin.
+
+To demonstrate the effectiveness of our proposed techniques, we perform training under the same settings with the different length of input frames. We apply the CNNs on each frame for extracting features and then concatenate and reshape them to satisfy the required shape of 3D Criss-Coss Attention module. We use the 
+�
+=
+3
+ for collecting dense spatial and temporal contextual information. Here, to make a training sample, we try two kinds of length (
+�
+) of input frames. For 
+�
+=
+1
+, we randomly sample 1 frame from a training video, donated as “CCNet3D (
+�
+=
+1
+)”. For 
+�
+=
+5
+, we sample 5 temporally ordered frames from a training video, donated as “CCNet3D (
+�
+=
+5
+)”. As can be seen in Tab. IX, “CCNet3D (
+�
+=
+5
+)” outperforms “CCNet3D (
+�
+=
+1
+)” by 1.2%.
+
+TABLE VI:Comparison with state-of-the-arts on ADE20K (val).
+Method	Backbone	mIOU(%)
+RefineNet [31] 	ResNet-152	40.70
+SAC [33] 	ResNet-101	44.30
+PSPNet [11] 	ResNet-101	43.29
+PSANet [16] 	ResNet-101	43.77
+DSSPN [75] 	ResNet-101	43.68
+UperNet [76] 	ResNet-101	42.66
+EncNet [14] 	ResNet-101	44.65
+CCNet	ResNet-101	45.76
+TABLE VII:Comparison with state-of-the-arts on LIP (val).
+Method	pixel acc	mean acc	mIoU
+DeepLab (VGG-16) [10] 	82.66	51.64	41.64
+Attention [51] 	83.43	54.39	42.92
+SAN [42] 	84.22	55.09	44.81
+DeepLab (ResNet-101) [10] 	84.09	55.63	44.80
+JPPNet [21] 	86.39	62.32	51.37
+CE2P [41] 	87.37	63.20	53.10
+CCNet	88.01	63.91	55.47
+TABLE VIII:Comparison on COCO (val).
+Method	APbox	APmask
+R50	baseline	38.2	34.8
++NL	39.0	35.5
++RCCA	39.3	36.1
+R101	baseline	40.1	36.2
++NL	40.8	37.1
++RCCA	41.0	37.3
+TABLE IX:Results on the CamVid test set.
+Method	Bockbone	mIoU (%)
+SegNet [77] 	VGG16	60.1
+RTA [40] 	VGG16	62.5
+Dilate8 [26] 	Dilate	65.3
+BiSeNet [37] 	ResNet18	68.7
+PSPNet [11] 	ResNet50	69.1
+DenseDecoder [38] 	ResNeXt101	70.9
+VideoGCRF‡ [39] 	ResNet101	75.2
+CCNet3D (T=1) ‡	ResNet101	77.9
+CCNet3D (T=5) ‡	ResNet101	79.1
+• ‡ the initialized model is pre-trained on Cityscapes.
+5Conclusion and future work
+In this paper, we have presented a Criss-Cross Network (CCNet) for deep learning based dense prediction tasks, which adaptively captures contextual information on the criss-cross path. To obtain dense contextual information, we introduce RCCA which aggregates contextual information from all pixels. The experiments demonstrate that RCCA captures full-image contextual information in less computation cost and less memory cost. Besides, to learn discriminative features, we introduce the category consistent loss. Our CCNet achieves outstanding performance consistently on several semantic segmentation datasets, i.e., Cityscapes, ADE20K, LIP, CamVid and instance segmentation dataset, i.e., COCO. The source codes of CCNet are released to facilitate related research and applications.
+
+Acknowledgements
+This work was in part supported by NSFC (No. 61733007 and No. 61876212), ARC DECRA DE190101315, ARC DP200100938, HUST-Horizon Computer Vision Research Center, and IBM-ILLINOIS Center for Cognitive Computing Systems Research (C3SR) - a research collaboration as part of the IBM AI Horizons Network.
+
+References
+[1]J. Fritsch, T. Kuehnl, and A. Geiger, “A new performance measure and evaluation benchmark for road detection algorithms,” in ITSC, 2013, pp. 1693–1700.
+[2]R. T. Azuma, “A survey of augmented reality,” Presence: Teleoperators & Virtual Environments, vol. 6, no. 4, pp. 355–385, 1997.
+[3]M. Evening, Adobe Photoshop CS3 for photographers: a professional image editor’s guide to the creative use of Photoshop for the Macintosh and PC.   Focal press, 2012.
+[4]Y. Song, Z. Huang, C. Shen, H. Shi, and D. A. Lange, “Deep learning-based automated image segmentation for concrete petrographic analysis,” Cement and Concrete Research, vol. 135, p. 106118, 2020.
+[5]Z. Zheng, Y. Zhong, J. Wang, and A. Ma, “Foreground-aware relation network for geospatial object segmentation in high spatial resolution remote sensing imagery,” in CVPR, 2020.
+[6]M. T. Chiu, X. Xu, Y. Wei, Z. Huang, A. G. Schwing, R. Brunner, H. Khachatrian, H. Karapetyan, I. Dozier, G. Rose et al., “Agriculture-vision: A large aerial image database for agricultural pattern analysis,” in CVPR, 2020, pp. 2828–2838.
+[7]M. Tik Chiu, X. Xu, K. Wang, J. Hobbs, N. Hovakimyan, S. H. Huang, Thomas S et al., “The 1st agriculture-vision challenge: Methods and results,” in CVPR Workshops, 2020, pp. 48–49.
+[8]J. Long, E. Shelhamer, and T. Darrell, “Fully convolutional networks for semantic segmentation,” in CVPR, 2015, pp. 3431–3440.
+[9]X. Wang, R. Girshick, A. Gupta, and K. He, “Non-local neural networks,” in CVPR, 2018, pp. 7794–7803.
+[10]L.-C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, and A. L. Yuille, “Deeplab: Semantic image segmentation with deep convolutional nets, atrous convolution, and fully connected crfs,” IEEE TPAMI, vol. 40, no. 4, pp. 834–848, 2018.
+[11]H. Zhao, J. Shi, X. Qi, X. Wang, and J. Jia, “Pyramid scene parsing network,” in CVPR, 2017, pp. 2881–2890.
+[12]L.-C. Chen, G. Papandreou, F. Schroff, and H. Adam, “Rethinking atrous convolution for semantic image segmentation,” arXiv preprint arXiv:1706.05587, 2017.
+[13]H. Ding, X. Jiang, B. Shuai, A. Qun Liu, and G. Wang, “Context contrasted feature and gated multi-scale aggregation for scene segmentation,” in CVPR, June 2018.
+[14]H. Zhang, K. Dana, J. Shi, Z. Zhang, X. Wang, A. Tyagi, and A. Agrawal, “Context encoding for semantic segmentation,” in CVPR, 2018.
+[15]F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfardini, “The graph neural network model,” IEEE TNN, vol. 20, no. 1, pp. 61–80, 2008.
+[16]H. Zhao, Y. Zhang, S. Liu, J. Shi, C. C. Loy, D. Lin, and J. Jia, “Psanet: Point-wise spatial attention network for scene parsing,” in ECCV, 2018, pp. 270–286.
+[17]J. Cheng, L. Dong, and M. Lapata, “Long short-term memory-networks for machine reading,” 2016.
+[18]A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” in NeurIPS, 2017, pp. 5998–6008.
+[19]M. Cordts, M. Omran, S. Ramos, T. Rehfeld, M. Enzweiler, R. Benenson, U. Franke, S. Roth, and B. Schiele, “The cityscapes dataset for semantic urban scene understanding,” in CVPR, 2016, pp. 3213–3223.
+[20]B. Zhou, H. Zhao, X. Puig, S. Fidler, A. Barriuso, and A. Torralba, “Scene parsing through ade20k dataset,” in CVPR, 2017.
+[21]X. Liang, K. Gong, X. Shen, and L. Lin, “Look into person: Joint body parsing & pose estimation network and a new benchmark,” IEEE TPAMI, vol. 41, no. 4, pp. 871–885, 2018.
+[22]G. J. Brostow, J. Fauqueur, and R. Cipolla, “Semantic object classes in video: A high-definition ground truth database,” Pattern Recognition Letters, vol. 30, no. 2, pp. 88–97, 2009.
+[23]K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” in CVPR, 2016, pp. 770–778.
+[24]Z. Huang, X. Wang, L. Huang, C. Huang, Y. Wei, and W. Liu, “Ccnet: Criss-cross attention for semantic segmentation,” in ICCV, 2019.
+[25]L.-C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, and A. L. Yuille, “Semantic image segmentation with deep convolutional nets and fully connected crfs,” ICLR, 2015.
+[26]F. Yu and V. Koltun, “Multi-scale context aggregation by dilated convolutions,” ICLR, 2016.
+[27]O. Ronneberger, P. Fischer, and T. Brox, “U-net: Convolutional networks for biomedical image segmentation,” in International Conference on Medical image computing and computer-assisted intervention, 2015, pp. 234–241.
+[28]L.-C. Chen, Y. Zhu, G. Papandreou, F. Schroff, and H. Adam, “Encoder-decoder with atrous separable convolution for semantic image segmentation,” ECCV, 2018.
+[29]D. Lin, Y. Ji, D. Lischinski, D. Cohen-Or, and H. Huang, “Multi-scale context intertwining for semantic segmentation,” in ECCV, 2018, pp. 603–619.
+[30]B. Cheng, L.-C. Chen, Y. Wei, Y. Zhu, Z. Huang, J. Xiong, T. Huang, W.-M. Hwu, and H. Shi, “Spgnet: Semantic prediction guidance for scene parsing,” in ICCV, 2019.
+[31]G. Lin, A. Milan, C. Shen, and I. D. Reid, “Refinenet: Multi-path refinement networks for high-resolution semantic segmentation.” in CVPR, 2017.
+[32]C. Yu, J. Wang, C. Peng, C. Gao, G. Yu, and N. Sang, “Learning a discriminative feature network for semantic segmentation,” CVPR, 2018.
+[33]R. Zhang, S. Tang, Y. Zhang, J. Li, and S. Yan, “Scale-adaptive convolutions for scene parsing,” in ICCV, 2017, pp. 2031–2039.
+[34]J. Dai, H. Qi, Y. Xiong, Y. Li, G. Zhang, H. Hu, and Y. Wei, “Deformable convolutional networks,” ICCV, 2017.
+[35]Z. Liu, X. Li, P. Luo, C.-C. Loy, and X. Tang, “Semantic image segmentation via deep parsing network,” in ICCV, 2015, pp. 1377–1385.
+[36]T.-W. Ke, J.-J. Hwang, Z. Liu, and S. X. Yu, “Adaptive affinity field for semantic segmentation,” ECCV, 2018.
+[37]C. Yu, J. Wang, C. Peng, C. Gao, G. Yu, and N. Sang, “Bisenet: Bilateral segmentation network for real-time semantic segmentation,” ECCV, 2018.
+[38]P. Bilinski and V. Prisacariu, “Dense decoder shortcut connections for single-pass semantic segmentation,” in CVPR, 2018, pp. 6596–6605.
+[39]S. Chandra, C. Couprie, and I. Kokkinos, “Deep spatio-temporal random fields for efficient video segmentation,” in CVPR, 2018, pp. 8915–8924.
+[40]P.-Y. Huang, W.-T. Hsu, C.-Y. Chiu, T.-F. Wu, and M. Sun, “Efficient uncertainty estimation for semantic segmentation in videos,” in ECCV, 2018, pp. 520–535.
+[41]T. Ruan, T. Liu, Z. Huang, Y. Wei, S. Wei, and Y. Zhao, “Devil in the details: Towards accurate single and multiple human parsing,” in AAAI, vol. 33, 2019, pp. 4814–4821.
+[42]Z. Huang, C. Wang, X. Wang, W. Liu, and J. Wang, “Semantic image segmentation by scale-adaptive networks,” IEEE TIP, 2019.
+[43]Z. Wang, M. Yu, Y. Wei, R. Feris, J. Xiong, W.-m. Hwu, T. S. Huang, and H. Shi, “Differential treatment for stuff and things: A simple unsupervised domain adaptation method for semantic segmentation,” in CVPR, 2020, pp. 12 635–12 644.
+[44]Z. Wang, Y. Wei, R. Feris, J. Xiong, W.-M. Hwu, T. S. Huang, and H. Shi, “Alleviating semantic-level shift: A semi-supervised domain adaptation method for semantic segmentation,” in CVPR Workshops, 2020, pp. 936–937.
+[45]J. Jiao, Y. Wei, Z. Jie, H. Shi, R. W. Lau, and T. S. Huang, “Geometry-aware distillation for indoor semantic segmentation,” in CVPR, 2019, pp. 2869–2878.
+[46]Z. Huang, X. Wang, J. Wang, W. Liu, and J. Wang, “Weakly-supervised semantic segmentation network with deep seeded region growing,” in CVPR, 2018, pp. 7014–7023.
+[47]Y. Wei, H. Xiao, H. Shi, Z. Jie, J. Feng, and T. S. Huang, “Revisiting dilated convolution: A simple approach for weakly-and semi-supervised semantic segmentation,” in CVPR, 2018, pp. 7268–7277.
+[48]R. Qian, Y. Wei, H. Shi, J. Li, J. Liu, and T. Huang, “Weakly supervised scene parsing with point-based distance metric learning,” in AAAI, vol. 33, 2019, pp. 8843–8850.
+[49]M. Yang, K. Yu, C. Zhang, Z. Li, and K. Yang, “Denseaspp for semantic segmentation in street scenes,” in CVPR, 2018, pp. 3684–3692.
+[50]L.-C. Chen, M. D. Collins, Y. Zhu, G. Papandreou, B. Zoph, F. Schroff, H. Adam, and J. Shlens, “Searching for efficient multi-scale architectures for dense image prediction,” NeurIPS, 2018.
+[51]L.-C. Chen, Y. Yang, J. Wang, W. Xu, and A. L. Yuille, “Attention to scale: Scale-aware semantic image segmentation,” in CVPR, 2016, pp. 3640–3649.
+[52]C. Liu, L.-C. Chen, F. Schroff, H. Adam, W. Hua, A. L. Yuille, and L. Fei-Fei, “Auto-deeplab: Hierarchical neural architecture search for semantic image segmentation,” in CVPR, 2019, pp. 82–92.
+[53]J. He, Z. Deng, L. Zhou, Y. Wang, and Y. Qiao, “Adaptive pyramid context network for semantic segmentation,” in CVPR, 2019, pp. 7519–7528.
+[54]S. Liu, S. De Mello, J. Gu, G. Zhong, M.-H. Yang, and J. Kautz, “Learning affinity via spatial propagation networks,” in NeurIPS, 2017, pp. 1520–1530.
+[55]S. Zheng, S. Jayasumana, B. Romera-Paredes, V. Vineet, Z. Su, D. Du, C. Huang, and P. H. Torr, “Conditional random fields as recurrent neural networks,” in ICCV, 2015, pp. 1529–1537.
+[56]Y. Yuan and J. Wang, “Ocnet: Object context network for scene parsing,” arXiv preprint arXiv:1809.00916, 2018.
+[57]J. Fu, J. Liu, H. Tian, Z. Fang, and H. Lu, “Dual attention network for scene segmentation,” CVPR, 2019.
+[58]Y. Chen, M. Rohrbach, Z. Yan, Y. Shuicheng, J. Feng, and Y. Kalantidis, “Graph-based global reasoning networks,” in CVPR, 2019, pp. 433–442.
+[59]C. Peng, X. Zhang, G. Yu, G. Luo, and J. Sun, “Large kernel matters—improve semantic segmentation by global convolutional network,” in CVPR, 2017, pp. 1743–1751.
+[60]A. Sperduti and A. Starita, “Supervised neural networks for the classification of structures,” IEEE TNN, vol. 8, no. 3, pp. 714–735, 1997.
+[61]M. Gori, G. Monfardini, and F. Scarselli, “A new model for learning in graph domains,” in IJCNN, vol. 2, 2005, pp. 729–734.
+[62]M. Henaff, J. Bruna, and Y. LeCun, “Deep convolutional networks on graph-structured data,” arXiv preprint arXiv:1506.05163, 2015.
+[63]M. Defferrard, X. Bresson, and P. Vandergheynst, “Convolutional neural networks on graphs with fast localized spectral filtering,” in NeurIPS, 2016, pp. 3844–3852.
+[64]T. N. Kipf and M. Welling, “Semi-supervised classification with graph convolutional networks,” arXiv preprint arXiv:1609.02907, 2016.
+[65]R. Levie, F. Monti, X. Bresson, and M. M. Bronstein, “Cayleynets: Graph convolutional neural networks with complex rational spectral filters,” IEEE TSP, vol. 67, no. 1, pp. 97–109, 2018.
+[66]J. Atwood and D. Towsley, “Diffusion-convolutional neural networks,” in NeurIPS, 2016, pp. 1993–2001.
+[67]M. Niepert, M. Ahmed, and K. Kutzkov, “Learning convolutional neural networks for graphs,” in ICML, 2016, pp. 2014–2023.
+[68]J. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl, “Neural message passing for quantum chemistry,” in ICML, 2017, pp. 1263–1272.
+[69]B. De Brabandere, D. Neven, and L. Van Gool, “Semantic instance segmentation with a discriminative loss function,” arXiv preprint arXiv:1708.02551, 2017.
+[70]T.-Y. Lin, M. Maire, S. Belongie, J. Hays, P. Perona, D. Ramanan, P. Dollár, and C. L. Zitnick, “Microsoft coco: Common objects in context,” in ECCV, 2014, pp. 740–755.
+[71]G. J. Brostow, J. Shotton, J. Fauqueur, and R. Cipolla, “Segmentation and recognition using structure from motion point clouds,” in ECCV, 2008, pp. 44–57.
+[72]K. He, G. Gkioxari, P. Dollár, and R. Girshick, “Mask r-cnn,” in ICCV, 2017, pp. 2980–2988.
+[73]P. Wang, P. Chen, Y. Yuan, D. Liu, Z. Huang, X. Hou, and G. Cottrell, “Understanding convolution for semantic segmentation,” in WACV, 2018, pp. 1451–1460.
+[74]Z. Wu, C. Shen, and A. v. d. Hengel, “Wider or deeper: Revisiting the resnet model for visual recognition,” arXiv preprint arXiv:1611.10080, 2016.
+[75]X. Liang, H. Zhou, and E. Xing, “Dynamic-structured semantic propagation network,” in CVPR, 2018, pp. 752–761.
+[76]T. Xiao, Y. Liu, B. Zhou, Y. Jiang, and J. Sun, “Unified perceptual parsing for scene understanding,” ECCV, 2018.
+[77]V. Badrinarayanan, A. Kendall, and R. Cipolla, “Segnet: A deep convolutional encoder-decoder architecture for image segmentation,” IEEE TPAMI, vol. 39, no. 12, pp. 2481–2495, 2017.
+◄ ar5iv homepage Feeling
+lucky? Conversion
+report Report
+an issue View original
+on arXiv►
+Copyright Privacy Policy Generated on Sat Mar 16 08:50:33 2024 by LaTeXMLMascot Sammy

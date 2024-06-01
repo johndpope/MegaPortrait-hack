@@ -197,6 +197,7 @@ class Eapp(nn.Module):
         self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256).to(device)
         self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512).to(device)
 
+
         # round 0
         self.resblock3D_96 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
         self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
@@ -245,7 +246,7 @@ class Eapp(nn.Module):
         logging.debug(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
         out = self.avgpool(out) # at 512x512 image training - we need this  🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
         # logging.debug(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
-   
+
         out = F.group_norm(out, num_groups=32)
         out = F.relu(out)
         out = self.conv_1(out)
@@ -568,6 +569,7 @@ class G3d(nn.Module):
             nn.AvgPool3d(kernel_size=2, stride=2),
             ResBlock3D(384, 768),
         ).to(device)
+
         self.upsampling = nn.Sequential(
             ResBlock3D(768, 384),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
@@ -1892,8 +1894,22 @@ jitter.
 
 from rembg import remove
 import io
+import os
 
-def crop_and_warp_face(image_tensor, pad_to_original=False, apply_warping=True):
+
+def crop_and_warp_face(image_tensor, video_name, frame_idx, output_dir="output_images", pad_to_original=False, apply_warping=True,warp_strength=0.05):
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Construct the file path
+    output_path = os.path.join(output_dir, f"{video_name}_frame_{frame_idx}.png")
+
+    # Check if the file already exists
+    if os.path.exists(output_path):
+        # Load and return the existing image as a tensor
+        existing_image = Image.open(output_path).convert("RGBA")
+        return to_tensor(existing_image)
+    
     # Check if the input tensor has a batch dimension and handle it
     if image_tensor.ndim == 4:
         # Assuming batch size is the first dimension, process one image at a time
@@ -1928,7 +1944,8 @@ def crop_and_warp_face(image_tensor, pad_to_original=False, apply_warping=True):
             # Generate random control points for thin-plate-spline warping
             rows, cols = face_array.shape[:2]
             src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
-            dst_points = src_points + np.random.randn(4, 2) * (rows * 0.1)
+            dst_points = src_points + np.random.randn(4, 2) * (rows * warp_strength)
+
 
             # Create a PiecewiseAffineTransform object
             tps = PiecewiseAffineTransform()
@@ -1949,14 +1966,20 @@ def crop_and_warp_face(image_tensor, pad_to_original=False, apply_warping=True):
             # Paste the warped face image onto the padded image at the original location
             padded_image.paste(warped_face_image, (left, top))
 
-            # Convert the padded PIL image back to a tensor
-            return to_tensor(padded_image)
+            # Convert the padded PIL image back to RGB format
+            result_image = padded_image.convert("RGB")
+
         else:
             # Convert the warped PIL image back to a tensor
-            return to_tensor(warped_face_image)
+            result_image = warped_face_image
+
+        # Save the result image
+        result_image.save(output_path)
+
+        # Return the result image as a tensor
+        return to_tensor(result_image)
     else:
         return None
-
 '''
 We load the pre-trained DeepLabV3 model using models.segmentation.deeplabv3_resnet101(pretrained=True). This model is based on the ResNet-101 backbone and is pre-trained on the COCO dataset.
 We define the necessary image transformations using transforms.Compose. The transformations include converting the image to a tensor and normalizing it using the mean and standard deviation values specific to the model.

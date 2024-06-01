@@ -129,11 +129,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         generator_backward_time = 0
         discriminator_forward_time = 0
         discriminator_backward_time = 0
+        face_cropping_warping_start_time = 0
 
         for batch in dataloader:
             data_loading_start_time = time.time()
             source_frames = batch['source_frames']
             driving_frames = batch['driving_frames']
+            # video_id = batch['video_id'][0]
+
             data_loading_time += time.time() - data_loading_start_time
 
             num_frames = len(driving_frames)
@@ -142,13 +145,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 source_frame = source_frames[idx].to(device)
                 driving_frame = driving_frames[idx].to(device)
 
-                # Apply face cropping and random warping to the driving frame for losses ONLY!
-                # face_cropping_warping_start_time = time.time()
-                # warped_driving_frame = crop_and_warp_face(driving_frame, pad_to_original=True)
-                # face_cropping_warping_time += time.time() - face_cropping_warping_start_time
-                      
-                # if warped_driving_frame is not None:
-                    # Train generator
+                # Train generator
                 optimizer_G.zero_grad()
 
                 with autocast():
@@ -157,33 +154,43 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                     generator_forward_time += time.time() - generator_forward_start_time
 
                     # Obtain the foreground mask for the driving image
-                    foreground_mask = get_foreground_mask(driving_frame)
+                    foreground_mask = get_foreground_mask(source_frame)
 
                     # Move the foreground mask to the same device as output_frame
                     foreground_mask = foreground_mask.to(output_frame.device)
 
                     # Multiply the predicted and driving images with the foreground mask
                     masked_predicted_image = output_frame * foreground_mask
-                    masked_driving_image = driving_frame * foreground_mask
+                    masked_target_image = source_frame * foreground_mask
 
                     save_images = False
                     # Save the images
                     if save_images:
                         vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
                         vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                        # vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
                         vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
                         vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
                         vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
-                        vutils.save_image(masked_driving_image, f"{output_dir}/masked_driving_image_{idx}.png")
                     vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
                         
+                    
+                    # Apply face cropping and random warping to the driving frame for losses ONLY!
+                    # warped_driving_image = crop_and_warp_face(masked_driving_image, video_id, idx, pad_to_original=True, warp_strength=0.01)
+                    # face_cropping_warping_time += time.time() - face_cropping_warping_start_time
+                    # warped_driving_image = warped_driving_image.to(output_frame.device)
+                    # if warped_driving_image is not None:
+                    #     masked_warped_driving_image = driving_frame   # 🤷 - should the losses be on cropped + warped + MASKED too?
+
                     # Calculate losses
                     loss_calculation_start_time = time.time()
-                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_driving_image)
+                    # Calculate perceptual losses
+                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+                     # Calculate adversarial losses
                     loss_adv = adversarial_loss(masked_predicted_image, Dbase)
-                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_driving_image, use_fm_loss=True)
-                    loss_cos = contrastive_loss(masked_predicted_image, masked_driving_image, masked_predicted_image, encoder)
+                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
+                    # Calculate cycle consistency loss
+                    loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
+                    # Combine the losses
                     total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
                     loss_calculation_time += time.time() - loss_calculation_start_time
                 
@@ -255,7 +262,7 @@ def main(cfg: OmegaConf) -> None:
 
     dataset = EMODataset(
         use_gpu=use_cuda,
-        width=cfg.data.train_width,
+        width=cfg.data.train_width, # model is hard coded to 512 atm
         height=cfg.data.train_height,
         n_sample_frames=cfg.training.n_sample_frames,
         sample_rate=cfg.training.sample_rate,
@@ -265,7 +272,7 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
     
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=10)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
     
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator(input_nc=3).to(device) # patchgan descriminator - 3 channels RGB
