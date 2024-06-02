@@ -142,6 +142,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 len_driving_frames2 = len(driving_frames2)
 
                 for idx in range(num_frames):
+                    # loop around if idx exceeds video length
                     source_frame = source_frames[idx % len_source_frames].to(device)
                     driving_frame = driving_frames[idx % len_driving_frames].to(device)
 
