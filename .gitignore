@@ -6,3 +6,7 @@ models/gaze_model_pytorch_vgg16_prl_mpii_allsubjects1.model
 *.dat
 *.pth
 # output_images/*.*
+*.png
+junk/-2KGPYEFnsU_11_nobg.mp4
+*.png
+*.png

@@ -21,6 +21,7 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 
+
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -106,7 +107,7 @@ def neg_pair_loss(pos_pair, neg_pairs, margin):
     return loss
 
 
-def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
+def train_base(cfg, Gbase, Dbase, dataloader):
     Gbase.train()
     Dbase.train()
     optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
@@ -123,15 +124,15 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
         
 
         for batch in dataloader:
-            for batch2 in dataloader2:
+
                 source_frames = batch['source_frames']
                 driving_frames = batch['driving_frames']
                 video_id = batch['video_id'][0]
 
                 # Access videos from dataloader2 for cycle consistency
-                source_frames2 = batch2['source_frames']
-                driving_frames2 = batch2['driving_frames']
-                video_id2 = batch2['video_id'][0]
+                source_frames2 = batch['source_frames_star']
+                driving_frames2 = batch['driving_frames_star']
+                video_id2 = batch['video_id_star'][0]
 
 
                 num_frames = len(driving_frames)
@@ -190,11 +191,12 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
                         if save_images:
                             vutils.save_image(cross_reenacted_image, f"{output_dir}/cross_reenacted_image_{idx}.png")
 
-                        # Store the motion descriptors z𝑠→𝑑 and z𝑠∗→𝑑 from the 
+                        # Store the motion descriptors z𝑠→𝑑(predicted) and z𝑠∗→𝑑 (star predicted) from the 
                         # respective forward passes of the base network.
-                        _, _, zs = Gbase.motionEncoder(source_frame) 
+                        _, _, z_pred = Gbase.motionEncoder(output_frame) 
                         _, _, zd = Gbase.motionEncoder(driving_frame) 
-                        _, _, zs_star = Gbase.motionEncoder(source_frame_star) 
+                        
+                        _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
                         _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
 
               
@@ -204,8 +206,8 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
                         # the negative pairs: N = (z𝑠→𝑑 , z𝑑∗ ), (z𝑠∗→𝑑 , z𝑑∗ ) . These pairs are
                         # used to calculate the following cosine distance:
 
-                        P = [(zs, zd)     ,(zs_star, zd)]
-                        N = [(zs, zd_star),(zs_star, zd_star)]
+                        P = [(z_pred, zd)     ,(z_star__pred, zd)]
+                        N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = contrastive_loss_1(P, N)
 
                         loss_G_cos = contrastive_loss_patchgan(cross_reenacted_image, source_frame_star, driving_frame, encoder)
@@ -269,7 +271,6 @@ def main(cfg: OmegaConf) -> None:
 
     dataset = EMODataset(
         use_gpu=use_cuda,
-        cycle_consistency=False,
         remove_background=True,
         width=cfg.data.train_width,
         height=cfg.data.train_height,
@@ -281,30 +282,15 @@ def main(cfg: OmegaConf) -> None:
         transform=transform
     )
 
-    dataset2 = EMODataset(
-        use_gpu=use_cuda,
-        cycle_consistency=True,
-        remove_background=True,
-        width=cfg.data.train_width,
-        height=cfg.data.train_height,
-        n_sample_frames=cfg.training.n_sample_frames,
-        sample_rate=cfg.training.sample_rate,
-        img_scale=(1.0, 1.0),
-        video_dir=cfg.training.video_dir,
-        json_file=cfg.training.json_file,
-        transform=transform
-    )
+
     
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
-    # cycle consistency loss - In order to calculate this loss, we use an additional source-driving
-    # pair x𝑠∗ and x𝑑∗ , which is sampled from a different video and therefore has different appearance from the current x𝑠 , x𝑑 pair
-    dataloader2 = DataLoader(dataset2, batch_size=4, shuffle=True, num_workers=4)
-    
+
     
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator(input_nc=3).to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader,dataloader2)    
+    train_base(cfg, Gbase, Dbase, dataloader)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
 
 if __name__ == "__main__":
