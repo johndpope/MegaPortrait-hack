@@ -136,14 +136,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
 
                 num_frames = len(driving_frames)
-
+                len_source_frames = len(source_frames)
+                len_driving_frames = len(driving_frames)
+                len_source_frames2 = len(source_frames2)
+                len_driving_frames2 = len(driving_frames2)
 
                 for idx in range(num_frames):
-                    source_frame = source_frames[idx].to(device)
-                    driving_frame = driving_frames[idx].to(device)
+                    source_frame = source_frames[idx % len_source_frames].to(device)
+                    driving_frame = driving_frames[idx % len_driving_frames].to(device)
 
-                    source_frame_star = source_frames2[idx].to(device)
-                    driving_frame_star = driving_frames2[idx].to(device)
+                    source_frame_star = source_frames2[idx % len_source_frames2].to(device)
+                    driving_frame_star = driving_frames2[idx % len_driving_frames2].to(device)
+
 
                     with autocast():
 
