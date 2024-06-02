@@ -30,9 +30,12 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
-# In the adversarial_loss function, we now use the hinge loss for the generator. The loss is calculated as the negative mean of the discriminator's prediction for the fake frame. This encourages the generator to produce frames that can fool the discriminator.
+# In the adversarial_loss function, we now use the hinge loss for the generator.
+#  The loss is calculated as the negative mean of the discriminator's prediction 
+# for the fake frame. This encourages the generator to produce frames that can fool 
+# the discriminator.
 def adversarial_loss(output_frame, discriminator):
-    fake_pred = discriminator(output_frame)
+    fake_pred, fake_features  = discriminator(output_frame)
     loss = -torch.mean(fake_pred)
     return loss.requires_grad_()
 
@@ -83,18 +86,15 @@ def contrastive_loss_patchgan(output_frame, source_frame, driving_frame, encoder
 
     return loss
 
-
-# 🤷 idk
-def contrastive_loss_1(zs, zd, margin=1.0):
-    pos_pairs = [(zs, zd)]
-    neg_pairs = [(zs, torch.randn_like(zs)), (zd, torch.randn_like(zd))]
-
+# cosine distance formula
+# s · (⟨zi, zj⟩ − m)
+def contrastive_loss_1(pos_pairs, neg_pairs, margin=1.0, s=1.0):
     loss = torch.tensor(0.0, requires_grad=True).to(device)
     for pos_pair in pos_pairs:
-        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
-                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
-                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
-
+        scaled_cosine_sim = s * F.cosine_similarity(pos_pair[0], pos_pair[1])
+        loss = loss + torch.log(torch.exp(scaled_cosine_sim) /
+                                (torch.exp(scaled_cosine_sim) +
+                                 neg_pair_loss(pos_pair, neg_pairs, margin, s)))
     return loss
 
 
@@ -191,18 +191,21 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
 
                         # Store the motion descriptors z𝑠→𝑑 and z𝑠∗→𝑑 from the 
                         # respective forward passes of the base network.
-                        _, _, zd = Gbase.motionEncoder(source_frame) 
-                        Rd, td, zd_star = Gbase.motionEncoder(source_frame_star) 
+                        _, _, zs = Gbase.motionEncoder(source_frame) 
+                        _, _, zd = Gbase.motionEncoder(driving_frame) 
+                        _, _, zs_star = Gbase.motionEncoder(source_frame_star) 
+                        _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
 
-                        # 
-                        vs, es = Gbase.appearanceEncoder(source_frame_star)
-                        Rs, ts, zs = Gbase.motionEncoder(source_frame_star)
-                        Rd, td, zd = Gbase.motionEncoder(driving_frame_star)
-                        w_s2c = Gbase.warp_generator_s2c(Rs, ts, zs, es)
-                    
+              
                         # Calculate cycle consistency loss 
-                        #  option 1
-                        #  loss_G_cos = contrastive_loss_1(zs, zd)
+                        # We then arrange the motion descriptors into positive pairs P that
+                        # should align with each other: P = (z𝑠→𝑑 , z𝑑 ), (z𝑠∗→𝑑 , z𝑑 ) , and
+                        # the negative pairs: N = (z𝑠→𝑑 , z𝑑∗ ), (z𝑠∗→𝑑 , z𝑑∗ ) . These pairs are
+                        # used to calculate the following cosine distance:
+
+                        P = [(zs, zd)     ,(zs_star, zd)]
+                        N = [(zs, zd_star),(zs_star, zd_star)]
+                        loss_G_cos = contrastive_loss_1(P, N)
 
                         loss_G_cos = contrastive_loss_patchgan(cross_reenacted_image, source_frame_star, driving_frame, encoder)
 

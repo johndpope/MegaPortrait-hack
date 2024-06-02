@@ -1812,12 +1812,13 @@ class Discriminator(nn.Module):
         self.bn4 = nn.BatchNorm2d(ndf * 8)
         
     def forward(self, x):
-        x = F.leaky_relu(self.conv1(x), 0.2)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), 0.2)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), 0.2)
-        x = F.leaky_relu(self.bn4(self.conv4(x)), 0.2)
-        x = self.fc(x)
-        return torch.sigmoid(x)
+        x1 = F.leaky_relu(self.conv1(x), 0.2)
+        x2 = F.leaky_relu(self.bn2(self.conv2(x1)), 0.2)
+        x3 = F.leaky_relu(self.bn3(self.conv3(x2)), 0.2)
+        x4 = F.leaky_relu(self.bn4(self.conv4(x3)), 0.2)
+        x5 = self.fc(x4)
+        pred = torch.sigmoid(x5)
+        return pred, [x2, x3, x4]
 
 class PerceptualLoss(nn.Module):
     def __init__(self, device, weights={'vgg19': 1.0, 'vggface': 1.0, 'gaze': 1.0}):
