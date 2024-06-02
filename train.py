@@ -90,12 +90,13 @@ def contrastive_loss_patchgan(output_frame, source_frame, driving_frame, encoder
 # s · (⟨zi, zj⟩ − m)
 def contrastive_loss_1(pos_pairs, neg_pairs, margin=1.0, s=1.0):
     loss = torch.tensor(0.0, requires_grad=True).to(device)
+
     for pos_pair in pos_pairs:
-        scaled_cosine_sim = s * F.cosine_similarity(pos_pair[0], pos_pair[1])
-        loss = loss + torch.log(torch.exp(scaled_cosine_sim) /
-                                (torch.exp(scaled_cosine_sim) +
-                                 neg_pair_loss(pos_pair, neg_pairs, margin, s)))
+        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
+                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
+                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
     return loss
+
 
 
 def neg_pair_loss(pos_pair, neg_pairs, margin):
