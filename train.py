@@ -13,86 +13,60 @@ from EmoDataset import EMODataset
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torchvision import models
-from model import Encoder,PerceptualLoss,crop_and_warp_face,get_foreground_mask
-# from rome_losses import Vgg19 # use vgg19 for perceptualloss 
-
+from model import PatchGanEncoder, PerceptualLoss, crop_and_warp_face, get_foreground_mask,remove_background_and_convert_to_rgb,apply_warping_field
 import mediapipe as mp
-# from memory_profiler import profile
 import torchvision.transforms as transforms
 import os
 import torchvision.utils as vutils
+import time
+from torch.cuda.amp import autocast, GradScaler
 
-
-
-
-
-
-# Create a directory to save the images (if it doesn't already exist)
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
-
 
 face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-torch.autograd.set_detect_anomaly(True)# this slows thing down - only for debug
 
 
-
-
-
-
-'''
-Perceptual Loss:
-
-The PerceptualLoss class combines losses from VGG19, VGG Face, and a specialized gaze loss.
-It computes the perceptual losses by passing the output and target frames through the respective models and calculating the MSE loss between the features.
-The total perceptual loss is a weighted sum of the individual losses.
-
-
-Adversarial Loss:
-
-The adversarial_loss function computes the adversarial loss for the generator.
-It passes the generated output frame through the discriminator and calculates the MSE loss between the predicted values and a tensor of ones (indicating real samples).
-
-
-Cycle Consistency Loss:
-
-The cycle_consistency_loss function computes the cycle consistency loss.
-It passes the output frame and the source frame through the generator to reconstruct the source frame.
-The L1 loss is calculated between the reconstructed source frame and the original source frame.
-
-
-Contrastive Loss:
-
-The contrastive_loss function computes the contrastive loss using cosine similarity.
-It calculates the cosine similarity between positive pairs (output-source, output-driving) and negative pairs (output-random, source-random).
-The loss is computed as the negative log likelihood of the positive pairs over the sum of positive and negative pair similarities.
-The neg_pair_loss function calculates the loss for negative pairs using a margin.
-
-
-Discriminator Loss:
-
-The discriminator_loss function computes the loss for the discriminator.
-It calculates the MSE loss between the predicted values for real samples and a tensor of ones, and the MSE loss between the predicted values for fake samples and a tensor of zeros.
-The total discriminator loss is the sum of the real and fake losses.
-'''
-
-# @profile
+# In the adversarial_loss function, we now use the hinge loss for the generator. The loss is calculated as the negative mean of the discriminator's prediction for the fake frame. This encourages the generator to produce frames that can fool the discriminator.
 def adversarial_loss(output_frame, discriminator):
     fake_pred = discriminator(output_frame)
-    loss = F.mse_loss(fake_pred, torch.ones_like(fake_pred))
-    return loss.requires_grad_()
-
-# @profile
-def cycle_consistency_loss(output_frame, source_frame, driving_frame, generator):
-    reconstructed_source = generator(output_frame, source_frame)
-    loss = F.l1_loss(reconstructed_source, source_frame)
+    loss = -torch.mean(fake_pred)
     return loss.requires_grad_()
 
 
-def contrastive_loss(output_frame, source_frame, driving_frame, encoder, margin=1.0):
+def discriminator_loss(real_pred, fake_pred):
+    real_loss = torch.mean(torch.relu(1 - real_pred))
+    fake_loss = torch.mean(torch.relu(1 + fake_pred))
+    return (real_loss + fake_loss).requires_grad_()
+    
+def feature_matching_loss(real_features, fake_features):
+    loss = 0
+    for real_feat, fake_feat in zip(real_features, fake_features):
+        loss += torch.mean(torch.abs(real_feat - fake_feat))
+    return loss
+
+def cycle_consistency_loss(model,   Rs, ts, zs, zd,  Rd, td, vs, w_s2c, es):  
+    vc = apply_warping_field(vs, w_s2c)
+    vc3d = model.G3d(vc)
+    w_c2d = model.warp_generator_c2d(Rd, td, zd, es)
+    vc3d_warped = apply_warping_field(vc3d, w_c2d)
+    vc2d_projected = torch.sum(vc3d_warped, dim=2)
+    xhat_cycle = model.G2d(vc2d_projected)
+    loss = F.l1_loss(xhat_cycle, model.G2d(torch.sum(vc, dim=2)))
+    return loss
+
+
+
+
+
+# a novel contrastive loss that allows our system to achieve higher degrees of disentanglement 
+# between the latent motion and appearance representation
+# Following the previous works, we train a multi-scale patch discriminator [ 42 ] Patchgan = encoder
+#  with a hinge adversarial loss alongside the generator Gbase
+def contrastive_loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin=1.0):
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
@@ -109,40 +83,29 @@ def contrastive_loss(output_frame, source_frame, driving_frame, encoder, margin=
 
     return loss
 
+
+# 🤷 idk
+def contrastive_loss_1(zs, zd, margin=1.0):
+    pos_pairs = [(zs, zd)]
+    neg_pairs = [(zs, torch.randn_like(zs)), (zd, torch.randn_like(zd))]
+
+    loss = torch.tensor(0.0, requires_grad=True).to(device)
+    for pos_pair in pos_pairs:
+        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
+                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
+                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
+
+    return loss
+
+
 def neg_pair_loss(pos_pair, neg_pairs, margin):
     loss = torch.tensor(0.0, requires_grad=True).to(device)
     for neg_pair in neg_pairs:
         loss = loss + torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)
     return loss
-# @profile
-def discriminator_loss(real_pred, fake_pred):
-    real_loss = F.mse_loss(real_pred, torch.ones_like(real_pred))
-    fake_loss = F.mse_loss(fake_pred, torch.zeros_like(fake_pred))
-    return (real_loss + fake_loss).requires_grad_()
 
 
-
-
-
-'''
-Perceptual Losses (ℒ_per):
-        VGG19 perceptual loss (ℒ_IN)
-        VGGFace perceptual loss (ℒ_face)
-        Gaze loss (ℒ_gaze)
-
-Adversarial Losses (ℒ_GAN):
-        Generator adversarial loss (ℒ_adv)
-        Feature matching loss (ℒ_FM)
-
-Cycle Consistency Loss (ℒ_cos)
-
-N.B
-Perceptual Loss (w_per): The perceptual loss is often given a higher weight compared to other losses to prioritize the generation of perceptually similar images. A weight of 20 is a reasonable starting point to emphasize the importance of perceptual similarity.
-Adversarial Loss (w_adv): The adversarial loss is typically assigned a lower weight compared to the perceptual loss. A weight of 1 is a common choice to balance the adversarial training without overpowering other losses.
-Feature Matching Loss (w_fm): The feature matching loss is used to stabilize the training process and improve the quality of generated images. A weight of 40 is a relatively high value to give significant importance to feature matching and encourage the generator to produce realistic features.
-Cycle Consistency Loss (w_cos): The cycle consistency loss helps in preserving the identity and consistency between the source and generated images. A weight of 2 is a moderate value to ensure cycle consistency without dominating the other losses.
-'''
-def train_base(cfg, Gbase, Dbase, dataloader):
+def train_base(cfg, Gbase, Dbase, dataloader,dataloader2):
     Gbase.train()
     Dbase.train()
     optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
@@ -151,87 +114,141 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
-    encoder = Encoder(input_nc=3, output_nc=256).to(device)
+    encoder = PatchGanEncoder(input_nc=3, output_nc=256).to(device)
+    scaler = GradScaler()
 
     for epoch in range(cfg.training.base_epochs):
-        print("epoch:", epoch)
+        print("Epoch:", epoch)
+        
+
         for batch in dataloader:
-            source_frames = batch['source_frames']
-            driving_frames = batch['driving_frames']
+            for batch2 in dataloader2:
+                source_frames = batch['source_frames']
+                driving_frames = batch['driving_frames']
+                video_id = batch['video_id'][0]
 
-            num_frames = len(driving_frames)
+                # Access videos from dataloader2 for cycle consistency
+                source_frames2 = batch2['source_frames']
+                driving_frames2 = batch2['driving_frames']
+                video_id2 = batch2['video_id'][0]
 
-            for idx in range(num_frames):
-                source_frame = source_frames[idx].to(device)
-                driving_frame = driving_frames[idx].to(device)
 
-                # Apply face cropping and random warping to the driving frame for losses ONLY!
-                warped_driving_frame =  crop_and_warp_face(driving_frame, pad_to_original=True)
-                      
-                if warped_driving_frame is not None:
-                    # Train generator
-                    optimizer_G.zero_grad()
-                    output_frame = Gbase(source_frame, driving_frame) 
+                num_frames = len(driving_frames)
 
-                    # 256 x 256 - Resize output_frame to match the driving_frame size
-                    # output_frame = F.interpolate(output_frame, size=(256, 256), mode='bilinear', align_corners=False)
 
-                    # Obtain the foreground mask for the target image
-                    foreground_mask = get_foreground_mask(source_frame)
+                for idx in range(num_frames):
+                    source_frame = source_frames[idx].to(device)
+                    driving_frame = driving_frames[idx].to(device)
+
+                    source_frame_star = source_frames2[idx].to(device)
+                    driving_frame_star = driving_frames2[idx].to(device)
+
+                    with autocast():
+
+                        # We use multiple loss functions for training, which can be split  into two groups.
+                        # The first group consists of the standard training objectives for image synthesis. 
+                        # These include perceptual [14] and GAN [ 33 ] losses that match 
+                        # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
+                        output_frame = Gbase(source_frame, driving_frame)
+
+                        # Obtain the foreground mask for the driving image
+                        foreground_mask = get_foreground_mask(source_frame)
+
+                        # Move the foreground mask to the same device as output_frame
+                        foreground_mask = foreground_mask.to(output_frame.device)
+
+                        # Multiply the predicted and driving images with the foreground mask
+                        masked_predicted_image = output_frame * foreground_mask
+                        masked_target_image = driving_frame * foreground_mask
+
+                        save_images = True
+                        # Save the images
+                        if save_images:
+                            vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
+                            vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                            vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
+                            vutils.save_image(source_frame_star, f"{output_dir}/source_frame_star_{idx}.png")
+                            vutils.save_image(driving_frame_star, f"{output_dir}/driving_frame_star_{idx}.png")
+                            vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
+                            vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
+
+                        # Calculate perceptual losses
+                        loss_G_per = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+                        # Calculate adversarial losses
+                        loss_G_adv = adversarial_loss(masked_predicted_image, Dbase)
+                        loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
                     
-                    # Move the foreground mask to the same device as output_frame
-                    foreground_mask = foreground_mask.to(output_frame.device)
-
-                    # Multiply the predicted and target images with the foreground mask
-                    masked_predicted_image = output_frame * foreground_mask
-                    masked_target_image = source_frame * foreground_mask
                     
-                    save_images = False
-                    # Save the images
-                    if save_images:
-                        vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
-                        vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                        vutils.save_image(warped_driving_frame, f"{output_dir}/warped_driving_frame_{idx}.png")
-                        vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
-                        vutils.save_image(foreground_mask, f"{output_dir}/foreground_mask_{idx}.png")
-                        vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
-                        vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
-                                            
-                    # Calculate perceptual losses
-                    perceptual_loss = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+                        
+                        # The other objective CycleGAN regularizes the training and introduces disentanglement between the motion and canonical space
+                        # In order to calculate this loss, we use an additional source-driving  pair x𝑠∗ and x𝑑∗ , 
+                        # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
 
-                    # Calculate adversarial losses
-                    loss_adv = adversarial_loss(masked_predicted_image, Dbase)
-                    loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
+                        # produce the following cross-reenacted image: ˆx𝑠∗→𝑑 = Gbase (x𝑠∗ , x𝑑 )
+                        cross_reenacted_image = Gbase(source_frame_star, driving_frame)
+                        if save_images:
+                            vutils.save_image(cross_reenacted_image, f"{output_dir}/cross_reenacted_image_{idx}.png")
 
-                    # Calculate cycle consistency loss
-                    loss_cos = contrastive_loss(masked_predicted_image, masked_target_image, masked_predicted_image, encoder)
+                        # Store the motion descriptors z𝑠→𝑑 and z𝑠∗→𝑑 from the 
+                        # respective forward passes of the base network.
+                        _, _, zd = Gbase.motionEncoder(source_frame) 
+                        Rd, td, zd_star = Gbase.motionEncoder(source_frame_star) 
 
-                    # Combine the losses
-                    total_loss = cfg.training.w_per * perceptual_loss + cfg.training.w_adv * loss_adv + cfg.training.w_fm * loss_fm + cfg.training.w_cos * loss_cos
+                        # 
+                        vs, es = Gbase.appearanceEncoder(source_frame_star)
+                        Rs, ts, zs = Gbase.motionEncoder(source_frame_star)
+                        Rd, td, zd = Gbase.motionEncoder(driving_frame_star)
+                        w_s2c = Gbase.warp_generator_s2c(Rs, ts, zs, es)
+                    
+                        # Calculate cycle consistency loss 
+                        #  option 1
+                        #  loss_G_cos = contrastive_loss_1(zs, zd)
 
-                    # Backpropagate and update generator
-                    total_loss.backward()
-                    optimizer_G.step()
+                        loss_G_cos = contrastive_loss_patchgan(cross_reenacted_image, source_frame_star, driving_frame, encoder)
 
-                    # Train discriminator
+                        # loss_G_cyc = cycle_consistency_loss(Gbase,  Rs, ts, zs, zd,  Rd, td, vs, w_s2c, es) #  🤷 is this true? there's no weights indicated for this only cos
+                    
+
+                        # Combine the losses
+                        total_loss = cfg.training.w_per * loss_G_per + \
+                            cfg.training.w_adv * loss_G_adv + \
+                            cfg.training.w_fm * loss_fm + \
+                            cfg.training.w_cos * loss_G_cos 
+                            # cfg.training.w_cyc * loss_G_cyc # added on - 
+                        
+
+                    
+                        # Backpropagate and update generator
+                        scaler.scale(total_loss).backward()
+                        scaler.step(optimizer_G)
+                        scaler.update()
+
+
+                        # Train discriminator
+                        optimizer_D.zero_grad()
+
+
+                        with autocast():
+                            # Calculate adversarial losses
+                            real_pred, real_features = Dbase(driving_frame)
+                            fake_pred, fake_features = Dbase(output_frame.detach())
+                            loss_G_adv = adversarial_loss(output_frame, Dbase)
+                            loss_D = discriminator_loss(real_pred, fake_pred)
+                            loss_fm = feature_matching_loss(real_features, fake_features)
+
+
+                    scaler.scale(loss_D).backward()
+                    scaler.step(optimizer_D)
+                    scaler.update()
                     optimizer_D.zero_grad()
-                    real_pred = Dbase(driving_frame)
-                    fake_pred = Dbase(output_frame.detach())
-                    loss_D = discriminator_loss(real_pred, fake_pred)
 
-                    # Backpropagate and update discriminator
-                    loss_D.backward()
-                    optimizer_D.step()
-
-        # Update learning rates
         scheduler_G.step()
         scheduler_D.step()
 
-        # Log and save checkpoints
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
-                  f"Loss_G: {total_loss.item():.4f}, Loss_D: {loss_D.item():.4f}")
+                  f"Loss_G: {loss_G_cos.item():.4f}, Loss_D: {loss_D.item():.4f}")
+
         if (epoch + 1) % cfg.training.save_interval == 0:
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
@@ -239,25 +256,31 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-  
-    # vanilla - dont normalize image - but slower convergence. saved images will look "correct"
-    # transform = transforms.Compose(
-    #         [
-    #             transforms.ToTensor(),
-    #             transforms.Resize((256, 256))
-    #         ]
-    #     )
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]), # makes the image red
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter() # "as augmentation for both source and target images, we use color jitter and random flip"
+        transforms.ColorJitter()
     ])
-
 
     dataset = EMODataset(
         use_gpu=use_cuda,
+        cycle_consistency=False,
+        remove_background=True,
+        width=cfg.data.train_width,
+        height=cfg.data.train_height,
+        n_sample_frames=cfg.training.n_sample_frames,
+        sample_rate=cfg.training.sample_rate,
+        img_scale=(1.0, 1.0),
+        video_dir=cfg.training.video_dir,
+        json_file=cfg.training.json_file,
+        transform=transform
+    )
+
+    dataset2 = EMODataset(
+        use_gpu=use_cuda,
+        cycle_consistency=True,
+        remove_background=True,
         width=cfg.data.train_width,
         height=cfg.data.train_height,
         n_sample_frames=cfg.training.n_sample_frames,
@@ -269,15 +292,17 @@ def main(cfg: OmegaConf) -> None:
     )
     
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4)
+    # cycle consistency loss - In order to calculate this loss, we use an additional source-driving
+    # pair x𝑠∗ and x𝑑∗ , which is sampled from a different video and therefore has different appearance from the current x𝑠 , x𝑑 pair
+    dataloader2 = DataLoader(dataset2, batch_size=4, shuffle=True, num_workers=4)
+    
     
     Gbase = model.Gbase().to(device)
-    Dbase = model.Discriminator(input_nc=3).to(device) # patchgan descriminator - 3 channels RGB
+    Dbase = model.Discriminator(input_nc=3).to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader)    
+    train_base(cfg, Gbase, Dbase, dataloader,dataloader2)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
 
-
 if __name__ == "__main__":
-
     config = OmegaConf.load("./configs/training/stage1-base.yaml")
     main(config)

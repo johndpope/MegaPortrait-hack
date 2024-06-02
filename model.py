@@ -1620,9 +1620,9 @@ The GazeLoss can be used in the PerceptualLoss class to compute the gaze loss co
 #         return loss
 
 # Encoder Model
-class Encoder(nn.Module):
+class PatchGanEncoder(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=4, norm_layer=nn.BatchNorm2d):
-        super(Encoder, self).__init__()
+        super(PatchGanEncoder, self).__init__()
         model = [nn.ReflectionPad2d(3),
                  nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0),
                  norm_layer(ngf),
@@ -1922,8 +1922,45 @@ jitter.
 
 from rembg import remove
 import io
+import os
 
-def crop_and_warp_face(image_tensor, pad_to_original=False):
+def remove_background_and_convert_to_rgb(image_tensor):
+    """
+    Remove the background from an image tensor and convert the image to RGB format.
+    
+    Args:
+        image_tensor (torch.Tensor): Input image tensor.
+        
+    Returns:
+        PIL.Image.Image: Image with background removed and converted to RGB.
+    """
+    # Convert the tensor to a PIL Image
+    image = to_pil_image(image_tensor)
+    
+    # Remove the background from the image
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    bg_removed_bytes = remove(img_byte_arr)
+    bg_removed_image = Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA")
+    
+    # Convert the image to RGB format
+    bg_removed_image_rgb = bg_removed_image.convert("RGB")
+    
+    return bg_removed_image_rgb
+def crop_and_warp_face(image_tensor, video_name, frame_idx, output_dir="output_images", pad_to_original=False, apply_warping=True,warp_strength=0.05):
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Construct the file path
+    output_path = os.path.join(output_dir, f"{video_name}_frame_{frame_idx}.png")
+
+    # Check if the file already exists
+    if os.path.exists(output_path):
+        # Load and return the existing image as a tensor
+        existing_image = Image.open(output_path).convert("RGBA")
+        return to_tensor(existing_image)
+    
     # Check if the input tensor has a batch dimension and handle it
     if image_tensor.ndim == 4:
         # Assuming batch size is the first dimension, process one image at a time
