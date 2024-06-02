@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "train2.py",
+            "program": "train.py",
             "console": "integratedTerminal"
         }
     ]
