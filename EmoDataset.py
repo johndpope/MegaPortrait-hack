@@ -65,10 +65,10 @@ class EMODataset(Dataset):
             print(f"Loading processed images from directory: {output_dir}")
             for frame_idx in tqdm(range(len(list(output_dir.glob("*.png")))), desc="Loading Processed Video Frames"):
                 frame_path = output_dir / f"{frame_idx:06d}.png"
-                frame = Image.open(frame_path)
-                state = torch.get_rng_state()
-                tensor_frame, _ = self.augmentation(frame, self.pixel_transform, state)
-                tensor_frames.append(tensor_frame)
+                with Image.open(frame_path) as frame:
+                    state = torch.get_rng_state()
+                    tensor_frame, _ = self.augmentation(frame, self.pixel_transform, state)
+                    tensor_frames.append(tensor_frame)
         else:
             print(f"Processing and saving video frames to directory: {output_dir}")
             video_reader = VideoReader(video_path, ctx=self.ctx)
