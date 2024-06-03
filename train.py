@@ -156,34 +156,34 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # The first group consists of the standard training objectives for image synthesis. 
                         # These include perceptual [14] and GAN [ 33 ] losses that match 
                         # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
-                        output_frame = Gbase(source_frame, driving_frame)
+                        pred_frame = Gbase(source_frame, driving_frame)
 
                         # Obtain the foreground mask for the driving image
                         foreground_mask = get_foreground_mask(source_frame)
 
                         # Move the foreground mask to the same device as output_frame
-                        foreground_mask = foreground_mask.to(output_frame.device)
+                        # foreground_mask = foreground_mask.to(output_frame.device)
 
                         # Multiply the predicted and driving images with the foreground mask
-                        masked_predicted_image = output_frame * foreground_mask
+                        # masked_predicted_image = output_frame * foreground_mask
                         masked_target_image = driving_frame * foreground_mask
 
                         save_images = True
                         # Save the images
                         if save_images:
-                            vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
-                            vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                            vutils.save_image(output_frame, f"{output_dir}/output_frame_{idx}.png")
-                            vutils.save_image(source_frame_star, f"{output_dir}/source_frame_star_{idx}.png")
-                            vutils.save_image(driving_frame_star, f"{output_dir}/driving_frame_star_{idx}.png")
-                            vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
+                            # vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
+                            # vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
+                            vutils.save_image(pred_frame, f"{output_dir}/output_frame_{idx}.png")
+                            # vutils.save_image(source_frame_star, f"{output_dir}/source_frame_star_{idx}.png")
+                            # vutils.save_image(driving_frame_star, f"{output_dir}/driving_frame_star_{idx}.png")
+                            # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
                             vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
 
                         # Calculate perceptual losses
-                        loss_G_per = perceptual_loss_fn(masked_predicted_image, masked_target_image)
+                        loss_G_per = perceptual_loss_fn(pred_frame, masked_target_image)
                         # Calculate adversarial losses
-                        loss_G_adv = adversarial_loss(masked_predicted_image, Dbase)
-                        loss_fm = perceptual_loss_fn(masked_predicted_image, masked_target_image, use_fm_loss=True)
+                        loss_G_adv = adversarial_loss(pred_frame, Dbase)
+                        loss_fm = perceptual_loss_fn(pred_frame, masked_target_image, use_fm_loss=True)
                     
                     
                         
@@ -198,7 +198,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                         # Store the motion descriptors z𝑠→𝑑(predicted) and z𝑠∗→𝑑 (star predicted) from the 
                         # respective forward passes of the base network.
-                        _, _, z_pred = Gbase.motionEncoder(output_frame) 
+                        _, _, z_pred = Gbase.motionEncoder(pred_frame) 
                         _, _, zd = Gbase.motionEncoder(driving_frame) 
                         
                         _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
