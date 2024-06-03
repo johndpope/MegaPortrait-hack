@@ -63,9 +63,9 @@ class EMODataset(Dataset):
         # Check if the directory exists and contains processed PNG images
         if any(output_dir.glob("*.png")):
             print(f"Loading processed images from directory: {output_dir}")
-            for frame_idx in tqdm(range(len(list(output_dir.glob("*.png")))), desc="Loading Processed Video Frames"):
-                frame_path = output_dir / f"{frame_idx:06d}.png"
-                with Image.open(frame_path) as frame:
+            frame_paths = sorted(output_dir.glob("*.png"))
+            for frame_path in tqdm(frame_paths, desc="Loading Processed Video Frames"):                frame_path = output_dir / f"{frame_idx:06d}.png"
+            with Image.open(frame_path) as frame:
                     state = torch.get_rng_state()
                     tensor_frame, _ = self.augmentation(frame, self.pixel_transform, state)
                     tensor_frames.append(tensor_frame)
