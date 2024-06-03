@@ -14,10 +14,10 @@ import decord
 import subprocess
 from tqdm import tqdm
 import cv2
-
+from pathlib import Path
 
 class EMODataset(Dataset):
-    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False,use_greenscreen=False):
+    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -40,43 +40,49 @@ class EMODataset(Dataset):
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
         self.ctx = cpu()
 
-
         # TODO - make this more dynamic
-        self.driving_vid_pil_image_list = self.load_and_process_video("./junk/-2KGPYEFnsU_11.mp4")
-        self.video_ids = ["M2Ohb0FAaJU_1"] # list(self.celebvhq_info['clips'].keys())
-        self.video_ids_star = ["-1eKufUP5XQ_4"] #list(self.celebvhq_info['clips'].keys())
-        self.driving_vid_pil_image_list_star = self.load_and_process_video("./junk/-2KGPYEFnsU_8.mp4")
+        driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
+        self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
+        driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
+        self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
     def __len__(self) -> int:
         return len(self.video_ids)
 
     def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
-        processed_video_path = video_path.replace(".mp4", "_nobg.mp4")
+        # Extract video ID from the path
+        video_id = Path(video_path).stem
+        output_dir =  Path(self.video_dir + "/" + video_id)
+        output_dir.mkdir(exist_ok=True)
+        
         processed_frames = []
         tensor_frames = []
-        if os.path.exists(processed_video_path):
-            print(f"Loading processed video: {processed_video_path}")
-            video_reader = VideoReader(processed_video_path, ctx=self.ctx)
-            for frame_idx in tqdm(range(len(video_reader)), desc="Loading Processed Video Frames"):
-                frame = Image.fromarray(video_reader[frame_idx].numpy())
+
+        # Check if the directory exists and contains processed PNG images
+        if any(output_dir.glob("*.png")):
+            print(f"Loading processed images from directory: {output_dir}")
+            for frame_idx in tqdm(range(len(list(output_dir.glob("*.png")))), desc="Loading Processed Video Frames"):
+                frame_path = output_dir / f"{frame_idx:06d}.png"
+                frame = Image.open(frame_path)
                 state = torch.get_rng_state()
-                tensor_frame,image_frame = self.augmentation(frame, self.pixel_transform, state)
+                tensor_frame, _ = self.augmentation(frame, self.pixel_transform, state)
                 tensor_frames.append(tensor_frame)
-                
         else:
-            print(f"Processing and saving video: {video_path}")
+            print(f"Processing and saving video frames to directory: {output_dir}")
             video_reader = VideoReader(video_path, ctx=self.ctx)
-            processed_frames = []
             for frame_idx in tqdm(range(len(video_reader)), desc="Processing Video Frames"):
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
                 state = torch.get_rng_state()
-                tensor_frame,image_frame = self.augmentation(frame, self.pixel_transform, state)
+                tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
                 processed_frames.append(image_frame)
                 tensor_frames.append(tensor_frame)
-            
-            self.save_video(processed_frames, processed_video_path)
+                # Save frame as PNG image
+                image_frame.save(output_dir / f"{frame_idx:06d}.png")
 
         return tensor_frames
+
 
     def augmentation(self, images, transform, state=None):
         if state is not None:
@@ -92,10 +98,7 @@ class EMODataset(Dataset):
                 images = self.remove_bg(images)
             ret_tensor = transform(images)
 
-        return ret_tensor,images
-
-
-   
+        return ret_tensor, images
 
     # this will be easiest putting the background back in
     def remove_bg(self, image):
@@ -116,8 +119,6 @@ class EMODataset(Dataset):
 
         return final_image
 
-        
-
     def save_video(self, frames, output_path, fps=30):
         print(f"Saving video with {len(frames)} frames to {output_path}")
 
@@ -136,13 +137,17 @@ class EMODataset(Dataset):
         print(f"Video saved to {output_path}")
 
     def process_video(self, video_path):
+        processed_frames = self.process_video_frames(video_path)
+        return processed_frames
+
+    def process_video_frames(self, video_path: str) -> List[torch.Tensor]:
         video_reader = VideoReader(video_path, ctx=self.ctx)
         processed_frames = []
-        for frame_idx in range(len(video_reader)):
+        for frame_idx in tqdm(range(len(video_reader)), desc="Processing Video Frames"):
             frame = Image.fromarray(video_reader[frame_idx].numpy())
             state = torch.get_rng_state()
-            pixel_values_frame = self.augmentation(frame, self.pixel_transform, state)
-            processed_frames.append(pixel_values_frame)
+            tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
+            processed_frames.append(image_frame)
         return processed_frames
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
