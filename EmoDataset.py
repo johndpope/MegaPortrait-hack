@@ -60,7 +60,9 @@ class EMODataset(Dataset):
         return len(self.video_ids)
 
 
-    def crop_and_warp_face(self, image_tensor, video_name, frame_idx,transform=None, output_dir="output_images",  warp_strength=0.05):
+
+
+    def crop_and_warp_face(self, image_tensor, video_name, frame_idx, transform=None, output_dir="output_images", warp_strength=0.01, apply_warp=False):
         # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
@@ -100,33 +102,37 @@ class EMODataset(Dataset):
             # Crop the face region from the image
             face_image = bg_removed_image.crop((left, top, right, bottom))
             
-            # Convert the face image to a numpy array
-            face_array = np.array(face_image)
+            if apply_warp:
+                # Convert the face image to a numpy array
+                face_array = np.array(face_image)
+                
+                # Generate random control points for thin-plate-spline warping
+                rows, cols = face_array.shape[:2]
+                src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
+                dst_points = src_points + np.random.randn(4, 2) * (rows * warp_strength)
+                
+                # Create a PiecewiseAffineTransform object
+                tps = PiecewiseAffineTransform()
+                tps.estimate(src_points, dst_points)
+                
+                # Apply the thin-plate-spline warping to the face image
+                warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
+                
+                # Convert the warped face array back to a PIL image
+                warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+            else:
+                warped_face_image = face_image
             
-            # Generate random control points for thin-plate-spline warping
-            rows, cols = face_array.shape[:2]
-            src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
-            dst_points = src_points + np.random.randn(4, 2) * (rows * warp_strength)
-            
-            # Create a PiecewiseAffineTransform object
-            tps = PiecewiseAffineTransform()
-            tps.estimate(src_points, dst_points)
-            
-            # Apply the thin-plate-spline warping to the face image
-            warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
-            
-            # Convert the warped face array back to a PIL image
-            warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
-            
-               # Apply the transform if provided
+            # Apply the transform if provided
             if transform:
                 warped_face_tensor = transform(warped_face_image)
                 return warped_face_tensor
-           
+            
             # Convert the warped PIL image back to a tensor
             return to_tensor(warped_face_image)
         else:
             return None
+
         
     def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
         # Extract video ID from the path
@@ -171,11 +177,22 @@ class EMODataset(Dataset):
                         # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
                     video_name = Path(video_path).stem
-                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
+
+                    # vanilla crop                    
+                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=False)
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame)
                     img.save(output_dir / f"{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame)
+
+                    # vanilla crop + warp                  
+                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=True)
+                    # Save frame as PNG image
+                    img = to_pil_image(tensor_frame)
+                    img.save(output_dir / f"{frame_idx:06d}_w.png")
+                    tensor_frames.append(tensor_frame)
+
+                    
                 else:
                     # Save frame as PNG image
                     image_frame.save(output_dir / f"{frame_idx:06d}.png")
