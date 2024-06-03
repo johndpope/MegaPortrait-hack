@@ -154,6 +154,7 @@ class EMODataset(Dataset):
             for frame_idx in tqdm(range(len(video_reader)), desc="Processing Video Frames"):
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
                 state = torch.get_rng_state()
+                # here we run the color jitter / random flip
                 tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
                 processed_frames.append(image_frame)
                 tensor_frames.append(tensor_frame)
@@ -162,7 +163,7 @@ class EMODataset(Dataset):
 
                 if self.apply_crop_warping:
                     transform = transforms.Compose([
-                        transforms.Resize((512, 512)),
+                        transforms.Resize((512, 512)), # get the cropped image back to this size - TODO support 256
                         transforms.ToTensor(),
                         # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
