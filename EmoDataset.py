@@ -121,10 +121,10 @@ class EMODataset(Dataset):
                # Apply the transform if provided
             if transform:
                 warped_face_tensor = transform(warped_face_image)
-                return warped_face_image,warped_face_tensor
+                return warped_face_tensor
            
             # Convert the warped PIL image back to a tensor
-            return warped_face_image,to_tensor(warped_face_image)
+            return to_tensor(warped_face_image)
         else:
             return None
         
@@ -171,8 +171,9 @@ class EMODataset(Dataset):
                         # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
                     video_name = Path(video_path).stem
-                    img,tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
+                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
                     # Save frame as PNG image
+                    img = to_pil_image(tensor_frame)
                     img.save(output_dir / f"{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame)
                 else:
