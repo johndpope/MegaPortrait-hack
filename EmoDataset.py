@@ -121,6 +121,7 @@ class EMODataset(Dataset):
                # Apply the transform if provided
             if transform:
                 warped_face_image = transform(warped_face_image)
+                return warped_face_image
            
             # Convert the warped PIL image back to a tensor
             return to_tensor(warped_face_image)
