@@ -315,7 +315,8 @@ def main(cfg: OmegaConf) -> None:
         img_scale=(1.0, 1.0),
         video_dir=cfg.training.video_dir,
         json_file=cfg.training.json_file,
-        transform=transform
+        transform=transform,
+        apply_crop_warping=True
     )
 
 

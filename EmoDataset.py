@@ -16,8 +16,16 @@ from tqdm import tqdm
 import cv2
 from pathlib import Path
 
+# face warp
+
+import torchvision.transforms as transforms
+from torchvision.transforms.functional import to_pil_image, to_tensor
+from PIL import Image
+from skimage.transform import PiecewiseAffineTransform, warp
+import face_recognition
+
 class EMODataset(Dataset):
-    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False):
+    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False,apply_crop_warping=False):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -31,7 +39,7 @@ class EMODataset(Dataset):
         self.drop_ratio = drop_ratio
         self.remove_background = remove_background
         self.use_greenscreen = use_greenscreen
-
+        self.apply_crop_warping = apply_crop_warping
         with open(json_file, 'r') as f:
             self.celebvhq_info = json.load(f)
 
@@ -51,6 +59,74 @@ class EMODataset(Dataset):
     def __len__(self) -> int:
         return len(self.video_ids)
 
+
+    def crop_and_warp_face(self, image_tensor, video_name, frame_idx,transform=None, output_dir="output_images",  warp_strength=0.05):
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Construct the file path
+        output_path = os.path.join(output_dir, f"{video_name}_frame_{frame_idx}.png")
+        
+        # Check if the file already exists
+        if os.path.exists(output_path):
+            # Load and return the existing image as a tensor
+            existing_image = Image.open(output_path).convert("RGBA")
+            return to_tensor(existing_image)
+        
+        # Check if the input tensor has a batch dimension and handle it
+        if image_tensor.ndim == 4:
+            # Assuming batch size is the first dimension, process one image at a time
+            image_tensor = image_tensor.squeeze(0)
+        
+        # Convert the single image tensor to a PIL Image
+        image = to_pil_image(image_tensor)
+        
+        # Remove the background from the image
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        bg_removed_bytes = remove(img_byte_arr)
+        bg_removed_image = Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA")
+        
+        # Convert the image to RGB format to make it compatible with face_recognition
+        bg_removed_image_rgb = bg_removed_image.convert("RGB")
+        
+        # Detect the face in the background-removed RGB image using the numpy array
+        face_locations = face_recognition.face_locations(np.array(bg_removed_image_rgb))
+        
+        if len(face_locations) > 0:
+            top, right, bottom, left = face_locations[0]
+            
+            # Crop the face region from the image
+            face_image = bg_removed_image.crop((left, top, right, bottom))
+            
+            # Convert the face image to a numpy array
+            face_array = np.array(face_image)
+            
+            # Generate random control points for thin-plate-spline warping
+            rows, cols = face_array.shape[:2]
+            src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
+            dst_points = src_points + np.random.randn(4, 2) * (rows * warp_strength)
+            
+            # Create a PiecewiseAffineTransform object
+            tps = PiecewiseAffineTransform()
+            tps.estimate(src_points, dst_points)
+            
+            # Apply the thin-plate-spline warping to the face image
+            warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
+            
+            # Convert the warped face array back to a PIL image
+            warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+            
+               # Apply the transform if provided
+            if transform:
+                warped_face_image = transform(warped_face_image)
+           
+            # Convert the warped PIL image back to a tensor
+            return to_tensor(warped_face_image)
+        else:
+            return None
+        
     def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
         # Extract video ID from the path
         video_id = Path(video_path).stem
@@ -81,6 +157,19 @@ class EMODataset(Dataset):
                 tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
                 processed_frames.append(image_frame)
                 tensor_frames.append(tensor_frame)
+
+
+
+                if self.apply_crop_warping:
+                    transform = transforms.Compose([
+                        transforms.Resize((512, 512)),
+                        transforms.ToTensor(),
+                        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                    ])
+                    video_name = Path(video_path).stem
+                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
+
+
                 # Save frame as PNG image
                 image_frame.save(output_dir / f"{frame_idx:06d}.png")
 
