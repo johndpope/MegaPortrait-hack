@@ -150,7 +150,10 @@ class EMODataset(Dataset):
                         tensor_frame, _ = self.augmentation(frame, transform, state)
                         tensor_frames.append(tensor_frame)
         else:
-            print(f"Processing and saving video frames to directory: {output_dir}")
+            if self.apply_crop_warping:
+                print(f"Warping + Processing and saving video frames to directory: {output_dir}")
+            else:
+                print(f"Processing and saving video frames to directory: {output_dir}")
             video_reader = VideoReader(video_path, ctx=self.ctx)
             for frame_idx in tqdm(range(len(video_reader)), desc="Processing Video Frames"):
                 frame = Image.fromarray(video_reader[frame_idx].numpy())
@@ -160,10 +163,8 @@ class EMODataset(Dataset):
                 processed_frames.append(image_frame)
                 
 
-
-
                 if self.apply_crop_warping:
-                    print(f"Warping...")
+                    
                     transform = transforms.Compose([
                         transforms.Resize((512, 512)), # get the cropped image back to this size - TODO support 256
                         transforms.ToTensor(),
