@@ -264,6 +264,36 @@ def train_base(cfg, Gbase, Dbase, dataloader):
             torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
             torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
 
+def unnormalize(tensor):
+    """
+    Unnormalize a tensor using the specified mean and std.
+    
+    Args:
+    tensor (torch.Tensor): The normalized tensor.
+    mean (list): The mean used for normalization.
+    std (list): The std used for normalization.
+    
+    Returns:
+    torch.Tensor: The unnormalized tensor.
+    """
+    # Check if the tensor is on a GPU and if so, move it to the CPU
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    
+    # Ensure tensor is a float and detach it from the computation graph
+    tensor = tensor.float().detach()
+    
+    # Unnormalize
+    # Define mean and std used for normalization
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+
+    for t, m, s in zip(tensor, mean, std):
+        t.mul_(s).add_(m)
+    
+    return tensor
+
+
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -271,7 +301,8 @@ def main(cfg: OmegaConf) -> None:
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter()
+        transforms.ColorJitter(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     dataset = EMODataset(
