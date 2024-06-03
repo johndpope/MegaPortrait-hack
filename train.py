@@ -162,10 +162,10 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         foreground_mask = get_foreground_mask(source_frame)
 
                         # Move the foreground mask to the same device as output_frame
-                        # foreground_mask = foreground_mask.to(output_frame.device)
+                        foreground_mask = foreground_mask.to(pred_frame.device)
 
                         # Multiply the predicted and driving images with the foreground mask
-                        # masked_predicted_image = output_frame * foreground_mask
+                        # masked_predicted_image = pred_frame * foreground_mask
                         masked_target_image = driving_frame * foreground_mask
 
                         save_images = True
@@ -173,7 +173,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         if save_images:
                             # vutils.save_image(source_frame, f"{output_dir}/source_frame_{idx}.png")
                             # vutils.save_image(driving_frame, f"{output_dir}/driving_frame_{idx}.png")
-                            vutils.save_image(pred_frame, f"{output_dir}/output_frame_{idx}.png")
+                            vutils.save_image(pred_frame, f"{output_dir}/pred_frame_{idx}.png")
                             # vutils.save_image(source_frame_star, f"{output_dir}/source_frame_star_{idx}.png")
                             # vutils.save_image(driving_frame_star, f"{output_dir}/driving_frame_star_{idx}.png")
                             # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")

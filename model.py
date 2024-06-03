@@ -1821,7 +1821,7 @@ class Discriminator(nn.Module):
         return pred, [x2, x3, x4]
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, device, weights={'vgg19': 1.0, 'vggface': 1.0, 'gaze': 1.0}):
+    def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
         super(PerceptualLoss, self).__init__()
         self.device = device
         self.weights = weights
