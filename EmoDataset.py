@@ -120,11 +120,11 @@ class EMODataset(Dataset):
             
                # Apply the transform if provided
             if transform:
-                warped_face_image = transform(warped_face_image)
-                return warped_face_image
+                warped_face_tensor = transform(warped_face_image)
+                return warped_face_image,warped_face_tensor
            
             # Convert the warped PIL image back to a tensor
-            return to_tensor(warped_face_image)
+            return warped_face_image,to_tensor(warped_face_image)
         else:
             return None
         
@@ -158,22 +158,26 @@ class EMODataset(Dataset):
                 # here we run the color jitter / random flip
                 tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
                 processed_frames.append(image_frame)
-                tensor_frames.append(tensor_frame)
+                
 
 
 
                 if self.apply_crop_warping:
+                    print(f"Warping...")
                     transform = transforms.Compose([
                         transforms.Resize((512, 512)), # get the cropped image back to this size - TODO support 256
                         transforms.ToTensor(),
                         # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
                     video_name = Path(video_path).stem
-                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
-
-
-                # Save frame as PNG image
-                image_frame.save(output_dir / f"{frame_idx:06d}.png")
+                    img,tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform)
+                    # Save frame as PNG image
+                    img.save(output_dir / f"{frame_idx:06d}.png")
+                    tensor_frames.append(tensor_frame)
+                else:
+                    # Save frame as PNG image
+                    image_frame.save(output_dir / f"{frame_idx:06d}.png")
+                    tensor_frames.append(tensor_frame)
 
         return tensor_frames
 
