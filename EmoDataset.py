@@ -183,13 +183,13 @@ class EMODataset(Dataset):
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame)
                     img.save(output_dir / f"{frame_idx:06d}.png")
-                    tensor_frames.append(tensor_frame)
-
+                    
                     # vanilla crop + warp                  
-                    tensor_frame = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=True)
+                    tensor_frame2 = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=True)
                     # Save frame as PNG image
-                    img = to_pil_image(tensor_frame)
+                    img = to_pil_image(tensor_frame2)
                     img.save(output_dir / f"{frame_idx:06d}_w.png")
+                    tensor_frames.append(tensor_frame2)
                     tensor_frames.append(tensor_frame)
 
                     
