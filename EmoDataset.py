@@ -48,10 +48,14 @@ class EMODataset(Dataset):
         self.video_ids =  list(self.celebvhq_info['clips'].keys())
         random_video_id = random.choice(self.video_ids)
         driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        print("driving:",driving)
+
         self.driving_vid_pil_image_list = self.load_and_process_video(driving)
         self.video_ids_star =  list(self.celebvhq_info['clips'].keys())
         random_video_id = random.choice(self.video_ids_star)
         driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        print("driving_star:",driving_star)
+        
         self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
     def __len__(self) -> int:
@@ -170,17 +174,21 @@ class EMODataset(Dataset):
 
                     # vanilla crop                    
                     tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
-                    # Save frame as PNG image
-                    img = to_pil_image(tensor_frame1)
-                    img.save(output_dir / f"{frame_idx:06d}.png")
-                    tensor_frames.append(tensor_frame1)
+                    
+                    if tensor_frame1:
+                        # Save frame as PNG image
+                        img = to_pil_image(tensor_frame1)
+                        img.save(output_dir / f"{frame_idx:06d}.png")
+                        tensor_frames.append(tensor_frame1)
 
-                    # vanilla crop + warp                  
-                    tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
-                    # Save frame as PNG image
-                    img = to_pil_image(tensor_frame2)
-                    img.save(output_dir / f"w_{frame_idx:06d}.png")
-                    tensor_frames.append(tensor_frame2)
+                        # vanilla crop + warp                  
+                        tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
+                        # Save frame as PNG image
+                        img = to_pil_image(tensor_frame2)
+                        img.save(output_dir / f"w_{frame_idx:06d}.png")
+                        tensor_frames.append(tensor_frame2)
+                    else:
+                        tensor_frames.append(tensor_frame)
                 else:
                     # Save frame as PNG image
                     image_frame.save(output_dir / f"{frame_idx:06d}.png")
