@@ -1,6 +1,6 @@
 data:
-  train_width: 256 
-  train_height: 256 
+  train_width: 512 
+  train_height: 512 
   sample_rate: 25 
   n_sample_frames: 1
   n_motion_frames: 2

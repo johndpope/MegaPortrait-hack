@@ -1800,25 +1800,51 @@ class MPGazeLoss(nn.Module):
 
         return loss / len(eye_landmarks)
         
+# class Discriminator(nn.Module):
+#     def __init__(self, input_nc, ndf=64, n_layers=3):
+#         super(Discriminator, self).__init__()
+        
+#         layers = [nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1), 
+#                   nn.LeakyReLU(0.2, True)]
+        
+#         for i in range(1, n_layers):
+#             layers += [nn.Conv2d(ndf * 2**(i-1), ndf * 2**i, kernel_size=4, stride=2, padding=1),
+#                        nn.InstanceNorm2d(ndf * 2**i),
+#                        nn.LeakyReLU(0.2, True)]
+        
+#         layers += [nn.Conv2d(ndf * 2**(n_layers-1), 1, kernel_size=4, stride=1, padding=1)]
+        
+#         self.model = nn.Sequential(*layers)
+
+#     def forward(self, x):
+#         return self.model(x)
+
+
 class Discriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3):
+    def __init__(self, in_channels=3):
         super(Discriminator, self).__init__()
-        
-        layers = [nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1), 
-                  nn.LeakyReLU(0.2, True)]
-        
-        for i in range(1, n_layers):
-            layers += [nn.Conv2d(ndf * 2**(i-1), ndf * 2**i, kernel_size=4, stride=2, padding=1),
-                       nn.InstanceNorm2d(ndf * 2**i),
-                       nn.LeakyReLU(0.2, True)]
-        
-        layers += [nn.Conv2d(ndf * 2**(n_layers-1), 1, kernel_size=4, stride=1, padding=1)]
-        
-        self.model = nn.Sequential(*layers)
 
-    def forward(self, x):
-        return self.model(x)
+        def discriminator_block(in_filters, out_filters, normalization=True):
+            """Returns downsampling layers of each discriminator block"""
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
+            if normalization:
+                layers.append(nn.InstanceNorm2d(out_filters))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            return layers
 
+        self.model = nn.Sequential(
+            *discriminator_block(in_channels * 2, 64, normalization=False),
+            *discriminator_block(64, 128),
+            *discriminator_block(128, 256),
+            *discriminator_block(256, 512),
+            nn.ZeroPad2d((1, 0, 1, 0)),
+            nn.Conv2d(512, 1, 4, padding=1, bias=False)
+        )
+
+    def forward(self, img_A, img_B):
+        # Concatenate image and condition image by channels to produce input
+        img_input = torch.cat((img_A, img_B), 1)
+        return self.model(img_input)
 
 class PerceptualLoss(nn.Module):
     def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):

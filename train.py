@@ -20,7 +20,7 @@ import os
 import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
-
+from torch.autograd import Variable
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -31,14 +31,6 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
-# In the adversarial_loss function, we now use the hinge loss for the generator.
-#  The loss is calculated as the negative mean of the discriminator's prediction 
-# for the fake frame. This encourages the generator to produce frames that can fool 
-# the discriminator.
-def adversarial_loss(output_frame, discriminator):
-    fake_pred  = discriminator(output_frame)
-    loss = -torch.mean(fake_pred)
-    return loss.requires_grad_()
 
 
 # align to cyclegan
@@ -52,15 +44,7 @@ def discriminator_loss(real_pred, fake_pred, loss_type='lsgan'):
     else:
         raise NotImplementedError(f'Loss type {loss_type} is not implemented.')
     
-    return (real_loss + fake_loss) * 0.5
-
-
-def feature_matching_loss(real_features, fake_features):
-    loss = 0
-    for real_feat, fake_feat in zip(real_features, fake_features):
-        loss += torch.mean(torch.abs(real_feat - fake_feat))
-    return loss.requires_grad_()
-
+    return ((real_loss + fake_loss) * 0.5).requires_grad_()
 
 
 # cosine distance formula
@@ -89,10 +73,12 @@ def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
         loss = loss + torch.log(torch.exp(pos_dist) / (torch.exp(pos_dist) + neg_term))
         
     assert len(pos_pairs) > 0, "pos_pairs should not be empty"
-    return (-loss / len(pos_pairs)).requires_grad_()
-
+    return torch.mean(-loss / len(pos_pairs)).requires_grad_()
 
 def train_base(cfg, Gbase, Dbase, dataloader):
+    patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
+    hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
+    feature_matching_loss = nn.MSELoss()
     Gbase.train()
     Dbase.train()
     optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
@@ -166,12 +152,37 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                         # Calculate perceptual losses
                         loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
-                        # Calculate adversarial losses
-                        loss_G_adv = adversarial_loss(pred_frame, Dbase)
-                        loss_fm = perceptual_loss_fn(pred_frame, source_frame, use_fm_loss=True)
-                    
-                    
+                      
+                        # Adversarial ground truths - from Kevin Fringe
+                        valid = Variable(torch.Tensor(np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
+                        fake = Variable(torch.Tensor(-1 * np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
+
+                        # real loss
+                        real_pred = Dbase(driving_frame, source_frame)
+                        loss_real = hinge_loss(real_pred, valid)
+
+                        # fake loss
+                        fake_pred = Dbase(pred_frame.detach(), source_frame)
+                        loss_fake = hinge_loss(fake_pred, fake)
+
+                        # Train discriminator
+                        optimizer_D.zero_grad()
                         
+                        # Calculate adversarial losses
+                        real_pred = Dbase(driving_frame, source_frame)
+                        fake_pred = Dbase(pred_frame.detach(), source_frame)
+                        loss_D = discriminator_loss(real_pred, fake_pred, loss_type='lsgan')
+
+                        scaler.scale(loss_D).backward()
+                        scaler.step(optimizer_D)
+                        scaler.update()
+
+                        # Calculate adversarial losses
+                        loss_G_adv = 0.5 * (loss_real + loss_fake)
+
+                         # Feature matching loss
+                        loss_fm = feature_matching_loss(pred_frame, driving_frame)
+                    
                         # The other objective CycleGAN regularizes the training and introduces disentanglement between the motion and canonical space
                         # In order to calculate this loss, we use an additional source-driving  pair x𝑠∗ and x𝑑∗ , 
                         # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
@@ -201,34 +212,17 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         loss_G_cos = cosine_loss(P, N)
 
                        
-                        # Combine the losses
+                        
+                        # Backpropagate and update generator
+                        optimizer_G.zero_grad()
                         total_loss = cfg.training.w_per * loss_G_per + \
                             cfg.training.w_adv * loss_G_adv + \
                             cfg.training.w_fm * loss_fm + \
-                            cfg.training.w_cos * loss_G_cos  
-                        
-                        # Convert total_loss to a scalar value
-                        total_loss = torch.mean(total_loss)
-
-                    
-                        # Backpropagate and update generator
+                            cfg.training.w_cos * loss_G_cos
                         scaler.scale(total_loss).backward()
                         scaler.step(optimizer_G)
                         scaler.update()
 
-
-                        # Train discriminator
-                        optimizer_D.zero_grad()
-
-                        with autocast():
-                            # Calculate adversarial losses
-                            real_pred = Dbase(driving_frame)
-                            fake_pred = Dbase(pred_frame.detach())
-                            loss_D = discriminator_loss(real_pred, fake_pred, loss_type='lsgan')
-
-                        scaler.scale(loss_D).backward()
-                        scaler.step(optimizer_D)
-                        scaler.update()
                       
 
         scheduler_G.step()
@@ -303,7 +297,7 @@ def main(cfg: OmegaConf) -> None:
 
     
     Gbase = model.Gbase().to(device)
-    Dbase = model.Discriminator(input_nc=3).to(device)
+    Dbase = model.Discriminator().to(device)
     
     train_base(cfg, Gbase, Dbase, dataloader)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
