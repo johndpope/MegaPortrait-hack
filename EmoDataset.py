@@ -167,8 +167,9 @@ class EMODataset(Dataset):
 
                 if self.apply_crop_warping:
                     transform = transforms.Compose([
-                        transforms.Resize((512, 512)), # get the cropped image back to this size - TODO support 256
+                        transforms.Resize((self.width, self.height)), # get the cropped image back to this size - TODO support 256
                         transforms.ToTensor(),
+                        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
                     video_name = Path(video_path).stem
 
