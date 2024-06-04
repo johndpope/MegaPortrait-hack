@@ -34,6 +34,31 @@ or just
 
 [warp / crop / spline / remove background / transforms](EmoDataset.md)
 
+## Training Data (☢️ dont need this yet.)
+
+- **Total Videos:** 35,000 facial videos
+- **Total Size:** 40GB
+
+
+### Training Strategy
+for now - to simplify problem - use the 4 videos in junk folder. 
+once models are validated - can point the video_dir to above torrent
+```yaml
+ # video_dir:  '/Downloads/CelebV-HQ/celebvhq/35666'  
+  video_dir: './junk'
+```
+the preprocessing is taking 1-2 mins for each video - I add some saving to npz format for faster reloading.
+
+
+### Torrent Download
+
+You can download the dataset via the provided magnet link or by visiting [Academic Torrents](https://academictorrents.com/details/843b5adb0358124d388c4e9836654c246b988ff4).
+
+```plaintext
+magnet:?xt=urn:btih:843b5adb0358124d388c4e9836654c246b988ff4&dn=CelebV-HQ&tr=https%3A%2F%2Facademictorrents.com%2Fannounce.php&tr=https%3A%2F%2Fipv6.academictorrents.com%2Fannounce.php
+```
+
+
 
 ### Implemented Functionality / Descriptions
 
