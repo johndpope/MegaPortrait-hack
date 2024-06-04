@@ -215,7 +215,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         scaler.scale(loss_D).backward()
                         scaler.step(optimizer_D)
                         scaler.update()
-                        optimizer_D.zero_grad()
+                      
 
         scheduler_G.step()
         scheduler_D.step()
