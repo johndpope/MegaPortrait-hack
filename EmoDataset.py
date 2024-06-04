@@ -22,8 +22,9 @@ from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
 
 class EMODataset(Dataset):
-    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False, apply_crop_warping=False):
+    def __init__(self, use_gpu: False,  sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False, apply_crop_warping=False,num_videos=100):
         self.sample_rate = sample_rate
+        self.num_videos = num_videos
         self.n_sample_frames = n_sample_frames
         self.width = width
         self.height = height
@@ -45,18 +46,29 @@ class EMODataset(Dataset):
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
         self.ctx = cpu()
 
-        self.video_ids =  list(self.celebvhq_info['clips'].keys())
+
+
+        self.video_ids = list(self.celebvhq_info['clips'].keys())[:self.num_videos]
+
         random_video_id = random.choice(self.video_ids)
         driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
         print("driving:",driving)
 
         self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        self.video_ids_star =  list(self.celebvhq_info['clips'].keys())
+        self.video_ids_star = list(self.celebvhq_info['clips'].keys())[:self.num_videos]
+    
         random_video_id = random.choice(self.video_ids_star)
         driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
         print("driving_star:",driving_star)
         
         self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
+
+
+    def increase_num_videos(self, increment=100):
+        print("progressively increase_num_videos")
+        self.num_videos += increment
+        self.video_ids = list(self.celebvhq_info['clips'].keys())[:self.num_videos]
+        self.video_ids_star = list(self.celebvhq_info['clips'].keys())[:self.num_videos]
 
     def __len__(self) -> int:
         return len(self.video_ids)

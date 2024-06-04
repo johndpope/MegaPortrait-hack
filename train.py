@@ -75,7 +75,7 @@ def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
     assert len(pos_pairs) > 0, "pos_pairs should not be empty"
     return torch.mean(-loss / len(pos_pairs)).requires_grad_()
 
-def train_base(cfg, Gbase, Dbase, dataloader):
+def train_base(cfg, Gbase, Dbase, dataloader,dataset):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
     feature_matching_loss = nn.MSELoss()
@@ -228,6 +228,11 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         scheduler_G.step()
         scheduler_D.step()
 
+
+        # Inside your training loop
+        if epoch % 1 == 0:  # Increase the number of videos every 5 epochs
+            dataset.increase_num_videos(increment=1)
+
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
                   f"Loss_G: {loss_G_cos.item():.4f}, Loss_D: {loss_D.item():.4f}")
@@ -288,7 +293,8 @@ def main(cfg: OmegaConf) -> None:
         video_dir=cfg.training.video_dir,
         json_file=cfg.training.json_file,
         transform=transform,
-        apply_crop_warping=True
+        apply_crop_warping=True,
+        num_videos=4,
     )
 
 
@@ -299,7 +305,7 @@ def main(cfg: OmegaConf) -> None:
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator().to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader)    
+    train_base(cfg, Gbase, Dbase, dataloader,dataset)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
     torch.save(Dbase.state_dict(), 'Dbase.pth')
 
