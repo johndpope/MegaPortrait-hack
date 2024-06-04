@@ -65,13 +65,13 @@ def feature_matching_loss(real_features, fake_features):
 
 # cosine distance formula
 # s · (⟨zi, zj⟩ − m)
-def contrastive_loss_1(pos_pairs, neg_pairs, margin=1.0, s=1.0):
+def cosine_loss(pos_pairs, neg_pairs,  s=5.0,m=2.0): # We also set 𝑠 = 5 and 𝑚 = 0.2 in the cosine loss.
     loss = torch.tensor(0.0, requires_grad=True).to(device)
 
     for pos_pair in pos_pairs:
-        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
-                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
-                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
+        loss = loss + torch.log(torch.exp(s * (F.cosine_similarity(pos_pair[0], pos_pair[1]) - m)) /
+                                (torch.exp(s * (F.cosine_similarity(pos_pair[0], pos_pair[1]) - m)) +
+                                neg_pair_loss(pos_pair, neg_pairs, m)))
     return loss
 
 
@@ -135,14 +135,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         pred_frame = Gbase(source_frame, driving_frame)
 
                         # Obtain the foreground mask for the driving image
-                        foreground_mask = get_foreground_mask(source_frame)
+                        # foreground_mask = get_foreground_mask(source_frame)
 
-                        # Move the foreground mask to the same device as output_frame
-                        foreground_mask = foreground_mask.to(pred_frame.device)
+                        # # Move the foreground mask to the same device as output_frame
+                        # foreground_mask = foreground_mask.to(pred_frame.device)
 
-                        # Multiply the predicted and driving images with the foreground mask
-                        # masked_predicted_image = pred_frame * foreground_mask
-                        masked_target_image = driving_frame * foreground_mask
+                        # # Multiply the predicted and driving images with the foreground mask
+                        # # masked_predicted_image = pred_frame * foreground_mask
+                        # masked_target_image = driving_frame * foreground_mask
 
                         save_images = True
                         # Save the images
@@ -153,13 +153,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                             # vutils.save_image(source_frame_star, f"{output_dir}/source_frame_star_{idx}.png")
                             # vutils.save_image(driving_frame_star, f"{output_dir}/driving_frame_star_{idx}.png")
                             # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
-                            vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
+                            # vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
 
                         # Calculate perceptual losses
-                        loss_G_per = perceptual_loss_fn(pred_frame, masked_target_image)
+                        loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
                         # Calculate adversarial losses
                         loss_G_adv = adversarial_loss(pred_frame, Dbase)
-                        loss_fm = perceptual_loss_fn(pred_frame, masked_target_image, use_fm_loss=True)
+                        loss_fm = perceptual_loss_fn(pred_frame, source_frame, use_fm_loss=True)
                     
                     
                         
@@ -189,7 +189,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                         P = [(z_pred, zd)     ,(z_star__pred, zd)]
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
-                        loss_G_cos = contrastive_loss_1(P, N)
+                        loss_G_cos = cosine_loss(P, N)
 
                        
                         # Combine the losses
