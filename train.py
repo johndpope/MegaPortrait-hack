@@ -13,7 +13,7 @@ from EmoDataset import EMODataset
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torchvision import models
-from model import PatchGanEncoder, PerceptualLoss, crop_and_warp_face, get_foreground_mask,remove_background_and_convert_to_rgb,apply_warping_field
+from model import PerceptualLoss, crop_and_warp_face, get_foreground_mask,remove_background_and_convert_to_rgb,apply_warping_field
 import mediapipe as mp
 import torchvision.transforms as transforms
 import os
@@ -36,60 +36,32 @@ device = torch.device("cuda" if use_cuda else "cpu")
 # for the fake frame. This encourages the generator to produce frames that can fool 
 # the discriminator.
 def adversarial_loss(output_frame, discriminator):
-    fake_pred, fake_features  = discriminator(output_frame)
+    fake_pred  = discriminator(output_frame)
     loss = -torch.mean(fake_pred)
     return loss.requires_grad_()
 
-def discriminator_loss(real_pred, fake_pred, output_frame, source_frame, driving_frame, encoder, margin=1.0):
-    real_loss = torch.mean(torch.relu(1 - real_pred))
-    fake_loss = torch.mean(torch.relu(1 + fake_pred))
+
+# align to cyclegan
+def discriminator_loss(real_pred, fake_pred, loss_type='lsgan'):
+    if loss_type == 'lsgan':
+        real_loss = torch.mean((real_pred - 1)**2)
+        fake_loss = torch.mean(fake_pred**2)
+    elif loss_type == 'vanilla':
+        real_loss = F.binary_cross_entropy_with_logits(real_pred, torch.ones_like(real_pred))
+        fake_loss = F.binary_cross_entropy_with_logits(fake_pred, torch.zeros_like(fake_pred))
+    else:
+        raise NotImplementedError(f'Loss type {loss_type} is not implemented.')
     
-    # Calculate PatchGAN loss
-    loss_patch = loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin)
-    
-    return (real_loss + fake_loss + loss_patch).requires_grad_()
+    return (real_loss + fake_loss) * 0.5
 
 
 def feature_matching_loss(real_features, fake_features):
     loss = 0
     for real_feat, fake_feat in zip(real_features, fake_features):
         loss += torch.mean(torch.abs(real_feat - fake_feat))
-    return loss
-
-def cycle_consistency_loss(model,   Rs, ts, zs, zd,  Rd, td, vs, w_s2c, es):  
-    vc = apply_warping_field(vs, w_s2c)
-    vc3d = model.G3d(vc)
-    w_c2d = model.warp_generator_c2d(Rd, td, zd, es)
-    vc3d_warped = apply_warping_field(vc3d, w_c2d)
-    vc2d_projected = torch.sum(vc3d_warped, dim=2)
-    xhat_cycle = model.G2d(vc2d_projected)
-    loss = F.l1_loss(xhat_cycle, model.G2d(torch.sum(vc, dim=2)))
-    return loss
+    return loss.requires_grad_()
 
 
-
-
-
-# a novel contrastive loss that allows our system to achieve higher degrees of disentanglement 
-# between the latent motion and appearance representation
-# Following the previous works, we train a multi-scale patch discriminator [ 42 ] Patchgan = encoder
-#  with a hinge adversarial loss alongside the generator Gbase
-def loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin=1.0):
-    z_out = encoder(output_frame)
-    z_src = encoder(source_frame)
-    z_drv = encoder(driving_frame)
-    z_rand = torch.randn_like(z_out, requires_grad=True)
-
-    pos_pairs = [(z_out, z_src), (z_out, z_drv)]
-    neg_pairs = [(z_out, z_rand), (z_src, z_rand)]
-
-    loss = torch.tensor(0.0, requires_grad=True).to(device)
-    for pos_pair in pos_pairs:
-        loss = loss + torch.log(torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) /
-                                (torch.exp(F.cosine_similarity(pos_pair[0], pos_pair[1])) +
-                                 neg_pair_loss(pos_pair, neg_pairs, margin)))
-
-    return loss
 
 # cosine distance formula
 # s · (⟨zi, zj⟩ − m)
@@ -120,7 +92,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
-    encoder = PatchGanEncoder(input_nc=3, output_nc=256).to(device)
+
     scaler = GradScaler()
 
     for epoch in range(cfg.training.base_epochs):
@@ -237,21 +209,16 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # Train discriminator
                         optimizer_D.zero_grad()
 
-
                         with autocast():
                             # Calculate adversarial losses
-                            
-                            real_pred, real_features = Dbase(driving_frame)
-                            fake_pred, fake_features = Dbase(pred_frame.detach())
-                            loss_G_adv = adversarial_loss(pred_frame, Dbase)
-                            loss_D = discriminator_loss(real_pred, fake_pred, pred_frame, source_frame, driving_frame, encoder)
-                            loss_fm = feature_matching_loss(real_features, fake_features)
+                            real_pred = Dbase(driving_frame)
+                            fake_pred = Dbase(pred_frame.detach())
+                            loss_D = discriminator_loss(real_pred, fake_pred, loss_type='lsgan')
 
-
-                    scaler.scale(loss_D).backward()
-                    scaler.step(optimizer_D)
-                    scaler.update()
-                    optimizer_D.zero_grad()
+                        scaler.scale(loss_D).backward()
+                        scaler.step(optimizer_D)
+                        scaler.update()
+                        optimizer_D.zero_grad()
 
         scheduler_G.step()
         scheduler_D.step()

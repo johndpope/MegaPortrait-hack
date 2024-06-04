@@ -1799,26 +1799,26 @@ class MPGazeLoss(nn.Module):
             loss += left_gaze_loss + right_gaze_loss
 
         return loss / len(eye_landmarks)
-class Discriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64):
-        super(Discriminator, self).__init__()
-        self.conv1 = nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1)
-        self.fc = nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=1, padding=0)
-        self.bn2 = nn.BatchNorm2d(ndf * 2)
-        self.bn3 = nn.BatchNorm2d(ndf * 4)
-        self.bn4 = nn.BatchNorm2d(ndf * 8)
         
+class Discriminator(nn.Module):
+    def __init__(self, input_nc, ndf=64, n_layers=3):
+        super(Discriminator, self).__init__()
+        
+        layers = [nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1), 
+                  nn.LeakyReLU(0.2, True)]
+        
+        for i in range(1, n_layers):
+            layers += [nn.Conv2d(ndf * 2**(i-1), ndf * 2**i, kernel_size=4, stride=2, padding=1),
+                       nn.InstanceNorm2d(ndf * 2**i),
+                       nn.LeakyReLU(0.2, True)]
+        
+        layers += [nn.Conv2d(ndf * 2**(n_layers-1), 1, kernel_size=4, stride=1, padding=1)]
+        
+        self.model = nn.Sequential(*layers)
+
     def forward(self, x):
-        x1 = F.leaky_relu(self.conv1(x), 0.2)
-        x2 = F.leaky_relu(self.bn2(self.conv2(x1)), 0.2)
-        x3 = F.leaky_relu(self.bn3(self.conv3(x2)), 0.2)
-        x4 = F.leaky_relu(self.bn4(self.conv4(x3)), 0.2)
-        x5 = self.fc(x4)
-        pred = torch.sigmoid(x5)
-        return pred, [x2, x3, x4]
+        return self.model(x)
+
 
 class PerceptualLoss(nn.Module):
     def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
