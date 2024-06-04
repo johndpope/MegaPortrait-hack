@@ -40,12 +40,16 @@ def adversarial_loss(output_frame, discriminator):
     loss = -torch.mean(fake_pred)
     return loss.requires_grad_()
 
-
-def discriminator_loss(real_pred, fake_pred):
+def discriminator_loss(real_pred, fake_pred, output_frame, source_frame, driving_frame, encoder, margin=1.0):
     real_loss = torch.mean(torch.relu(1 - real_pred))
     fake_loss = torch.mean(torch.relu(1 + fake_pred))
-    return (real_loss + fake_loss).requires_grad_()
     
+    # Calculate PatchGAN loss
+    loss_patch = loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin)
+    
+    return (real_loss + fake_loss + loss_patch).requires_grad_()
+
+
 def feature_matching_loss(real_features, fake_features):
     loss = 0
     for real_feat, fake_feat in zip(real_features, fake_features):
@@ -70,7 +74,7 @@ def cycle_consistency_loss(model,   Rs, ts, zs, zd,  Rd, td, vs, w_s2c, es):
 # between the latent motion and appearance representation
 # Following the previous works, we train a multi-scale patch discriminator [ 42 ] Patchgan = encoder
 #  with a hinge adversarial loss alongside the generator Gbase
-def contrastive_loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin=1.0):
+def loss_patchgan(output_frame, source_frame, driving_frame, encoder, margin=1.0):
     z_out = encoder(output_frame)
     z_src = encoder(source_frame)
     z_drv = encoder(driving_frame)
@@ -215,17 +219,12 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = contrastive_loss_1(P, N)
 
-                        loss_G_cos = contrastive_loss_patchgan(cross_reenacted_image, source_frame_star, driving_frame, encoder)
-
-                        # loss_G_cyc = cycle_consistency_loss(Gbase,  Rs, ts, zs, zd,  Rd, td, vs, w_s2c, es) #  🤷 is this true? there's no weights indicated for this only cos
-                    
-
+                       
                         # Combine the losses
                         total_loss = cfg.training.w_per * loss_G_per + \
                             cfg.training.w_adv * loss_G_adv + \
                             cfg.training.w_fm * loss_fm + \
-                            cfg.training.w_cos * loss_G_cos 
-                            # cfg.training.w_cyc * loss_G_cyc # added on - 
+                            cfg.training.w_cos * loss_G_cos  
                         
 
                     
@@ -241,10 +240,11 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                         with autocast():
                             # Calculate adversarial losses
+                            
                             real_pred, real_features = Dbase(driving_frame)
                             fake_pred, fake_features = Dbase(pred_frame.detach())
                             loss_G_adv = adversarial_loss(pred_frame, Dbase)
-                            loss_D = discriminator_loss(real_pred, fake_pred)
+                            loss_D = discriminator_loss(real_pred, fake_pred, pred_frame, source_frame, driving_frame, encoder)
                             loss_fm = feature_matching_loss(real_features, fake_features)
 
 
