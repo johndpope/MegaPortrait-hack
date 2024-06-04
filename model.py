@@ -1620,9 +1620,9 @@ The GazeLoss can be used in the PerceptualLoss class to compute the gaze loss co
 #         return loss
 
 # Encoder Model
-class Encoder(nn.Module):
+class PatchGanEncoder(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=4, norm_layer=nn.BatchNorm2d):
-        super(Encoder, self).__init__()
+        super(PatchGanEncoder, self).__init__()
         model = [nn.ReflectionPad2d(3),
                  nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0),
                  norm_layer(ngf),
@@ -1799,28 +1799,55 @@ class MPGazeLoss(nn.Module):
             loss += left_gaze_loss + right_gaze_loss
 
         return loss / len(eye_landmarks)
-class Discriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64):
-        super(Discriminator, self).__init__()
-        self.conv1 = nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1)
-        self.fc = nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=1, padding=0)
-        self.bn2 = nn.BatchNorm2d(ndf * 2)
-        self.bn3 = nn.BatchNorm2d(ndf * 4)
-        self.bn4 = nn.BatchNorm2d(ndf * 8)
         
-    def forward(self, x):
-        x = F.leaky_relu(self.conv1(x), 0.2)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), 0.2)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), 0.2)
-        x = F.leaky_relu(self.bn4(self.conv4(x)), 0.2)
-        x = self.fc(x)
-        return torch.sigmoid(x)
+# class Discriminator(nn.Module):
+#     def __init__(self, input_nc, ndf=64, n_layers=3):
+#         super(Discriminator, self).__init__()
+        
+#         layers = [nn.Conv2d(input_nc, ndf, kernel_size=4, stride=2, padding=1), 
+#                   nn.LeakyReLU(0.2, True)]
+        
+#         for i in range(1, n_layers):
+#             layers += [nn.Conv2d(ndf * 2**(i-1), ndf * 2**i, kernel_size=4, stride=2, padding=1),
+#                        nn.InstanceNorm2d(ndf * 2**i),
+#                        nn.LeakyReLU(0.2, True)]
+        
+#         layers += [nn.Conv2d(ndf * 2**(n_layers-1), 1, kernel_size=4, stride=1, padding=1)]
+        
+#         self.model = nn.Sequential(*layers)
+
+#     def forward(self, x):
+#         return self.model(x)
+
+
+class Discriminator(nn.Module):
+    def __init__(self, in_channels=3):
+        super(Discriminator, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, normalization=True):
+            """Returns downsampling layers of each discriminator block"""
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
+            if normalization:
+                layers.append(nn.InstanceNorm2d(out_filters))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            return layers
+
+        self.model = nn.Sequential(
+            *discriminator_block(in_channels * 2, 64, normalization=False),
+            *discriminator_block(64, 128),
+            *discriminator_block(128, 256),
+            *discriminator_block(256, 512),
+            nn.ZeroPad2d((1, 0, 1, 0)),
+            nn.Conv2d(512, 1, 4, padding=1, bias=False)
+        )
+
+    def forward(self, img_A, img_B):
+        # Concatenate image and condition image by channels to produce input
+        img_input = torch.cat((img_A, img_B), 1)
+        return self.model(img_input)
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, device, weights={'vgg19': 1.0, 'vggface': 1.0, 'gaze': 1.0}):
+    def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
         super(PerceptualLoss, self).__init__()
         self.device = device
         self.weights = weights
@@ -1922,8 +1949,45 @@ jitter.
 
 from rembg import remove
 import io
+import os
 
-def crop_and_warp_face(image_tensor, pad_to_original=False):
+def remove_background_and_convert_to_rgb(image_tensor):
+    """
+    Remove the background from an image tensor and convert the image to RGB format.
+    
+    Args:
+        image_tensor (torch.Tensor): Input image tensor.
+        
+    Returns:
+        PIL.Image.Image: Image with background removed and converted to RGB.
+    """
+    # Convert the tensor to a PIL Image
+    image = to_pil_image(image_tensor)
+    
+    # Remove the background from the image
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    bg_removed_bytes = remove(img_byte_arr)
+    bg_removed_image = Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA")
+    
+    # Convert the image to RGB format
+    bg_removed_image_rgb = bg_removed_image.convert("RGB")
+    
+    return bg_removed_image_rgb
+def crop_and_warp_face(image_tensor, video_name, frame_idx, output_dir="output_images", pad_to_original=False, apply_warping=True,warp_strength=0.05):
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Construct the file path
+    output_path = os.path.join(output_dir, f"{video_name}_frame_{frame_idx}.png")
+
+    # Check if the file already exists
+    if os.path.exists(output_path):
+        # Load and return the existing image as a tensor
+        existing_image = Image.open(output_path).convert("RGBA")
+        return to_tensor(existing_image)
+    
     # Check if the input tensor has a batch dimension and handle it
     if image_tensor.ndim == 4:
         # Assuming batch size is the first dimension, process one image at a time

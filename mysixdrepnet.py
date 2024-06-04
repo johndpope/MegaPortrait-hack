@@ -910,10 +910,10 @@ from torch.backends import cudnn
 from torch.utils import model_zoo
 import torchvision
 from torchvision import transforms
-import matplotlib
-from matplotlib import pyplot as plt
+# import matplotlib
+# from matplotlib import pyplot as plt
 from PIL import Image
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 
 
 
