@@ -120,10 +120,14 @@ class EMODataset(Dataset):
             # Apply the transform if provided
             if transform:
                 warped_face_tensor = transform(warped_face_image)
+                
                 return warped_face_tensor
             
             # Convert the warped PIL image back to a tensor
+            # Convert the warped PIL image to RGB format before converting to a tensor
+            warped_face_image = warped_face_image.convert("RGB")
             return to_tensor(warped_face_image)
+
         else:
             return None
 
@@ -215,10 +219,11 @@ class EMODataset(Dataset):
             green_screen = Image.new("RGBA", bg_removed_image.size, (0, 255, 0, 255))  # Green color
 
             # Composite the image onto the green screen
-            final_image = Image.alpha_composite(green_screen, bg_removed_image).convert("RGB")
+            final_image = Image.alpha_composite(green_screen, bg_removed_image)
         else:
-            final_image = bg_removed_image.convert("RGB")
+            final_image = bg_removed_image
 
+        final_image = final_image.convert("RGB")  # Convert to RGB format
         return final_image
 
     def save_video(self, frames, output_path, fps=30):
