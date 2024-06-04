@@ -65,19 +65,31 @@ def feature_matching_loss(real_features, fake_features):
 
 # cosine distance formula
 # s · (⟨zi, zj⟩ − m)
-def cosine_loss(pos_pairs, neg_pairs,  s=5.0,m=0.2): # We also set 𝑠 = 5 and 𝑚 = 0.2 in the cosine loss.
+def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
+    assert isinstance(pos_pairs, list) and isinstance(neg_pairs, list), "pos_pairs and neg_pairs should be lists"
+    assert len(pos_pairs) > 0, "pos_pairs should not be empty"
+    assert len(neg_pairs) > 0, "neg_pairs should not be empty"
+    assert s > 0, "s should be greater than 0"
+    assert 0 <= m <= 1, "m should be between 0 and 1"
+    
     loss = torch.tensor(0.0, requires_grad=True).to(device)
 
     for pos_pair in pos_pairs:
-        pos_sim = F.cosine_similarity(pos_pair[0], pos_pair[1])
-        neg_loss = torch.tensor(0.0, requires_grad=True).to(device)
+        assert isinstance(pos_pair, tuple) and len(pos_pair) == 2, "Each pos_pair should be a tuple of length 2"
+        pos_sim = F.cosine_similarity(pos_pair[0], pos_pair[1], dim=0)
+        pos_dist = s * (pos_sim - m)
         
+        neg_term = torch.tensor(0.0, requires_grad=True).to(device)
         for neg_pair in neg_pairs:
-            neg_loss = neg_loss + torch.exp(s * (F.cosine_similarity(pos_pair[0], neg_pair[1]) - m))
+            assert isinstance(neg_pair, tuple) and len(neg_pair) == 2, "Each neg_pair should be a tuple of length 2"
+            neg_sim = F.cosine_similarity(pos_pair[0], neg_pair[1], dim=0)
+            neg_term = neg_term + torch.exp(s * (neg_sim - m))
         
-        loss = loss + torch.log(torch.exp(s * (pos_sim - m)) / (torch.exp(s * (pos_sim - m)) + neg_loss))
+        assert pos_dist.shape == neg_term.shape, f"Shape mismatch: pos_dist {pos_dist.shape}, neg_term {neg_term.shape}"
+        loss = loss + torch.log(torch.exp(pos_dist) / (torch.exp(pos_dist) + neg_term))
         
-    return loss
+    assert len(pos_pairs) > 0, "pos_pairs should not be empty"
+    return (-loss / len(pos_pairs)).requires_grad_()
 
 
 def train_base(cfg, Gbase, Dbase, dataloader):
@@ -195,6 +207,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                             cfg.training.w_fm * loss_fm + \
                             cfg.training.w_cos * loss_G_cos  
                         
+                        # Convert total_loss to a scalar value
+                        total_loss = torch.mean(total_loss)
 
                     
                         # Backpropagate and update generator
