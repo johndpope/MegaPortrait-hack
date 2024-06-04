@@ -212,7 +212,10 @@ class EMODataset(Dataset):
             ret_tensor = torch.stack(transformed_images, dim=0)
         else:
             if self.remove_background:
-                images = self.remove_bg(images)
+                try:
+                    images = self.remove_bg(images)
+                except Exception as e:
+                    pass
             ret_tensor = transform(images)
 
         return ret_tensor, images
