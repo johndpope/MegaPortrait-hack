@@ -176,7 +176,7 @@ class EMODataset(Dataset):
                     # vanilla crop                    
                     tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
                     
-                    if tensor_frame1:
+                    if tensor_frame1 is not None:
                         # Save frame as PNG image
                         img = to_pil_image(tensor_frame1)
                         img.save(output_dir / f"{frame_idx:06d}.png")
