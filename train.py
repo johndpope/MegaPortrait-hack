@@ -65,21 +65,18 @@ def feature_matching_loss(real_features, fake_features):
 
 # cosine distance formula
 # s · (⟨zi, zj⟩ − m)
-def cosine_loss(pos_pairs, neg_pairs,  s=5.0,m=2.0): # We also set 𝑠 = 5 and 𝑚 = 0.2 in the cosine loss.
+def cosine_loss(pos_pairs, neg_pairs,  s=5.0,m=0.2): # We also set 𝑠 = 5 and 𝑚 = 0.2 in the cosine loss.
     loss = torch.tensor(0.0, requires_grad=True).to(device)
 
     for pos_pair in pos_pairs:
-        loss = loss + torch.log(torch.exp(s * (F.cosine_similarity(pos_pair[0], pos_pair[1]) - m)) /
-                                (torch.exp(s * (F.cosine_similarity(pos_pair[0], pos_pair[1]) - m)) +
-                                neg_pair_loss(pos_pair, neg_pairs, m)))
-    return loss
-
-
-
-def neg_pair_loss(pos_pair, neg_pairs, margin):
-    loss = torch.tensor(0.0, requires_grad=True).to(device)
-    for neg_pair in neg_pairs:
-        loss = loss + torch.exp(F.cosine_similarity(pos_pair[0], neg_pair[1]) - margin)
+        pos_sim = F.cosine_similarity(pos_pair[0], pos_pair[1])
+        neg_loss = torch.tensor(0.0, requires_grad=True).to(device)
+        
+        for neg_pair in neg_pairs:
+            neg_loss = neg_loss + torch.exp(s * (F.cosine_similarity(pos_pair[0], neg_pair[1]) - m))
+        
+        loss = loss + torch.log(torch.exp(s * (pos_sim - m)) / (torch.exp(s * (pos_sim - m)) + neg_loss))
+        
     return loss
 
 
@@ -288,7 +285,7 @@ def main(cfg: OmegaConf) -> None:
 
 
     
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=0)
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
 
     
     Gbase = model.Gbase().to(device)
@@ -296,6 +293,8 @@ def main(cfg: OmegaConf) -> None:
     
     train_base(cfg, Gbase, Dbase, dataloader)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
+    torch.save(Dbase.state_dict(), 'Dbase.pth')
+
 
 if __name__ == "__main__":
     config = OmegaConf.load("./configs/training/stage1-base.yaml")
