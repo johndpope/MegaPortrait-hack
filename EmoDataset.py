@@ -15,17 +15,14 @@ import subprocess
 from tqdm import tqdm
 import cv2
 from pathlib import Path
+from torchvision.transforms.functional import to_pil_image, to_tensor
 
 # face warp
-
-import torchvision.transforms as transforms
-from torchvision.transforms.functional import to_pil_image, to_tensor
-from PIL import Image
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
 
 class EMODataset(Dataset):
-    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False,apply_crop_warping=False):
+    def __init__(self, use_gpu: False, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False, apply_crop_warping=False):
         self.sample_rate = sample_rate
         self.n_sample_frames = n_sample_frames
         self.width = width
@@ -59,10 +56,7 @@ class EMODataset(Dataset):
     def __len__(self) -> int:
         return len(self.video_ids)
 
-
-
-
-    def crop_and_warp_face(self, image_tensor, video_name, frame_idx, transform=None, output_dir="output_images", warp_strength=0.01, apply_warp=False):
+    def warp_and_crop_face(self, image_tensor, video_name, frame_idx, transform=None, output_dir="output_images", warp_strength=0.01, apply_warp=False):
         # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
@@ -133,7 +127,6 @@ class EMODataset(Dataset):
         else:
             return None
 
-        
     def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
         # Extract video ID from the path
         video_id = Path(video_path).stem
@@ -143,18 +136,13 @@ class EMODataset(Dataset):
         processed_frames = []
         tensor_frames = []
 
-        # Check if the directory exists and contains processed PNG images
-        if any(output_dir.glob("*.png")):
-            print(f"Loading processed images from directory: {output_dir}")
-            frame_paths = sorted(output_dir.glob("*.png"))
-            for frame_path in tqdm(frame_paths, desc="Loading Processed Video Frames"):         
-                with Image.open(frame_path) as frame:
-                        state = torch.get_rng_state()
-                        transform = transforms.Compose([ # just go to tensor 
-                            transforms.ToTensor(),
-                        ])
-                        tensor_frame, _ = self.augmentation(frame, transform, state)
-                        tensor_frames.append(tensor_frame)
+        tensor_file_path = output_dir / f"{video_id}_tensors.npz"
+
+        # Check if the tensor file exists
+        if tensor_file_path.exists():
+            print(f"Loading processed tensors from file: {tensor_file_path}")
+            with np.load(tensor_file_path) as data:
+                tensor_frames = [torch.tensor(data[key]) for key in data]
         else:
             if self.apply_crop_warping:
                 print(f"Warping + Processing and saving video frames to directory: {output_dir}")
@@ -167,39 +155,37 @@ class EMODataset(Dataset):
                 # here we run the color jitter / random flip
                 tensor_frame, image_frame = self.augmentation(frame, self.pixel_transform, state)
                 processed_frames.append(image_frame)
-                
 
                 if self.apply_crop_warping:
-                    
                     transform = transforms.Compose([
                         transforms.Resize((512, 512)), # get the cropped image back to this size - TODO support 256
                         transforms.ToTensor(),
-                        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
                     video_name = Path(video_path).stem
 
                     # vanilla crop                    
-                    tensor_frame1 = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=False)
+                    tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame1)
                     img.save(output_dir / f"{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame1)
 
                     # vanilla crop + warp                  
-                    tensor_frame2 = self.crop_and_warp_face(tensor_frame, video_name, frame_idx,transform,apply_warp=True)
+                    tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame2)
                     img.save(output_dir / f"w_{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame2)
-
-                    
                 else:
                     # Save frame as PNG image
                     image_frame.save(output_dir / f"{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame)
 
-        return tensor_frames
+            # Convert tensor frames to numpy arrays and save them
+            np.savez_compressed(tensor_file_path, *[tensor_frame.numpy() for tensor_frame in tensor_frames])
+            print(f"Processed tensors saved to file: {tensor_file_path}")
 
+        return tensor_frames
 
     def augmentation(self, images, transform, state=None):
         if state is not None:
@@ -217,7 +203,6 @@ class EMODataset(Dataset):
 
         return ret_tensor, images
 
-    # this will be easiest putting the background back in
     def remove_bg(self, image):
         img_byte_arr = io.BytesIO()
         image.save(img_byte_arr, format='PNG')

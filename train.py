@@ -242,8 +242,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         with autocast():
                             # Calculate adversarial losses
                             real_pred, real_features = Dbase(driving_frame)
-                            fake_pred, fake_features = Dbase(output_frame.detach())
-                            loss_G_adv = adversarial_loss(output_frame, Dbase)
+                            fake_pred, fake_features = Dbase(pred_frame.detach())
+                            loss_G_adv = adversarial_loss(pred_frame, Dbase)
                             loss_D = discriminator_loss(real_pred, fake_pred)
                             loss_fm = feature_matching_loss(real_features, fake_features)
 
