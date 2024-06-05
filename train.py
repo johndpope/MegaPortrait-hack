@@ -21,12 +21,11 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
+from torch.nn.utils.rnn import pad_sequence
+
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
-
-face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
-
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
@@ -75,7 +74,18 @@ def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
     assert len(pos_pairs) > 0, "pos_pairs should not be empty"
     return torch.mean(-loss / len(pos_pairs)).requires_grad_()
 
-def train_base(cfg, Gbase, Dbase, dataloader,dataset):
+
+def load_data_in_chunks(dataset, chunk_size):
+    """Generator to yield data in chunks."""
+    dataset_size = len(dataset)
+    for i in range(0, dataset_size, chunk_size):
+        chunk_data = []
+        for j in range(i, min(i + chunk_size, dataset_size)):
+            chunk_data.append(dataset[j])
+        yield chunk_data
+
+
+def train_base(cfg, Gbase, Dbase, dataset):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
     feature_matching_loss = nn.MSELoss()
@@ -90,12 +100,14 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataset):
 
     scaler = GradScaler()
 
+
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
-        
 
-        for batch in dataloader:
+        for chunk in load_data_in_chunks(dataset, chunk_size=4):  # Adjust chunk size as needed
+            dataloader = DataLoader(chunk, batch_size=4, shuffle=True, num_workers=0)
 
+            for batch in dataloader:
                 source_frames = batch['source_frames']
                 driving_frames = batch['driving_frames']
                 video_id = batch['video_id'][0]
@@ -229,10 +241,6 @@ def train_base(cfg, Gbase, Dbase, dataloader,dataset):
         scheduler_D.step()
 
 
-        # Inside your training loop
-        if epoch % 1 == 0:  # Increase the number of videos every 5 epochs
-            dataset.increase_num_videos(increment=1)
-
         if (epoch + 1) % cfg.training.log_interval == 0:
             print(f"Epoch [{epoch+1}/{cfg.training.base_epochs}], "
                   f"Loss_G: {loss_G_cos.item():.4f}, Loss_D: {loss_D.item():.4f}")
@@ -298,14 +306,13 @@ def main(cfg: OmegaConf) -> None:
     )
 
 
-    
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
+
 
     
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator().to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader,dataset)    
+    train_base(cfg, Gbase, Dbase, dataset)    
     torch.save(Gbase.state_dict(), 'Gbase.pth')
     torch.save(Dbase.state_dict(), 'Dbase.pth')
 
