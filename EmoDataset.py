@@ -47,23 +47,29 @@ class EMODataset(Dataset):
         self.ctx = cpu()
 
 
+        # self.video_ids = list(self.celebvhq_info['clips'].keys())
 
-        self.video_ids = list(self.celebvhq_info['clips'].keys())
+        # random_video_id = random.choice(self.video_ids)
+        # driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        # print("driving:",driving)
 
-        random_video_id = random.choice(self.video_ids)
-        driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        print("driving:",driving)
-
-        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        self.video_ids_star = list(self.celebvhq_info['clips'].keys())
+        # self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        # self.video_ids_star = list(self.celebvhq_info['clips'].keys())
     
-        random_video_id = random.choice(self.video_ids_star)
-        driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        print("driving_star:",driving_star)
+        # random_video_id = random.choice(self.video_ids_star)
+        # driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        # print("driving_star:",driving_star)
         
+        # self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
+
+
+
+        driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
+        self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
+        driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
         self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
-
-
 
 
     def __len__(self) -> int:
