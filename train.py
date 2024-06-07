@@ -303,6 +303,7 @@ def main(cfg: OmegaConf) -> None:
         transform=transform,
         apply_crop_warping=True,
         num_videos=4,
+        use_greenscreen=True
     )
 
 

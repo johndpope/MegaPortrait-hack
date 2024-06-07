@@ -16,3 +16,4 @@ memory_profiler
 face_recognition
 facenet_pytorch
 rembg
+torchaudio
