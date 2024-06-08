@@ -418,19 +418,25 @@ class FlowField(nn.Module):
         
         self.conv1x1 = nn.Conv2d(512, 2048, kernel_size=1).to(device)
 
-
-        
         # reshape the tensor from [batch_size, 2048, height, width] to [batch_size, 512, 4, height, width], effectively splitting the channels into a channels dimension of size 512 and a depth dimension of size 4.
         self.reshape_layer = lambda x: x.view(-1, 512, 4, *x.shape[2:]).to(device)
 
         self.resblock1 = ResBlock3D_Adaptive(in_channels=512, out_channels=256).to(device)
-        self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        # self.upsample1 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        self.upsample1 = lambda x: F.interpolate(x, scale_factor=(2, 2, 2)).to(device)
+
         self.resblock2 = ResBlock3D_Adaptive( in_channels=256, out_channels=128).to(device)
-        self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        # self.upsample2 = nn.Upsample(scale_factor=(2, 2, 2)).to(device)
+        self.upsample2 = lambda x: F.interpolate(x, scale_factor=(2, 2, 2)).to(device)
+
         self.resblock3 =  ResBlock3D_Adaptive( in_channels=128, out_channels=64).to(device)
-        self.upsample3 = nn.Upsample(scale_factor=(1, 2, 2)).to(device)
+        # self.upsample3 = F.Upsample(scale_factor=(1, 2, 2)).to(device)
+        self.upsample3 = lambda x: F.interpolate(x, scale_factor=(1, 2, 2)).to(device)
+
         self.resblock4 = ResBlock3D_Adaptive( in_channels=64, out_channels=32).to(device)
-        self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2)).to(device)
+        # self.upsample4 = nn.Upsample(scale_factor=(1, 2, 2)).to(device)
+        self.upsample4 = lambda x: F.interpolate(x, scale_factor=(1, 2, 2)).to(device)
+
         self.conv3x3x3 = nn.Conv3d(32, 3, kernel_size=3, padding=1).to(device)
         self.gn = nn.GroupNorm(1, 3).to(device)
         self.tanh = nn.Tanh().to(device)
