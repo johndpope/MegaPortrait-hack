@@ -95,9 +95,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
     scaler = GradScaler()
 
-    # Initialize profiler
-    prof = FlopsProfiler(model)
+    # Initialize generator profiler
+    prof_G = FlopsProfiler(Gbase)
+    prof_D = FlopsProfiler(Dbase)
+    
+
     profile_step = 5  # Change this to the step you want to start profiling
+
+
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
@@ -128,7 +133,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                     # Start profiling at the specified step
                     if idx == profile_step:
-                        prof.start_profile()
+                        prof_G.start_profile()
+                        prof_D.start_profile()
 
                     # loop around if idx exceeds video length
                     source_frame = source_frames[idx % len_source_frames].to(device)
@@ -190,6 +196,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         fake_pred = Dbase(pred_frame.detach(), source_frame)
                         loss_D = discriminator_loss(real_pred, fake_pred, loss_type='lsgan')
 
+                        # End discriminator profiling and print the output
+                        if idx == profile_step:
+                            # generator
+                            prof_D.stop_profile()
+                            flops = prof_D.get_total_flops(as_string=True)
+                            macs = prof_D.get_total_macs(as_string=True)
+                            params = prof_D.get_total_params(as_string=True)
+                            prof_D.print_model_profile(profile_step=profile_step)
+                            prof_D.end_profile()
+                            print(f"Step {idx}: FLOPS - {flops}, MACs - {macs}, Params - {params}")
+
+
                         scaler.scale(loss_D).backward()
                         scaler.step(optimizer_D)
                         scaler.update()
@@ -239,12 +257,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         
                         # End profiling and print the output
                         if idx == profile_step:
-                            prof.stop_profile()
-                            flops = prof.get_total_flops(as_string=True)
-                            macs = prof.get_total_macs(as_string=True)
-                            params = prof.get_total_params(as_string=True)
-                            prof.print_model_profile(profile_step=profile_step)
-                            prof.end_profile()
+                            # generator
+                            prof_G.stop_profile()
+                            flops = prof_G.get_total_flops(as_string=True)
+                            macs = prof_G.get_total_macs(as_string=True)
+                            params = prof_G.get_total_params(as_string=True)
+                            prof_G.print_model_profile(profile_step=profile_step)
+                            prof_G.end_profile()
                             print(f"Step {idx}: FLOPS - {flops}, MACs - {macs}, Params - {params}")
 
 
