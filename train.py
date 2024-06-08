@@ -95,7 +95,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scaler = GradScaler()
 
   # Profile the Gbase model
-    profile_model = True
+    profile_model = False
     if profile_model:
         input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
         source_frame = torch.randn(input_shape).to(device)
