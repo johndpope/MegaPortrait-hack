@@ -21,8 +21,8 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
-from flops_profiler.profiler import get_model_profile
-
+# from flops_profiler.profiler import get_model_profile
+from flops_profiler import FlopsProfiler
 
 
 
@@ -95,26 +95,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
     scaler = GradScaler()
 
-  # Profile the Gbase model
-    profile_model = True
-    if profile_model:
-            # Profile the Gbase model
-        input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
-        flops, macs, params = get_model_profile(
-            model=Gbase,
-            input_shape=input_shape,
-            print_profile=True,
-            detailed=True,
-        )
-        print(f"FLOPs: {flops}")
-        print(f"MACs: {macs}")
-        print(f"Parameters: {params}")
+    # Initialize profiler
+    prof = FlopsProfiler(model)
+    profile_step = 5  # Change this to the step you want to start profiling
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
         
 
         for batch in dataloader:
+
+
+
 
                 source_frames = batch['source_frames']
                 driving_frames = batch['driving_frames']
@@ -133,6 +125,11 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 len_driving_frames2 = len(driving_frames2)
 
                 for idx in range(num_frames):
+
+                    # Start profiling at the specified step
+                    if idx == profile_step:
+                        prof.start_profile()
+
                     # loop around if idx exceeds video length
                     source_frame = source_frames[idx % len_source_frames].to(device)
                     driving_frame = driving_frames[idx % len_driving_frames].to(device)
@@ -239,6 +236,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                             cfg.training.w_adv * loss_G_adv + \
                             cfg.training.w_fm * loss_fm + \
                             cfg.training.w_cos * loss_G_cos
+                        
+                        # End profiling and print the output
+                        if idx == profile_step:
+                            prof.stop_profile()
+                            flops = prof.get_total_flops(as_string=True)
+                            macs = prof.get_total_macs(as_string=True)
+                            params = prof.get_total_params(as_string=True)
+                            prof.print_model_profile(profile_step=profile_step)
+                            prof.end_profile()
+                            print(f"Step {idx}: FLOPS - {flops}, MACs - {macs}, Params - {params}")
+
+
                         scaler.scale(total_loss).backward()
                         scaler.step(optimizer_G)
                         scaler.update()
