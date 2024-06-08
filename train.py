@@ -105,7 +105,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
         flops, macs, params = get_model_profile(
             model=Gbase,
-            args=[source_frame,driving_frame],
+            kwargs=[source_frame,driving_frame],
             print_profile=True,
             detailed=True,
         )
