@@ -21,7 +21,8 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
-import torchprofile
+from flops_profiler.profiler import get_model_profile
+
 
 
 
@@ -97,15 +98,20 @@ def train_base(cfg, Gbase, Dbase, dataloader):
   # Profile the Gbase model
     profile_model = False
     if profile_model:
+            # Profile the Gbase model
         input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
         source_frame = torch.randn(input_shape).to(device)
         driving_frame = torch.randn(input_shape).to(device)
 
-        flops = torchprofile.profile_macs(Gbase, (source_frame, driving_frame))
-        params = sum(p.numel() for p in Gbase.parameters())
-        print(f"FLOPs: {flops / 1e6:.2f} MFLOPs")
-        print(f"Parameters: {params / 1e6:.2f} M")
-        return
+        flops, macs, params = get_model_profile(
+            model=Gbase,
+            args=[source_frame,driving_frame],
+            print_profile=True,
+            detailed=True,
+        )
+        print(f"FLOPs: {flops}")
+        print(f"MACs: {macs}")
+        print(f"Parameters: {params}")
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
