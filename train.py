@@ -105,6 +105,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
         params = sum(p.numel() for p in Gbase.parameters())
         print(f"FLOPs: {flops / 1e6:.2f} MFLOPs")
         print(f"Parameters: {params / 1e6:.2f} M")
+        return
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
