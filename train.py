@@ -100,12 +100,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     if profile_model:
             # Profile the Gbase model
         input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
-        source_frame = torch.randn(input_shape).to(device)
-        driving_frame = torch.randn(input_shape).to(device)
-
         flops, macs, params = get_model_profile(
             model=Gbase,
-            kwargs=[source_frame,driving_frame],
+            input_shape=input_shape,
             print_profile=True,
             detailed=True,
         )
