@@ -96,7 +96,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scaler = GradScaler()
 
   # Profile the Gbase model
-    profile_model = False
+    profile_model = True
     if profile_model:
             # Profile the Gbase model
         input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
