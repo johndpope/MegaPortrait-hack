@@ -22,7 +22,7 @@ import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
 # from flops_profiler.profiler import get_model_profile
-from flops_profiler.profiler import FlopsProfiler
+from profiler import FlopsProfiler
 
 
 
