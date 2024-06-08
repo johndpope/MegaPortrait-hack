@@ -61,22 +61,27 @@ class EMODataset(Dataset):
         # print("driving:",driving)
 
         # self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        # self.video_ids_star = list(self.celebvhq_info['clips'].keys())
-    
-        # random_video_id = random.choice(self.video_ids_star)
-        # driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        # print("driving_star:",driving_star)
+        vids = list(self.celebvhq_info['clips'].keys())
+        random_video_id = random.choice(vids)
+        driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        print("driving_star:",driving_star)
+
+            # multicore - this never finishes
+        with Pool(8) as pool:
+            results = pool.map(self.load_and_process_video, [(video_id, idx) for idx, video_id in enumerate(vids)])
+      
+
         
         # self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
 
 
-        driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
-        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        self.video_ids = ["M2Ohb0FAaJU_1","-2KGPYEFnsU_11","-1eKufUP5XQ_4","-2KGPYEFnsU_8"]  # list(self.celebvhq_info['clips'].keys())
-        self.video_ids_star = ["M2Ohb0FAaJU_1","-2KGPYEFnsU_11","-1eKufUP5XQ_4","-2KGPYEFnsU_8"]  # list(self.celebvhq_info['clips'].keys())
-        driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
-        self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
+        # driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        # self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        # self.video_ids = ["M2Ohb0FAaJU_1","-2KGPYEFnsU_11","-1eKufUP5XQ_4","-2KGPYEFnsU_8"]  # list(self.celebvhq_info['clips'].keys())
+        # self.video_ids_star = ["M2Ohb0FAaJU_1","-2KGPYEFnsU_11","-1eKufUP5XQ_4","-2KGPYEFnsU_8"]  # list(self.celebvhq_info['clips'].keys())
+        # driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
+        # self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
 
     def __len__(self) -> int:
@@ -126,6 +131,7 @@ class EMODataset(Dataset):
         
     def warp_and_crop_face(self, image_tensor, video_name, frame_idx, transform=None, output_dir="output_images", warp_strength=0.01, apply_warp=False):
         # Ensure the output directory exists
+        print("frame_idx:",frame_idx)
         os.makedirs(output_dir, exist_ok=True)
         
         # Construct the file path
@@ -207,9 +213,12 @@ class EMODataset(Dataset):
             return None
 
    
-    def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
-        video_id = Path(video_path).stem
-        output_dir = Path(self.video_dir + "/" + video_id)
+    def load_and_process_video(self, video_id: str) -> List[torch.Tensor]:
+        print(f"load_and_process_video... {video_id}")
+        # video_id = Path(video_path).stem
+        video_path = self.video_dir + "/" + f"{video_id[0]}.mp4"
+
+        output_dir = Path(self.video_dir + "/" + video_id[0])
         output_dir.mkdir(exist_ok=True)
         
  
@@ -247,17 +256,13 @@ class EMODataset(Dataset):
                 if video_chunk is not None:
                     frames = video_chunk[0] # Directly use the tensor from video_chunk
                     all_frames = frames
-            
-            # multicore - this never finishes
-            with Pool(8) as pool:
-                results = pool.map(self.process_frame, [(frame, idx, output_dir,video_path) for idx, frame in enumerate(all_frames)])
-            tensor_frames = [res for res in results if res is not None] 
 
-            # tensor_frames = [] - this succeeds
-            # for idx, frame in enumerate(all_frames):
-            #     result = self.process_frame((frame, idx, output_dir, video_path))
-            #     if result is not None:
-            #         tensor_frames.append(result)
+
+            tensor_frames = [] #- this succeeds
+            for idx, frame in enumerate(all_frames):
+                result = self.process_frame((frame, idx, output_dir, video_path))
+                if result is not None:
+                    tensor_frames.append(result)
             if tensor_frames:
                 np.savez_compressed(tensor_file_path, *[tensor_frame.numpy() for tensor_frame in tensor_frames])
                 print(f"Processed tensors saved to file: {tensor_file_path}")
@@ -273,6 +278,7 @@ class EMODataset(Dataset):
 
     def process_frame(self, args):
         frame, frame_idx, output_dir,video_path = args
+        print("idx:",frame_idx)
         try:
 
             frame = to_pil_image(frame)  # Convert to PIL image
@@ -286,7 +292,7 @@ class EMODataset(Dataset):
                     transforms.ToTensor(),
                 ])
                 video_name = Path(video_path).stem
-
+                print("frame_idx:",frame_idx)
                 tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
                 
                 if tensor_frame1 is not None:
@@ -300,6 +306,10 @@ class EMODataset(Dataset):
                     # tensor_frames.append(tensor_frame2)
                 else:
                     print("we shouldn't be here...returning original tensor_frame")
+                    if tensor_frame is not None:
+                        print("tensor_frame is not None")
+                    img = to_pil_image(tensor_frame)
+                    img.save(output_dir / f"{frame_idx:06d}.png")
                     return tensor_frame
             else:
                 image_frame.save(output_dir / f"{frame_idx:06d}.png")
