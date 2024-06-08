@@ -28,6 +28,7 @@ from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
+from lpips import LPIPS
 
 
 from mysixdrepnet import SixDRepNet_Detector

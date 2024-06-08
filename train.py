@@ -95,14 +95,16 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scaler = GradScaler()
 
   # Profile the Gbase model
-    input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
-    source_frame = torch.randn(input_shape).to(device)
-    driving_frame = torch.randn(input_shape).to(device)
+    profile_model = True
+    if profile_model:
+        input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
+        source_frame = torch.randn(input_shape).to(device)
+        driving_frame = torch.randn(input_shape).to(device)
 
-    flops = torchprofile.profile_macs(Gbase, (source_frame, driving_frame))
-    params = sum(p.numel() for p in Gbase.parameters())
-    print(f"FLOPs: {flops / 1e6:.2f} MFLOPs")
-    print(f"Parameters: {params / 1e6:.2f} M")
+        flops = torchprofile.profile_macs(Gbase, (source_frame, driving_frame))
+        params = sum(p.numel() for p in Gbase.parameters())
+        print(f"FLOPs: {flops / 1e6:.2f} MFLOPs")
+        print(f"Parameters: {params / 1e6:.2f} M")
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
