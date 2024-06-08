@@ -1847,7 +1847,7 @@ class Discriminator(nn.Module):
         return self.model(img_input)
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
+    def __init__(self, device, weights={'vgg19': 20.0, 'vggface': 5.0, 'gaze': 4.0, 'lpips': 10.0}):
         super(PerceptualLoss, self).__init__()
         self.device = device
         self.weights = weights
@@ -1860,6 +1860,9 @@ class PerceptualLoss(nn.Module):
         # VGGFace network
         self.vggface = InceptionResnetV1(pretrained='vggface2').to(device).eval()
         self.vggface_layers = [4, 5, 6, 7]
+
+        # LPIPS
+        self.lpips = LPIPS(net='vgg').to(device).eval()
 
         # Gaze loss
         self.gaze_loss = MPGazeLoss(device)
@@ -1875,13 +1878,17 @@ class PerceptualLoss(nn.Module):
         # Compute VGGFace perceptual loss
         vggface_loss = self.compute_vggface_loss(predicted, target)
 
+        # Compute LPIPS loss
+        lpips_loss = self.lpips(predicted, target).mean()
+
         # Compute gaze loss
-        # gaze_loss = self.gaze_loss(predicted, target)
+        # gaze_loss = self.gaze_loss(predicted, target) - broken
 
         # Compute total perceptual loss
         total_loss = (
             self.weights['vgg19'] * vgg19_loss +
             self.weights['vggface'] * vggface_loss +
+            self.weights['lpips'] * lpips_loss +
             self.weights['gaze'] * 1 #gaze_loss
         )
 
@@ -1905,11 +1912,8 @@ class PerceptualLoss(nn.Module):
         loss = 0.0
         predicted_features = predicted
         target_features = target
-        #print(f"predicted_features:{predicted_features.shape}")
-        #print(f"target_features:{target_features.shape}")
 
         for i, layer in enumerate(model.children()):
-            # print(f"i{i}")
             if isinstance(layer, nn.Conv2d):
                 predicted_features = layer(predicted_features)
                 target_features = layer(target_features)
@@ -1934,8 +1938,6 @@ class PerceptualLoss(nn.Module):
         mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
         return (x - mean) / std
-
-
 
 
 '''

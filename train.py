@@ -21,6 +21,10 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
+import torchprofile
+
+
+
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -89,6 +93,16 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
 
     scaler = GradScaler()
+
+  # Profile the Gbase model
+    input_shape = (1, 3, cfg.data.train_height, cfg.data.train_width)
+    source_frame = torch.randn(input_shape).to(device)
+    driving_frame = torch.randn(input_shape).to(device)
+
+    flops = torchprofile.profile_macs(Gbase, (source_frame, driving_frame))
+    params = sum(p.numel() for p in Gbase.parameters())
+    print(f"FLOPs: {flops / 1e6:.2f} MFLOPs")
+    print(f"Parameters: {params / 1e6:.2f} M")
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
