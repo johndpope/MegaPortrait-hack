@@ -447,7 +447,8 @@ class FlowField(nn.Module):
         logging.debug(f"      conv1x1 > x.shape:{x.shape}") #  -> [1, 2048, 1, 1]
         x = self.reshape_layer(x)
         logging.debug(f"      reshape_layer > x.shape:{x.shape}") # -> [1, 512, 4, 1, 1]
-        x = self.upsample1(self.resblock1(x))
+        x = self.resblock1(x)
+        x = self.upsample1(x)
         logging.debug(f"      upsample1 > x.shape:{x.shape}") # [1, 512, 4, 1, 1]
         x = self.upsample2(self.resblock2(x))
         logging.debug(f"      upsample2 > x.shape:{x.shape}") #[512, 256, 8, 16, 16]
