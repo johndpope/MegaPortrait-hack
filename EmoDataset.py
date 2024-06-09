@@ -17,6 +17,11 @@ import face_recognition
 from rembg import remove
 from multiprocessing import Pool
 import cupy as cp
+from u2net import U2NET
+
+
+
+# https://drive.usercontent.google.com/download?id=1IG3HdpcRiDoWNookbncQjeaPN28t90yW&export=download&authuser=1
 
 class EMODataset(Dataset):
     def __init__(self, use_gpu: bool, sample_rate: int, n_sample_frames: int, width: int, height: int, img_scale: Tuple[float, float], img_ratio: Tuple[float, float] = (0.9, 1.0), video_dir: str = ".", drop_ratio: float = 0.1, json_file: str = "", stage: str = 'stage1', transform: transforms.Compose = None, remove_background=False, use_greenscreen=False, apply_crop_warping=False, num_videos=100):
@@ -39,23 +44,26 @@ class EMODataset(Dataset):
 
         self.use_gpu = use_gpu
 
-        vids = list(self.celebvhq_info['clips'].keys())
-        random_video_id = random.choice(vids)
-        driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        print("driving_star:", driving_star)
+        # vids = list(self.celebvhq_info['clips'].keys())
+        # random_video_id = random.choice(vids)
+        # driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        # print("driving_star:", driving_star)
 
-        with Pool(8) as pool:
-            results = pool.map(self.load_and_process_video, [(video_id, idx) for idx, video_id in enumerate(vids)])
+        # TODO - make this more dynamic
+        driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
+        self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
+        driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
+        self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
     def __len__(self) -> int:
         return len(self.video_ids)
 
     def remove_bg(self, image):
-        img_byte_arr = io.BytesIO()
-        Image.fromarray(cp.asnumpy(image)).save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        bg_removed_bytes = remove(img_byte_arr)
-        bg_removed_image = cp.array(Image.open(io.BytesIO(bg_removed_bytes)).convert("RGBA"))
+        model = U2NET(model_path="./u2net_portrait.pth", cuda=self.use_gpu)
+        bg_removed_image = model.remove_bg(cp.asnumpy(image))
+        bg_removed_image = cp.array(bg_removed_image)
 
         if self.use_greenscreen:
             green_screen = cp.zeros_like(bg_removed_image)
@@ -126,15 +134,16 @@ class EMODataset(Dataset):
         else:
             return None
 
-    def load_and_process_video(self, args) -> List[torch.Tensor]:
-        video_id, _ = args
-        print(f"load_and_process_video... {video_id}")
-        video_path = self.video_dir + "/" + f"{video_id}.mp4"
-        output_dir = Path(self.video_dir + "/" + video_id)
+    def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
+        # Extract video ID from the path
+        video_id = Path(video_path).stem
+        output_dir =  Path(self.video_dir + "/" + video_id)
         output_dir.mkdir(exist_ok=True)
-        tensor_file_path = output_dir / f"{video_id}_tensors.npz"
+
+        processed_frames = []
         tensor_frames = []
 
+        tensor_file_path = output_dir / f"{video_id}_tensors.npz"
         if tensor_file_path.exists():
             print(f"Loading processed tensors from file: {tensor_file_path}")
             with np.load(tensor_file_path) as data:
