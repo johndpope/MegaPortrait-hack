@@ -1030,8 +1030,8 @@ def _wrapFunc(func, funcFlopCompute):
     old_functions[name] = oldFunc
     func_name = func.__name__
     def newFunc(*args, **kwds):
-        print(f"args:{args}")
-        print(f"kwds:{kwds}")
+        # print(f"args:{args}")
+        # print(f"kwds:{kwds}")
         
         flops, macs = funcFlopCompute(*args, **kwds)
         if module_flop_count:
