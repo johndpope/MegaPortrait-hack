@@ -1192,7 +1192,7 @@ def _reload_functionals():
     F.adaptive_max_pool2d = old_functions[F.adaptive_max_pool2d.__str__]
     F.adaptive_max_pool3d = old_functions[F.adaptive_max_pool3d.__str__]
     F.upsample = old_functions[F.upsample.__str__]
-    F.interpolate = old_functions[F.interpolate.__str__]
+    # F.interpolate = old_functions[F.interpolate.__str__]
     F.softmax = old_functions[F.softmax.__str__]
     F.embedding = old_functions[F.embedding.__str__]
 
