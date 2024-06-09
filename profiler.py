@@ -14,6 +14,9 @@ import torch.nn.functional as F
 from dataclasses import dataclass, asdict
 from collections import defaultdict
 import json
+# Calculate the product of the scale factors
+from functools import reduce
+from operator import mul
 
 Tensor = torch.Tensor
 
@@ -912,7 +915,12 @@ def _interpolate_flops_compute(input, **kwargs):
     if isinstance(scale_factor, tuple) and len(scale_factor) == len(input):
         flops * int(_prod(scale_factor))
     else:
-        flops * scale_factor**len(input)
+        if isinstance(scale_factor, tuple):
+            scale_factor_product = reduce(mul, scale_factor)
+        else:
+            scale_factor_product = scale_factor
+        
+        flops *= scale_factor_product ** len(input)
     return flops, 0
 
 
