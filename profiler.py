@@ -1124,7 +1124,7 @@ def _patch_functionals():
 
     # upsample
     F.upsample = _wrapFunc(F.upsample, _upsample_flops_compute)
-    F.interpolate = _wrapFunc(F.interpolate, _interpolate_flops_compute)
+    # F.interpolate = _wrapFunc(F.interpolate, _interpolate_flops_compute) - has problem https://github.com/cli99/flops-profiler/issues/13
 
     # softmax
     F.softmax = _wrapFunc(F.softmax, _softmax_flops_compute)
