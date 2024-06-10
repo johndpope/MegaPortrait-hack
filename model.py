@@ -1864,7 +1864,11 @@ class PerceptualLoss(nn.Module):
         # Gaze loss
         self.gaze_loss = MPGazeLoss(device)
 
-    def forward(self, predicted, target, use_fm_loss=False):
+
+
+    # Trick shot to reduce memory 3.3 - use random sub_sample
+    # https://arxiv.org/pdf/2404.09736#page=5.58
+    def forward(self, predicted, target, sub_sample_size=(128, 128),use_fm_loss=False):
         # Normalize input images
         predicted = self.normalize_input(predicted)
         target = self.normalize_input(target)
@@ -1891,6 +1895,19 @@ class PerceptualLoss(nn.Module):
             total_loss += fm_loss
 
         return total_loss
+
+    def sub_sample_tensor(self, tensor, sub_sample_size):
+        assert tensor.ndim == 4, "Input tensor should have 4 dimensions (batch_size, channels, height, width)"
+        assert tensor.shape[-2] >= sub_sample_size[0] and tensor.shape[-1] >= sub_sample_size[1], "Sub-sample size should not exceed the tensor dimensions"
+
+        batch_size, channels, height, width = tensor.shape
+        # randomly sample so we cover all the image over training.
+        random_offset_x = np.random.randint(0, height - sub_sample_size[0])
+        random_offset_y = np.random.randint(0, width - sub_sample_size[1])
+
+        sub_sampled_tensor = tensor[..., random_offset_x:random_offset_x+sub_sample_size[0], random_offset_y:random_offset_y+sub_sample_size[1]]
+
+        return sub_sampled_tensor
 
     def compute_vgg19_loss(self, predicted, target):
         return self.compute_perceptual_loss(self.vgg19, self.vgg19_layers, predicted, target)
@@ -2095,3 +2112,33 @@ def get_foreground_mask(image):
     foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
 
     return foreground_mask.to(device)
+
+class SubSampledHingeEmbeddingLoss(nn.Module):
+    def __init__(self, sub_sample_size=(128, 128), reduction='mean'):
+        super(SubSampledHingeEmbeddingLoss, self).__init__()
+        self.sub_sample_size = sub_sample_size
+        self.hinge_loss = nn.HingeEmbeddingLoss(reduction=reduction)
+
+    def forward(self, input, target):
+        # Sub-sample the input and target tensors
+        input = self.sub_sample_tensor(input, self.sub_sample_size)
+        target = self.sub_sample_tensor(target, self.sub_sample_size)
+
+        # Compute the hinge embedding loss
+        loss = self.hinge_loss(input, target)
+
+        return loss
+
+    def sub_sample_tensor(self, tensor, sub_sample_size):
+        print("tensor:",tensor.shape)
+        assert tensor.ndim == 4, "Input tensor should have 4 dimensions (batch_size, channels, height, width)"
+        assert tensor.shape[-2] >= sub_sample_size[0] and tensor.shape[-1] >= sub_sample_size[1], "Sub-sample size should not exceed the tensor dimensions"
+
+        batch_size, channels, height, width = tensor.shape
+
+        random_offset_x = np.random.randint(0, height - sub_sample_size[0])
+        random_offset_y = np.random.randint(0, width - sub_sample_size[1])
+
+        sub_sampled_tensor = tensor[..., random_offset_x:random_offset_x+sub_sample_size[0], random_offset_y:random_offset_y+sub_sample_size[1]]
+
+        return sub_sampled_tensor
