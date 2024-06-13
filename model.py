@@ -624,17 +624,17 @@ class G2d(nn.Module):
         ).to(device)
 
         self.upsample1 = nn.Sequential(
-            AntiAliasInterpolation2d(512, scale=2),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(512, 256)
         ).to(device)
 
         self.upsample2 = nn.Sequential(
-            AntiAliasInterpolation2d(256, scale=2),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(256, 128)
         ).to(device)
 
         self.upsample3 = nn.Sequential(
-            AntiAliasInterpolation2d(128, scale=2),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ResBlock2D(128, 64)
         ).to(device)
 
@@ -655,6 +655,7 @@ class G2d(nn.Module):
         x = self.upsample3(x)
         x = self.final_conv(x)
         return x
+
 
 
 '''
