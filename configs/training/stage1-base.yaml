@@ -5,7 +5,7 @@ data:
   n_sample_frames: 1
   n_motion_frames: 2
 training:
-  save_interval: 1000
+  save_interval: 1
   log_interval: 100
   lambda_perceptual: 1.0
   lambda_adversarial: 1.0
@@ -17,7 +17,7 @@ training:
   batch_size: 24
   num_workers: 0
   lr: 1.0e-5
-  base_epochs: 200000
+  base_epochs: 100
   hr_epochs: 50
   student_epochs: 100
   use_gpu_video_tensor: True
