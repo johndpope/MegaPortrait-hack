@@ -28,6 +28,7 @@ from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
+from lpips import LPIPS
 
 
 from mysixdrepnet import SixDRepNet_Detector
@@ -1823,7 +1824,7 @@ class Discriminator(nn.Module):
         return self.model(img_input)
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
+ def __init__(self, device, weights={'vgg19': 20.0, 'vggface': 5.0, 'gaze': 4.0, 'lpips': 10.0}):
         super(PerceptualLoss, self).__init__()
         self.device = device
         self.weights = weights
@@ -1840,6 +1841,9 @@ class PerceptualLoss(nn.Module):
         # Gaze loss
         self.gaze_loss = MPGazeLoss(device)
 
+        # LPips   
+        self.lpips = LPIPS(net='vgg').to(device).eval()
+
     def forward(self, predicted, target, use_fm_loss=False):
         # Normalize input images
         predicted = self.normalize_input(predicted)
@@ -1853,11 +1857,13 @@ class PerceptualLoss(nn.Module):
 
         # Compute gaze loss
         # gaze_loss = self.gaze_loss(predicted, target)
+        
 
         # Compute total perceptual loss
         total_loss = (
             self.weights['vgg19'] * vgg19_loss +
             self.weights['vggface'] * vggface_loss +
+            self.weights['lpips'] * lpips_loss +
             self.weights['gaze'] * 1 #gaze_loss
         )
 
