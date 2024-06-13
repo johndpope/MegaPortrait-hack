@@ -21,6 +21,9 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
+from scipy.linalg import sqrtm
+from sklearn.metrics.pairwise import cosine_similarity
+from lpips import LPIPS
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -31,6 +34,32 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
+# Function to calculate FID
+def calculate_fid(real_images, fake_images):
+    mu1, sigma1 = real_images.mean(axis=0), np.cov(real_images, rowvar=False)
+    mu2, sigma2 = fake_images.mean(axis=0), np.cov(fake_images, rowvar=False)
+    ssdiff = np.sum((mu1 - mu2) ** 2.0)
+    covmean = sqrtm(sigma1.dot(sigma2))
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+    return fid
+
+# Function to calculate CSIM (Cosine Similarity)
+def calculate_csim(real_features, fake_features):
+    csim = cosine_similarity(real_features, fake_features)
+    return np.mean(csim)
+
+# Function to calculate LPIPS
+def calculate_lpips(real_images, fake_images):
+    lpips_model = LPIPS(net='alex').cuda()  # 'alex', 'vgg', 'squeeze'
+    lpips_scores = []
+    for real, fake in zip(real_images, fake_images):
+        real = real.unsqueeze(0).cuda()
+        fake = fake.unsqueeze(0).cuda()
+        lpips_score = lpips_model(real, fake)
+        lpips_scores.append(lpips_score.item())
+    return np.mean(lpips_scores)
 
 
 # align to cyclegan
@@ -130,6 +159,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
                         pred_frame,pred_pyramids = Gbase(source_frame, driving_frame)
 
+                       
                         # Obtain the foreground mask for the driving image
                         # foreground_mask = get_foreground_mask(source_frame)
 
@@ -232,7 +262,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         scaler.step(optimizer_G)
                         scaler.update()
 
-                      
+                        # Evaluate
+                        fid_score = calculate_fid(source_frame, pred_frame)
+                        csim_score = calculate_csim(source_frame, pred_frame)
+                        lpips_score = calculate_lpips(source_frame, pred_frame)
+
+                        print(f'FID Score: {fid_score}')
+                        print(f'CSIM Score: {csim_score}')
+                        print(f'LPIPS Score: {lpips_score}')
 
         scheduler_G.step()
         scheduler_D.step()
