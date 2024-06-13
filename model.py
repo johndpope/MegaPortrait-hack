@@ -1858,7 +1858,9 @@ class PerceptualLoss(nn.Module):
         # Compute gaze loss
         # gaze_loss = self.gaze_loss(predicted, target)
         
-
+        # Compute LPIPS loss
+        lpips_loss = self.lpips(predicted, target).mean()
+        
         # Compute total perceptual loss
         total_loss = (
             self.weights['vgg19'] * vgg19_loss +
