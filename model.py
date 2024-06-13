@@ -171,130 +171,24 @@ class CustomResNet50(nn.Module):
         
         return x
 
+
 '''
-Eapp Class:
-
-The Eapp class represents the appearance encoder (Eapp) in the diagram.
-It consists of two parts: producing volumetric features (vs) and producing a global descriptor (es).
-
-Producing Volumetric Features (vs):
-
-The conv layer corresponds to the 7x7-Conv-64 block in the diagram.
-The resblock_128, resblock_256, resblock_512 layers correspond to the ResBlock2D-128, ResBlock2D-256, ResBlock2D-512 blocks respectively, with average pooling (self.avgpool) in between.
-The conv_1 layer corresponds to the GN, ReLU, 1x1-Conv2D-1536 block in the diagram.
-The output of conv_1 is reshaped to (batch_size, 96, 16, height, width) and passed through resblock3D_96 and resblock3D_96_2, which correspond to the two ResBlock3D-96 blocks in the diagram.
-The final output of this part is the volumetric features (vs).
-
-Producing Global Descriptor (es):
-
-The resnet50 layer corresponds to the ResNet50 block in the diagram.
-It takes the input image (x) and produces the global descriptor (es).
-
-Forward Pass:
-
-During the forward pass, the input image (x) is passed through both parts of the Eapp network.
-The first part produces the volumetric features (vs) by passing the input through the convolutional layers, residual blocks, and reshaping operations.
-The second part produces the global descriptor (es) by passing the input through the ResNet50 network.
-The Eapp network returns both vs and es as output.
-
-In summary, the Eapp class in the code aligns well with the appearance encoder (Eapp) shown in the diagram. The network architecture follows the same structure, with the corresponding layers and blocks mapped accurately. The conv, resblock_128, resblock_256, resblock_512, conv_1, resblock3D_96, and resblock3D_96_2 layers in the code correspond to the respective blocks in the diagram for producing volumetric features. The resnet50 layer in the code corresponds to the ResNet50 block in the diagram for producing the global descriptor.
+Hourglass Class:
+The Hourglass class in oneshotview-models.py is an implementation of an hourglass architecture for feature extraction. It consists of an encoder and a decoder, which can be used to extract hierarchical features at different scales.
+To integrate the Hourglass class into the MegaPortraits model, you could modify the Eapp appearance encoder to incorporate an hourglass architecture. Here's an example of how you could modify the Eapp class:
 '''
-
 
 class Eapp(nn.Module):
     def __init__(self):
         super().__init__()
-        
-          # First part: producing volumetric features vs
-        self.conv = nn.Conv2d(3, 64, 7, stride=1, padding=3).to(device)
-        self.resblock_128 = ResBlock_Custom(dimension=2, in_channels=64, out_channels=128).to(device)
-        self.resblock_256 = ResBlock_Custom(dimension=2, in_channels=128, out_channels=256).to(device)
-        self.resblock_512 = ResBlock_Custom(dimension=2, in_channels=256, out_channels=512).to(device)
+        self.hourglass = Hourglass(block_expansion=64, in_features=3, num_blocks=4, max_features=512)
+        self.conv1x1 = nn.Conv2d(self.hourglass.out_filters, 96, kernel_size=1)
 
-        # round 0
-        self.resblock3D_96 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-
-        # round 1
-        self.resblock3D_96_1 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-        self.resblock3D_96_1_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-
-        # round 2
-        self.resblock3D_96_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-        self.resblock3D_96_2_2 = ResBlock3D_Adaptive(in_channels=96, out_channels=96).to(device)
-
-        self.conv_1 = nn.Conv2d(in_channels=512, out_channels=1536, kernel_size=1, stride=1, padding=0).to(device)
-
-        # Adjusted AvgPool to reduce spatial dimensions effectively
-        self.avgpool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0).to(device)
-
-        # Second part: producing global descriptor es
-        self.custom_resnet50 = CustomResNet50().to(device)
-        '''
-        ### TODO 2: Change vs/es here for vector size
-        According to the description of the paper (Page11: predict the head pose and expression vector), 
-        zs should be a global descriptor, which is a vector. Otherwise, the existence of Emtn and Eapp is of little significance. 
-        The output feature is a matrix, which means it is basically not compressed. This encoder can be completely replaced by a VAE.
-        '''        
-        filters = [64, 256, 512, 1024, 2048]
-        outputs=COMPRESS_DIM
-        self.fc = torch.nn.Linear(filters[4], outputs)       
-       
     def forward(self, x):
-        # First part
-        logging.debug(f"image x: {x.shape}") # [1, 3, 256, 256]
-        out = self.conv(x)
-        logging.debug(f"After conv: {out.shape}")  # [1, 3, 256, 256]
-        out = self.resblock_128(out)
-        logging.debug(f"After resblock_128: {out.shape}") # [1, 128, 256, 256]
-        out = self.avgpool(out)
-        logging.debug(f"After avgpool: {out.shape}")
-        
-        out = self.resblock_256(out)
-        logging.debug(f"After resblock_256: {out.shape}")
-        out = self.avgpool(out)
-        logging.debug(f"After avgpool: {out.shape}")
-        
-        out = self.resblock_512(out)
-        logging.debug(f"After resblock_512: {out.shape}") # [1, 512, 64, 64]
-        out = self.avgpool(out) # at 512x512 image training - we need this  🤷 i rip this out so we can keep things 64x64 - it doesnt align to diagram though
-        # logging.debug(f"After avgpool: {out.shape}") # [1, 256, 64, 64]
-   
-        out = F.group_norm(out, num_groups=32)
-        out = F.relu(out)
-        out = self.conv_1(out)
-        logging.debug(f"After conv_1: {out.shape}") # [1, 1536, 32, 32]
-        
-     # reshape 1546 -> C96 x D16
-        vs = out.view(out.size(0), 96, 16, *out.shape[2:]) # 🤷 this maybe inaccurate
-        logging.debug(f"reshape 1546 -> C96 x D16 : {vs.shape}") 
-        
-        
-        # 1
-        vs = self.resblock3D_96(vs)
-        logging.debug(f"After resblock3D_96: {vs.shape}") 
-        vs = self.resblock3D_96_2(vs)
-        logging.debug(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
-
-        # 2
-        vs = self.resblock3D_96_1(vs)
-        logging.debug(f"After resblock3D_96_1: {vs.shape}") # [1, 96, 16, 32, 32]
-        vs = self.resblock3D_96_1_2(vs)
-        logging.debug(f"After resblock3D_96_1_2: {vs.shape}")
-
-        # 3
-        vs = self.resblock3D_96_2(vs)
-        logging.debug(f"After resblock3D_96_2: {vs.shape}") # [1, 96, 16, 32, 32]
-        vs = self.resblock3D_96_2_2(vs)
-        logging.debug(f"After resblock3D_96_2_2: {vs.shape}")
-
-        # Second part
-        es_resnet = self.custom_resnet50(x)
-        ### TODO 2
-        # print(f"🍌 es:{es_resnet.shape}") # [1, 512, 2, 2]
-        es_flatten = torch.flatten(es_resnet, start_dim=1)
-        es = self.fc(es_flatten) # torch.Size([bs, 2048]) -> torch.Size([bs, COMPRESS_DIM])        
-       
+        feature_map = self.hourglass(x)
+        vs = self.conv1x1(feature_map)
+        vs = vs.view(vs.size(0), 96, 16, *vs.shape[2:])
+        es = F.adaptive_avg_pool2d(feature_map, (1, 1)).view(x.size(0), -1)
         return vs, es
 
 
@@ -637,6 +531,57 @@ class ResBlock2D(nn.Module):
         out = nn.ReLU(inplace=True)(out)
         
         return out
+    
+'''
+This class, AntiAliasInterpolation2d, is a PyTorch module designed for band-limited downsampling of images, which helps preserve the input signal quality by applying a Gaussian filter before resizing. Here's an intuition breakdown of the code:
+This approach ensures that the downsampled image retains more of the original signal's details by reducing high-frequency components that could cause aliasing.
+'''
+class AntiAliasInterpolation2d(nn.Module):
+    """
+    Band-limited downsampling, for better preservation of the input signal.
+    """
+    def __init__(self, channels, scale):
+        super(AntiAliasInterpolation2d, self).__init__()
+        sigma = (1 / scale - 1) / 2
+        kernel_size = 2 * round(sigma * 4) + 1
+        self.ka = kernel_size // 2
+        self.kb = self.ka - 1 if kernel_size % 2 == 0 else self.ka
+
+
+        kernel_size = [kernel_size, kernel_size]
+        sigma = [sigma, sigma]
+        # The gaussian kernel is the product of the
+        # gaussian function of each dimension.
+        kernel = 1
+        meshgrids = torch.meshgrid(
+            [
+                torch.arange(size, dtype=torch.float32)
+                for size in kernel_size
+                ]
+        )
+        for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
+            mean = (size - 1) / 2
+            kernel *= torch.exp(-(mgrid - mean) ** 2 / (2 * std ** 2))
+
+        # Make sure sum of values in gaussian kernel equals 1.
+        kernel = kernel / torch.sum(kernel)
+        # Reshape to depthwise convolutional weight
+        kernel = kernel.view(1, 1, *kernel.size())
+        kernel = kernel.repeat(channels, *[1] * (kernel.dim() - 1))
+
+        self.register_buffer('weight', kernel)
+        self.groups = channels
+        self.scale = scale
+
+    def forward(self, input):
+        if self.scale == 1.0:
+            return input
+
+        out = F.pad(input, (self.ka, self.kb, self.ka, self.kb))
+        out = F.conv2d(out, weight=self.weight, groups=self.groups)
+        out = F.interpolate(out, scale_factor=(self.scale, self.scale))
+
+        return out
 '''
 The G2d class consists of the following components:
 
@@ -678,17 +623,17 @@ class G2d(nn.Module):
         ).to(device)
 
         self.upsample1 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            AntiAliasInterpolation2d(512, scale_factor=2),
             ResBlock2D(512, 256)
         ).to(device)
 
         self.upsample2 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            AntiAliasInterpolation2d(256, scale_factor=2),
             ResBlock2D(256, 128)
         ).to(device)
 
         self.upsample3 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            AntiAliasInterpolation2d(128, scale_factor=2),
             ResBlock2D(128, 64)
         ).to(device)
 
@@ -1014,6 +959,27 @@ def apply_warping_field(v, warp_field):
 
 
 
+class ImagePyramide(torch.nn.Module):
+    """
+    Create image pyramide for computing pyramide perceptual loss. See Sec 3.3
+    """
+    def __init__(self, scales, num_channels):
+        super(ImagePyramide, self).__init__()
+        downs = {}
+        for scale in scales:
+            downs[str(scale).replace('.', '-')] = AntiAliasInterpolation2d(num_channels, scale)
+        self.downs = nn.ModuleDict(downs)
+
+    def forward(self, x):
+        out_dict = {}
+        for scale, down_module in self.downs.items():
+            out_dict['prediction_' + str(scale).replace('-', '.')] = down_module(x)
+        return out_dict
+
+
+
+
+
 '''
 The main changes made to align the code with the training stages are:
 
@@ -1060,6 +1026,8 @@ class Gbase(nn.Module):
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
+        self.image_pyramid = ImagePyramide(scales=[0.5, 0.25], num_channels=3)
+
 #    @profile
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
@@ -1095,10 +1063,18 @@ class Gbase(nn.Module):
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
 
         # Pass projected features through G2d to obtain the final output image (xhat)
-        xhat = self.G2d(vc2d_projected)
+        xhat_base = self.G2d(vc2d_projected)
 
         #self.visualize_warp_fields(xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td)
-        return xhat
+       
+        pyramids = self.image_pyramid(xhat_base)
+
+        loss = 0
+        for scale, xhat_scaled in pyramids.items():
+            target_scaled = F.interpolate(xd, size=xhat_scaled.shape[2:], mode='bilinear', align_corners=False)
+            loss += F.l1_loss(xhat_scaled, target_scaled)
+
+        return xhat_base, loss
 
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
         """
@@ -2095,3 +2071,152 @@ def get_foreground_mask(image):
     foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
 
     return foreground_mask.to(device)
+
+
+
+
+class ResBlock2d(nn.Module):
+    """
+    Res block, preserve spatial resolution.
+    """
+
+    def __init__(self, in_features, kernel_size, padding):
+        super(ResBlock2d, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=in_features, out_channels=in_features, kernel_size=kernel_size,
+                               padding=padding)
+        self.conv2 = nn.Conv2d(in_channels=in_features, out_channels=in_features, kernel_size=kernel_size,
+                               padding=padding)
+        self.norm1 = nn.BatchNorm2d(in_features, affine=True)
+        self.norm2 = nn.BatchNorm2d(in_features, affine=True)
+
+    def forward(self, x):
+        out = self.norm1(x)
+        out = F.relu(out,inplace=True)
+        out = self.conv1(out)
+        out = self.norm2(out)
+        out = F.relu(out,inplace=True)
+        out = self.conv2(out)
+        out += x
+        return out
+
+
+class UpBlock2d(nn.Module):
+    """
+    Upsampling block for use in decoder.
+    """
+
+    def __init__(self, in_features, out_features, kernel_size=3, padding=1, groups=1):
+        super(UpBlock2d, self).__init__()
+
+        self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size,
+                              padding=padding, groups=groups)
+        self.norm = BatchNorm2d(out_features, affine=True)
+
+    def forward(self, x):
+        out = F.interpolate(x, scale_factor=2)
+        del x
+        out = self.conv(out)
+        out = self.norm(out)
+        out = F.relu(out,inplace=True)
+        return out
+
+
+class DownBlock2d(nn.Module):
+    """
+    Downsampling block for use in encoder.
+    """
+
+    def __init__(self, in_features, out_features, kernel_size=3, padding=1, groups=1):
+        super(DownBlock2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size,
+                              padding=padding, groups=groups)
+        self.norm = BatchNorm2d(out_features, affine=True)
+        self.pool = nn.AvgPool2d(kernel_size=(2, 2))
+
+    def forward(self, x):
+        out = self.conv(x)
+        del x
+        out = self.norm(out)
+        out = F.relu(out,inplace=True)
+        out = self.pool(out)
+        return out
+
+
+class SameBlock2d(nn.Module):
+    """
+    Simple block, preserve spatial resolution.
+    """
+
+    def __init__(self, in_features, out_features, groups=1, kernel_size=3, padding=1):
+        super(SameBlock2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features,
+                              kernel_size=kernel_size, padding=padding, groups=groups)
+        self.norm = BatchNorm2d(out_features, affine=True)
+
+    def forward(self, x):
+        out = self.conv(x)
+        out = self.norm(out)
+        out = F.relu(out,inplace=True)
+        return out
+
+
+class Encoder(nn.Module):
+    """
+    Hourglass Encoder
+    """
+
+    def __init__(self, block_expansion, in_features, num_blocks=3, max_features=256):
+        super(Encoder, self).__init__()
+
+        down_blocks = []
+        for i in range(num_blocks):
+            down_blocks.append(DownBlock2d(in_features if i == 0 else min(max_features, block_expansion * (2 ** i)),
+                                           min(max_features, block_expansion * (2 ** (i + 1))),
+                                           kernel_size=3, padding=1))
+        self.down_blocks = nn.ModuleList(down_blocks)
+
+    def forward(self, x):
+        outs = [x]
+        for down_block in self.down_blocks:
+            outs.append(down_block(outs[-1]))
+        return outs
+
+class Decoder(nn.Module):
+    """
+    Hourglass Decoder
+    """
+
+    def __init__(self, block_expansion, in_features, num_blocks=3, max_features=256):
+        super(Decoder, self).__init__()
+
+        up_blocks = []
+
+        for i in range(num_blocks)[::-1]:
+            in_filters = (1 if i == num_blocks - 1 else 2) * min(max_features, block_expansion * (2 ** (i + 1)))
+            out_filters = min(max_features, block_expansion * (2 ** i))
+            up_blocks.append(UpBlock2d(in_filters, out_filters, kernel_size=3, padding=1))
+
+        self.up_blocks = nn.ModuleList(up_blocks)
+        self.out_filters = block_expansion + in_features
+
+    def forward(self, x):
+        out = x.pop()
+        for up_block in self.up_blocks:
+            out = up_block(out)
+            skip = x.pop()
+            out = torch.cat([out, skip], dim=1)
+        return out
+
+class Hourglass(nn.Module):
+    """
+    Hourglass architecture.
+    """
+
+    def __init__(self, block_expansion, in_features, num_blocks=3, max_features=256):
+        super(Hourglass, self).__init__()
+        self.encoder = Encoder(block_expansion, in_features, num_blocks, max_features)
+        self.decoder = Decoder(block_expansion, in_features, num_blocks, max_features)
+        self.out_filters = self.decoder.out_filters
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))

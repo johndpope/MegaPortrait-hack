@@ -127,7 +127,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # The first group consists of the standard training objectives for image synthesis. 
                         # These include perceptual [14] and GAN [ 33 ] losses that match 
                         # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
-                        pred_frame = Gbase(source_frame, driving_frame)
+                        pred_frame,pred_pyramids = Gbase(source_frame, driving_frame)
 
                         # Obtain the foreground mask for the driving image
                         # foreground_mask = get_foreground_mask(source_frame)
@@ -150,9 +150,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                             # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
                             # vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
 
-                        # Calculate perceptual losses
-                        loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
+                        # Calculate perceptual losses - use pyramid 
+                        # loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
                       
+                        loss_G_per = 0
+                        for scale, pred_scaled in pred_pyramids.items():
+                            target_scaled = F.interpolate(driving_frame, size=pred_scaled.shape[2:], mode='bilinear', align_corners=False)
+                            loss_G_per += perceptual_loss_fn(pred_scaled, target_scaled)
+
                         # Adversarial ground truths - from Kevin Fringe
                         valid = Variable(torch.Tensor(np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
                         fake = Variable(torch.Tensor(-1 * np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
@@ -180,6 +185,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # Calculate adversarial losses
                         loss_G_adv = 0.5 * (loss_real + loss_fake)
 
+                        
+
                          # Feature matching loss
                         loss_fm = feature_matching_loss(pred_frame, driving_frame)
                     
@@ -188,7 +195,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
 
                         # produce the following cross-reenacted image: ˆx𝑠∗→𝑑 = Gbase (x𝑠∗ , x𝑑 )
-                        cross_reenacted_image = Gbase(source_frame_star, driving_frame)
+                        cross_reenacted_image,_ = Gbase(source_frame_star, driving_frame)
                         if save_images:
                             vutils.save_image(cross_reenacted_image, f"{output_dir}/cross_reenacted_image_{idx}.png")
 
@@ -210,7 +217,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         P = [(z_pred, zd)     ,(z_star__pred, zd)]
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = cosine_loss(P, N)
-
+                        loss_G_cos = 0
+                        
                        
                         
                         # Backpropagate and update generator
