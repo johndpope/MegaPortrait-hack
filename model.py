@@ -273,7 +273,6 @@ class Eapp(nn.Module):
         # print(f"🍌 es:{es_resnet.shape}") # [1, 512, 2, 2]
         es_flatten = torch.flatten(es_resnet, start_dim=1)
         es = self.fc(es_flatten) # torch.Size([bs, 2048]) -> torch.Size([bs, 2])        
-        print(f"🍌 es:{es.shape} vs{vs.shape}")
         return vs, es
 
 
