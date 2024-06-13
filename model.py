@@ -624,17 +624,17 @@ class G2d(nn.Module):
         ).to(device)
 
         self.upsample1 = nn.Sequential(
-            AntiAliasInterpolation2d(512,channels=3,  scale_factor=2),
+            AntiAliasInterpolation2d(512, scale=2),
             ResBlock2D(512, 256)
         ).to(device)
 
         self.upsample2 = nn.Sequential(
-            AntiAliasInterpolation2d(256,channels=3, scale_factor=2),
+            AntiAliasInterpolation2d(256, scale=2),
             ResBlock2D(256, 128)
         ).to(device)
 
         self.upsample3 = nn.Sequential(
-            AntiAliasInterpolation2d(128,channels=3, scale_factor=2),
+            AntiAliasInterpolation2d(128, scale=2),
             ResBlock2D(128, 64)
         ).to(device)
 
