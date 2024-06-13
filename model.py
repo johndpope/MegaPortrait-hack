@@ -1109,7 +1109,12 @@ class Gbase(nn.Module):
        
         pyramids = self.image_pyramid(xhat_base)
 
-        return xhat_base, pyramids
+        loss = 0
+        for scale, xhat_scaled in pyramids.items():
+            target_scaled = F.interpolate(xd, size=xhat_scaled.shape[2:], mode='bilinear', align_corners=False)
+            loss += F.l1_loss(xhat_scaled, target_scaled)
+
+        return xhat_base, loss
 
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
         """
