@@ -1047,7 +1047,7 @@ def apply_warping_field(v, warp_field):
 
 class ImagePyramide(torch.nn.Module):
     """
-    Create image pyramide for computing pyramide perceptual loss. See Sec 3.3
+    Create image pyramide for computing pyramide perceptual loss. See Sec 3.3 - oneshotview
     """
     def __init__(self, scales, num_channels):
         super(ImagePyramide, self).__init__()
