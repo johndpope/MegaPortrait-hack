@@ -2118,7 +2118,7 @@ class UpBlock2d(nn.Module):
 
         self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size,
                               padding=padding, groups=groups)
-        self.norm = BatchNorm2d(out_features, affine=True)
+        self.norm = nn.BatchNorm2d(out_features, affine=True)
 
     def forward(self, x):
         out = F.interpolate(x, scale_factor=2)
@@ -2138,7 +2138,7 @@ class DownBlock2d(nn.Module):
         super(DownBlock2d, self).__init__()
         self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size,
                               padding=padding, groups=groups)
-        self.norm = BatchNorm2d(out_features, affine=True)
+        self.norm =nn.BatchNorm2d(out_features, affine=True)
         self.pool = nn.AvgPool2d(kernel_size=(2, 2))
 
     def forward(self, x):
@@ -2159,7 +2159,7 @@ class SameBlock2d(nn.Module):
         super(SameBlock2d, self).__init__()
         self.conv = nn.Conv2d(in_channels=in_features, out_channels=out_features,
                               kernel_size=kernel_size, padding=padding, groups=groups)
-        self.norm = BatchNorm2d(out_features, affine=True)
+        self.norm = nn.BatchNorm2d(out_features, affine=True)
 
     def forward(self, x):
         out = self.conv(x)
