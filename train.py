@@ -325,34 +325,6 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
         #     writer.add_scalar('LPIPS Score', lpips_score, epoch)
 
 
-def unnormalize(tensor):
-    """
-    Unnormalize a tensor using the specified mean and std.
-    
-    Args:
-    tensor (torch.Tensor): The normalized tensor.
-    mean (list): The mean used for normalization.
-    std (list): The std used for normalization.
-    
-    Returns:
-    torch.Tensor: The unnormalized tensor.
-    """
-    # Check if the tensor is on a GPU and if so, move it to the CPU
-    if tensor.is_cuda:
-        tensor = tensor.cpu()
-    
-    # Ensure tensor is a float and detach it from the computation graph
-    tensor = tensor.float().detach()
-    
-    # Unnormalize
-    # Define mean and std used for normalization
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-
-    for t, m, s in zip(tensor, mean, std):
-        t.mul_(s).add_(m)
-    
-    return tensor
 
 def load_checkpoint(checkpoint_path, model_G, model_D, optimizer_G, optimizer_D):
     if os.path.isfile(checkpoint_path):
