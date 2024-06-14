@@ -93,8 +93,9 @@ class EMODataset(Dataset):
         if len(face_locations) > 0:
             top, right, bottom, left = face_locations[0]
             
-            # automatically choose sweet spot to crop.
+            # Automatically choose sweet spot to crop.
             # https://github.com/tencent-ailab/V-Express/blob/main/assets/crop_example.jpeg
+            
             face_width = right - left
             face_height = bottom - top
 
@@ -103,47 +104,63 @@ class EMODataset(Dataset):
             pad_height = int(face_height * 0.5)
 
             # Expand the cropping coordinates with the calculated padding
-            left = max(0, left - pad_width)
-            top = max(0, top - pad_height)
-            right = min(bg_removed_image.width, right + pad_width)
-            bottom = min(bg_removed_image.height, bottom + pad_height)
-            # Crop the face region from the image
-            face_image = bg_removed_image.crop((left, top, right, bottom))
+            left_with_pad = max(0, left - pad_width)
+            top_with_pad = max(0, top - pad_height)
+            right_with_pad = min(bg_removed_image.width, right + pad_width)
+            bottom_with_pad = min(bg_removed_image.height, bottom + pad_height)
+
+            # Crop the face region from the image with padding
+            face_image_with_pad = bg_removed_image.crop((left_with_pad, top_with_pad, right_with_pad, bottom_with_pad))
+
+            # Crop the face region from the image without padding
+            face_image_no_pad = bg_removed_image.crop((left, top, right, bottom))
             
             if apply_warp:
                 # Convert the face image to a numpy array
-                face_array = np.array(face_image)
+                face_array_with_pad = np.array(face_image_with_pad)
+                face_array_no_pad = np.array(face_image_no_pad)
                 
                 # Generate random control points for thin-plate-spline warping
-                rows, cols = face_array.shape[:2]
-                src_points = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]])
-                dst_points = src_points + np.random.randn(4, 2) * (rows * warp_strength)
+                rows_with_pad, cols_with_pad = face_array_with_pad.shape[:2]
+                rows_no_pad, cols_no_pad = face_array_no_pad.shape[:2]
+                src_points_with_pad = np.array([[0, 0], [cols_with_pad-1, 0], [0, rows_with_pad-1], [cols_with_pad-1, rows_with_pad-1]])
+                src_points_no_pad = np.array([[0, 0], [cols_no_pad-1, 0], [0, rows_no_pad-1], [cols_no_pad-1, rows_no_pad-1]])
+                dst_points_with_pad = src_points_with_pad + np.random.randn(4, 2) * (rows_with_pad * warp_strength)
+                dst_points_no_pad = src_points_no_pad + np.random.randn(4, 2) * (rows_no_pad * warp_strength)
                 
                 # Create a PiecewiseAffineTransform object
-                tps = PiecewiseAffineTransform()
-                tps.estimate(src_points, dst_points)
+                tps_with_pad = PiecewiseAffineTransform()
+                tps_with_pad.estimate(src_points_with_pad, dst_points_with_pad)
+                tps_no_pad = PiecewiseAffineTransform()
+                tps_no_pad.estimate(src_points_no_pad, dst_points_no_pad)
                 
-                # Apply the thin-plate-spline warping to the face image
-                warped_face_array = warp(face_array, tps, output_shape=(rows, cols))
+                # Apply the thin-plate-spline warping to the face images
+                warped_face_array_with_pad = warp(face_array_with_pad, tps_with_pad, output_shape=(rows_with_pad, cols_with_pad))
+                warped_face_array_no_pad = warp(face_array_no_pad, tps_no_pad, output_shape=(rows_no_pad, cols_no_pad))
                 
-                # Convert the warped face array back to a PIL image
-                warped_face_image = Image.fromarray((warped_face_array * 255).astype(np.uint8))
+                # Convert the warped face arrays back to PIL images
+                warped_face_image_with_pad = Image.fromarray((warped_face_array_with_pad * 255).astype(np.uint8))
+                warped_face_image_no_pad = Image.fromarray((warped_face_array_no_pad * 255).astype(np.uint8))
             else:
-                warped_face_image = face_image
+                warped_face_image_with_pad = face_image_with_pad
+                warped_face_image_no_pad = face_image_no_pad
             
             # Apply the transform if provided
             if transform:
-                warped_face_image = warped_face_image.convert("RGB")
-                warped_face_tensor = transform(warped_face_image)
-                return warped_face_tensor
+                warped_face_image_with_pad = warped_face_image_with_pad.convert("RGB")
+                warped_face_image_no_pad = warped_face_image_no_pad.convert("RGB")
+                warped_face_tensor_with_pad = transform(warped_face_image_with_pad)
+                warped_face_tensor_no_pad = transform(warped_face_image_no_pad)
+                return warped_face_tensor_with_pad, warped_face_tensor_no_pad
             
-            # Convert the warped PIL image back to a tensor
-            # Convert the warped PIL image to RGB format before converting to a tensor
-            warped_face_image = warped_face_image.convert("RGB")
-            return to_tensor(warped_face_image)
+            # Convert the warped PIL images back to tensors
+            warped_face_image_with_pad = warped_face_image_with_pad.convert("RGB")
+            warped_face_image_no_pad = warped_face_image_no_pad.convert("RGB")
+            return to_tensor(warped_face_image_with_pad), to_tensor(warped_face_image_no_pad)
 
         else:
-            return None
+            return None, None
+
 
     def load_and_process_video(self, video_path: str) -> List[torch.Tensor]:
         # Extract video ID from the path
@@ -182,18 +199,27 @@ class EMODataset(Dataset):
                     video_name = Path(video_path).stem
 
                     # vanilla crop                    
-                    tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
+                    tensor_frame1,sweet_tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame1)
                     img.save(output_dir / f"{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame1)
 
+                    img = to_pil_image(sweet_tensor_frame1)
+                    img.save(output_dir / f"s_{frame_idx:06d}.png")
+                    tensor_frames.append(sweet_tensor_frame1)
+
                     # vanilla crop + warp                  
-                    tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
+                    tensor_frame2,sweet_tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
                     # Save frame as PNG image
                     img = to_pil_image(tensor_frame2)
                     img.save(output_dir / f"w_{frame_idx:06d}.png")
                     tensor_frames.append(tensor_frame2)
+
+                    # Save frame as PNG image
+                    img = to_pil_image(sweet_tensor_frame2)
+                    img.save(output_dir / f"sw_{frame_idx:06d}.png")
+                    tensor_frames.append(sweet_tensor_frame2)
                 else:
                     # Save frame as PNG image
                     image_frame.save(output_dir / f"{frame_idx:06d}.png")
