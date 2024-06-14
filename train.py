@@ -134,6 +134,9 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
         fid_score = 0
         csim_score = 0
         lpips_score = 0
+
+
+        
         for batch in dataloader:
 
                 source_frames = batch['source_frames']
@@ -259,9 +262,9 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         P = [(z_pred, zd)     ,(z_star__pred, zd)]
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = cosine_loss(P, N)
-                        loss_G_cos = 0
                         
-                       
+                        
+                        writer.add_scalar('Cycle consistency loss', loss_G_cos, epoch)
                         
                         # Backpropagate and update generator
                         optimizer_G.zero_grad()
