@@ -6,7 +6,7 @@ data:
   n_motion_frames: 2
 training:
   checkpoint_path: '.'
-  save_interval: 1
+  save_interval: 50
   log_interval: 100
   lambda_perceptual: 1.0
   lambda_adversarial: 1.0

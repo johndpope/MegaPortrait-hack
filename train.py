@@ -39,6 +39,8 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 # Function to calculate FID
 def calculate_fid(real_images, fake_images):
+    real_images = real_images.detach().cpu().numpy()
+    fake_images = fake_images.detach().cpu().numpy()
     mu1, sigma1 = real_images.mean(axis=0), np.cov(real_images, rowvar=False)
     mu2, sigma2 = fake_images.mean(axis=0), np.cov(fake_images, rowvar=False)
     ssdiff = np.sum((mu1 - mu2) ** 2.0)
@@ -50,7 +52,7 @@ def calculate_fid(real_images, fake_images):
 
 # Function to calculate CSIM (Cosine Similarity)
 def calculate_csim(real_features, fake_features):
-    csim = cosine_similarity(real_features, fake_features)
+    csim = cosine_similarity(real_features.detach().cpu().numpy(), fake_features.detach().cpu().numpy())
     return np.mean(csim)
 
 # Function to calculate LPIPS
@@ -63,7 +65,6 @@ def calculate_lpips(real_images, fake_images):
         lpips_score = lpips_model(real, fake)
         lpips_scores.append(lpips_score.item())
     return np.mean(lpips_scores)
-
 
 # align to cyclegan
 def discriminator_loss(real_pred, fake_pred, loss_type='lsgan'):
@@ -151,6 +152,7 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                 len_source_frames2 = len(source_frames2)
                 len_driving_frames2 = len(driving_frames2)
 
+      
                 for idx in range(num_frames):
                     # loop around if idx exceeds video length
                     source_frame = source_frames[idx % len_source_frames].to(device)
@@ -168,7 +170,6 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
                         pred_frame,pred_pyramids = Gbase(source_frame, driving_frame)
 
-                       
                         # Obtain the foreground mask for the driving image
                         # foreground_mask = get_foreground_mask(source_frame)
 
@@ -273,18 +274,12 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         scaler.update()
 
 
-                        # Evaluate
-                        # fid_score = calculate_fid(source_frame, pred_frame)
-                        # csim_score = calculate_csim(source_frame, pred_frame)
-                        # lpips_score = calculate_lpips(source_frame, pred_frame)
-
-                        # print(f'FID Score: {fid_score}')
-                        # print(f'CSIM Score: {csim_score}')
-                        # print(f'LPIPS Score: {lpips_score}')
-
-
                         epoch_loss_G += total_loss.item()
                         epoch_loss_D += loss_D.item()
+
+
+
+
 
         avg_loss_G = epoch_loss_G / len(dataloader)
         avg_loss_D = epoch_loss_D / len(dataloader)
@@ -313,6 +308,19 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
             }, f"checkpoint_epoch{epoch+1}.pth")
+
+        # Calculate FID score for the current epoch
+        # with torch.no_grad():
+        #     real_images = torch.cat(real_images)
+        #     fake_images = torch.cat(fake_images)
+        #     fid_score = calculate_fid(real_images, fake_images)
+        #     csim_score = calculate_csim(real_images, fake_images)
+        #     lpips_score = calculate_lpips(real_images, fake_images)
+  
+        #     writer.add_scalar('FID Score', fid_score, epoch)
+        #     writer.add_scalar('CSIM Score', csim_score, epoch)
+        #     writer.add_scalar('LPIPS Score', lpips_score, epoch)
+
 
 def unnormalize(tensor):
     """
