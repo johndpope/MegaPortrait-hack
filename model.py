@@ -173,12 +173,35 @@ class CustomResNet50(nn.Module):
         return x
 
 
-'''
-Hourglass Class:
-The Hourglass class in oneshotview-models.py is an implementation of an hourglass architecture for feature extraction. It consists of an encoder and a decoder, which can be used to extract hierarchical features at different scales.
-To integrate the Hourglass class into the MegaPortraits model, you could modify the Eapp appearance encoder to incorporate an hourglass architecture. Here's an example of how you could modify the Eapp class:
-'''
 
+'''
+Eapp Class:
+
+The Eapp class represents the appearance encoder (Eapp) in the diagram.
+It consists of two parts: producing volumetric features (vs) and producing a global descriptor (es).
+
+Producing Volumetric Features (vs):
+
+The conv layer corresponds to the 7x7-Conv-64 block in the diagram.
+The resblock_128, resblock_256, resblock_512 layers correspond to the ResBlock2D-128, ResBlock2D-256, ResBlock2D-512 blocks respectively, with average pooling (self.avgpool) in between.
+The conv_1 layer corresponds to the GN, ReLU, 1x1-Conv2D-1536 block in the diagram.
+The output of conv_1 is reshaped to (batch_size, 96, 16, height, width) and passed through resblock3D_96 and resblock3D_96_2, which correspond to the two ResBlock3D-96 blocks in the diagram.
+The final output of this part is the volumetric features (vs).
+
+Producing Global Descriptor (es):
+
+The resnet50 layer corresponds to the ResNet50 block in the diagram.
+It takes the input image (x) and produces the global descriptor (es).
+
+Forward Pass:
+
+During the forward pass, the input image (x) is passed through both parts of the Eapp network.
+The first part produces the volumetric features (vs) by passing the input through the convolutional layers, residual blocks, and reshaping operations.
+The second part produces the global descriptor (es) by passing the input through the ResNet50 network.
+The Eapp network returns both vs and es as output.
+
+In summary, the Eapp class in the code aligns well with the appearance encoder (Eapp) shown in the diagram. The network architecture follows the same structure, with the corresponding layers and blocks mapped accurately. The conv, resblock_128, resblock_256, resblock_512, conv_1, resblock3D_96, and resblock3D_96_2 layers in the code correspond to the respective blocks in the diagram for producing volumetric features. The resnet50 layer in the code corresponds to the ResNet50 block in the diagram for producing the global descriptor.
+'''
 
 class Eapp(nn.Module):
     def __init__(self):
