@@ -17,3 +17,4 @@ face_recognition
 facenet_pytorch
 rembg
 lpips
+tensorboard

@@ -21,9 +21,12 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
+
 from scipy.linalg import sqrtm
 from sklearn.metrics.pairwise import cosine_similarity
 from lpips import LPIPS
+
+from torch.utils.tensorboard import SummaryWriter
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -119,11 +122,17 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
 
     scaler = GradScaler()
+    writer = SummaryWriter(log_dir='runs/training_logs')
 
     for epoch in range(cfg.training.base_epochs):
         print("Epoch:", epoch)
-        
 
+        epoch_loss_G = 0
+        epoch_loss_D = 0
+
+        fid_score = 0
+        csim_score = 0
+        lpips_score = 0
         for batch in dataloader:
 
                 source_frames = batch['source_frames']
@@ -220,7 +229,8 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
                          # Feature matching loss
                         loss_fm = feature_matching_loss(pred_frame, driving_frame)
-                    
+                        writer.add_scalar('Loss/Feature Matching', loss_fm, epoch)
+                        
                         # The other objective CycleGAN regularizes the training and introduces disentanglement between the motion and canonical space
                         # In order to calculate this loss, we use an additional source-driving  pair x𝑠∗ and x𝑑∗ , 
                         # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
@@ -262,6 +272,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         scaler.step(optimizer_G)
                         scaler.update()
 
+
                         # Evaluate
                         fid_score = calculate_fid(source_frame, pred_frame)
                         csim_score = calculate_csim(source_frame, pred_frame)
@@ -270,6 +281,22 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         print(f'FID Score: {fid_score}')
                         print(f'CSIM Score: {csim_score}')
                         print(f'LPIPS Score: {lpips_score}')
+
+
+                        epoch_loss_G += total_loss.item()
+                        epoch_loss_D += loss_D.item()
+
+        avg_loss_G = epoch_loss_G / len(dataloader)
+        avg_loss_D = epoch_loss_D / len(dataloader)
+        
+        writer.add_scalar('Loss/Generator', avg_loss_G, epoch)
+        writer.add_scalar('Loss/Discriminator', avg_loss_D, epoch)
+
+
+        writer.add_scalar('FID Score', fid_score, epoch)
+        writer.add_scalar('CSIM Score', csim_score, epoch)
+        writer.add_scalar('LPIPS Score', lpips_score, epoch)
+
 
         scheduler_G.step()
         scheduler_D.step()
