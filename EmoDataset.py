@@ -93,6 +93,20 @@ class EMODataset(Dataset):
         if len(face_locations) > 0:
             top, right, bottom, left = face_locations[0]
             
+            # automatically choose sweet spot to crop.
+            # https://github.com/tencent-ailab/V-Express/blob/main/assets/crop_example.jpeg
+            face_width = right - left
+            face_height = bottom - top
+
+            # Calculate the padding amount based on face size and output dimensions
+            pad_width = int(face_width * 0.5)
+            pad_height = int(face_height * 0.5)
+
+            # Expand the cropping coordinates with the calculated padding
+            left = max(0, left - pad_width)
+            top = max(0, top - pad_height)
+            right = min(bg_removed_image.width, right + pad_width)
+            bottom = min(bg_removed_image.height, bottom + pad_height)
             # Crop the face region from the image
             face_image = bg_removed_image.crop((left, top, right, bottom))
             
