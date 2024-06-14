@@ -274,13 +274,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
 
 
                         # Evaluate
-                        fid_score = calculate_fid(source_frame, pred_frame)
-                        csim_score = calculate_csim(source_frame, pred_frame)
-                        lpips_score = calculate_lpips(source_frame, pred_frame)
+                        # fid_score = calculate_fid(source_frame, pred_frame)
+                        # csim_score = calculate_csim(source_frame, pred_frame)
+                        # lpips_score = calculate_lpips(source_frame, pred_frame)
 
-                        print(f'FID Score: {fid_score}')
-                        print(f'CSIM Score: {csim_score}')
-                        print(f'LPIPS Score: {lpips_score}')
+                        # print(f'FID Score: {fid_score}')
+                        # print(f'CSIM Score: {csim_score}')
+                        # print(f'LPIPS Score: {lpips_score}')
 
 
                         epoch_loss_G += total_loss.item()
