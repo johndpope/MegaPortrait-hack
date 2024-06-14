@@ -22,6 +22,12 @@ import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
 
+from scipy.linalg import sqrtm
+from sklearn.metrics.pairwise import cosine_similarity
+from lpips import LPIPS
+
+from torch.utils.tensorboard import SummaryWriter
+
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
 
@@ -31,7 +37,34 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
+# Function to calculate FID
+def calculate_fid(real_images, fake_images):
+    real_images = real_images.detach().cpu().numpy()
+    fake_images = fake_images.detach().cpu().numpy()
+    mu1, sigma1 = real_images.mean(axis=0), np.cov(real_images, rowvar=False)
+    mu2, sigma2 = fake_images.mean(axis=0), np.cov(fake_images, rowvar=False)
+    ssdiff = np.sum((mu1 - mu2) ** 2.0)
+    covmean = sqrtm(sigma1.dot(sigma2))
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+    return fid
 
+# Function to calculate CSIM (Cosine Similarity)
+def calculate_csim(real_features, fake_features):
+    csim = cosine_similarity(real_features.detach().cpu().numpy(), fake_features.detach().cpu().numpy())
+    return np.mean(csim)
+
+# Function to calculate LPIPS
+def calculate_lpips(real_images, fake_images):
+    lpips_model = LPIPS(net='alex').cuda()  # 'alex', 'vgg', 'squeeze'
+    lpips_scores = []
+    for real, fake in zip(real_images, fake_images):
+        real = real.unsqueeze(0).cuda()
+        fake = fake.unsqueeze(0).cuda()
+        lpips_score = lpips_model(real, fake)
+        lpips_scores.append(lpips_score.item())
+    return np.mean(lpips_scores)
 
 # align to cyclegan
 def discriminator_loss(real_pred, fake_pred, loss_type='lsgan'):
@@ -75,7 +108,7 @@ def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
     assert len(pos_pairs) > 0, "pos_pairs should not be empty"
     return torch.mean(-loss / len(pos_pairs)).requires_grad_()
 
-def train_base(cfg, Gbase, Dbase, dataloader):
+def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
     feature_matching_loss = nn.MSELoss()
@@ -86,14 +119,24 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scheduler_G = CosineAnnealingLR(optimizer_G, T_max=cfg.training.base_epochs, eta_min=1e-6)
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
-    perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0})
+    perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0,'lpips':10.0})
+
 
     scaler = GradScaler()
+    writer = SummaryWriter(log_dir='runs/training_logs')
 
-    for epoch in range(cfg.training.base_epochs):
+    for epoch in range(start_epoch, cfg.training.base_epochs):
         print("Epoch:", epoch)
-        
 
+        epoch_loss_G = 0
+        epoch_loss_D = 0
+
+        fid_score = 0
+        csim_score = 0
+        lpips_score = 0
+
+
+        
         for batch in dataloader:
 
                 source_frames = batch['source_frames']
@@ -112,6 +155,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                 len_source_frames2 = len(source_frames2)
                 len_driving_frames2 = len(driving_frames2)
 
+      
                 for idx in range(num_frames):
                     # loop around if idx exceeds video length
                     source_frame = source_frames[idx % len_source_frames].to(device)
@@ -127,7 +171,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # The first group consists of the standard training objectives for image synthesis. 
                         # These include perceptual [14] and GAN [ 33 ] losses that match 
                         # the predicted image ˆx𝑠→𝑑 to the  ground-truth x𝑑 . 
-                        pred_frame = Gbase(source_frame, driving_frame)
+                        pred_frame,pred_pyramids = Gbase(source_frame, driving_frame)
 
                         # Obtain the foreground mask for the driving image
                         # foreground_mask = get_foreground_mask(source_frame)
@@ -150,9 +194,14 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                             # vutils.save_image(masked_predicted_image, f"{output_dir}/masked_predicted_image_{idx}.png")
                             # vutils.save_image(masked_target_image, f"{output_dir}/masked_target_image_{idx}.png")
 
-                        # Calculate perceptual losses
-                        loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
+                        # Calculate perceptual losses - use pyramid 
+                        # loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
                       
+                        loss_G_per = 0
+                        for scale, pred_scaled in pred_pyramids.items():
+                            target_scaled = F.interpolate(driving_frame, size=pred_scaled.shape[2:], mode='bilinear', align_corners=False)
+                            loss_G_per += perceptual_loss_fn(pred_scaled, target_scaled)
+
                         # Adversarial ground truths - from Kevin Fringe
                         valid = Variable(torch.Tensor(np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
                         fake = Variable(torch.Tensor(-1 * np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
@@ -180,15 +229,18 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         # Calculate adversarial losses
                         loss_G_adv = 0.5 * (loss_real + loss_fake)
 
+                        
+
                          # Feature matching loss
                         loss_fm = feature_matching_loss(pred_frame, driving_frame)
-                    
+                        writer.add_scalar('Loss/Feature Matching', loss_fm, epoch)
+                        
                         # The other objective CycleGAN regularizes the training and introduces disentanglement between the motion and canonical space
                         # In order to calculate this loss, we use an additional source-driving  pair x𝑠∗ and x𝑑∗ , 
                         # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
 
                         # produce the following cross-reenacted image: ˆx𝑠∗→𝑑 = Gbase (x𝑠∗ , x𝑑 )
-                        cross_reenacted_image = Gbase(source_frame_star, driving_frame)
+                        cross_reenacted_image,_ = Gbase(source_frame_star, driving_frame)
                         if save_images:
                             vutils.save_image(cross_reenacted_image, f"{output_dir}/cross_reenacted_image_{idx}.png")
 
@@ -210,8 +262,9 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         P = [(z_pred, zd)     ,(z_star__pred, zd)]
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = cosine_loss(P, N)
-
-                       
+                        
+                        
+                        writer.add_scalar('Cycle consistency loss', loss_G_cos, epoch)
                         
                         # Backpropagate and update generator
                         optimizer_G.zero_grad()
@@ -223,7 +276,25 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                         scaler.step(optimizer_G)
                         scaler.update()
 
-                      
+
+                        epoch_loss_G += total_loss.item()
+                        epoch_loss_D += loss_D.item()
+
+
+
+
+
+        avg_loss_G = epoch_loss_G / len(dataloader)
+        avg_loss_D = epoch_loss_D / len(dataloader)
+        
+        writer.add_scalar('Loss/Generator', avg_loss_G, epoch)
+        writer.add_scalar('Loss/Discriminator', avg_loss_D, epoch)
+
+
+        writer.add_scalar('FID Score', fid_score, epoch)
+        writer.add_scalar('CSIM Score', csim_score, epoch)
+        writer.add_scalar('LPIPS Score', lpips_score, epoch)
+
 
         scheduler_G.step()
         scheduler_D.step()
@@ -233,38 +304,42 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                   f"Loss_G: {loss_G_cos.item():.4f}, Loss_D: {loss_D.item():.4f}")
 
         if (epoch + 1) % cfg.training.save_interval == 0:
-            torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
-            torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
+            torch.save({
+                'epoch': epoch,
+                'model_G_state_dict': Gbase.state_dict(),
+                'model_D_state_dict': Dbase.state_dict(),
+                'optimizer_G_state_dict': optimizer_G.state_dict(),
+                'optimizer_D_state_dict': optimizer_D.state_dict(),
+            }, f"checkpoint_epoch{epoch+1}.pth")
 
-def unnormalize(tensor):
-    """
-    Unnormalize a tensor using the specified mean and std.
-    
-    Args:
-    tensor (torch.Tensor): The normalized tensor.
-    mean (list): The mean used for normalization.
-    std (list): The std used for normalization.
-    
-    Returns:
-    torch.Tensor: The unnormalized tensor.
-    """
-    # Check if the tensor is on a GPU and if so, move it to the CPU
-    if tensor.is_cuda:
-        tensor = tensor.cpu()
-    
-    # Ensure tensor is a float and detach it from the computation graph
-    tensor = tensor.float().detach()
-    
-    # Unnormalize
-    # Define mean and std used for normalization
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
+        # Calculate FID score for the current epoch
+        # with torch.no_grad():
+        #     real_images = torch.cat(real_images)
+        #     fake_images = torch.cat(fake_images)
+        #     fid_score = calculate_fid(real_images, fake_images)
+        #     csim_score = calculate_csim(real_images, fake_images)
+        #     lpips_score = calculate_lpips(real_images, fake_images)
+  
+        #     writer.add_scalar('FID Score', fid_score, epoch)
+        #     writer.add_scalar('CSIM Score', csim_score, epoch)
+        #     writer.add_scalar('LPIPS Score', lpips_score, epoch)
 
-    for t, m, s in zip(tensor, mean, std):
-        t.mul_(s).add_(m)
-    
-    return tensor
 
+
+def load_checkpoint(checkpoint_path, model_G, model_D, optimizer_G, optimizer_D):
+    if os.path.isfile(checkpoint_path):
+        print(f"Loading checkpoint '{checkpoint_path}'")
+        checkpoint = torch.load(checkpoint_path)
+        model_G.load_state_dict(checkpoint['model_G_state_dict'])
+        model_D.load_state_dict(checkpoint['model_D_state_dict'])
+        optimizer_G.load_state_dict(checkpoint['optimizer_G_state_dict'])
+        optimizer_D.load_state_dict(checkpoint['optimizer_D_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"Loaded checkpoint '{checkpoint_path}' (epoch {checkpoint['epoch']})")
+    else:
+        print(f"No checkpoint found at '{checkpoint_path}'")
+        start_epoch = 0
+    return start_epoch
 
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
@@ -299,7 +374,15 @@ def main(cfg: OmegaConf) -> None:
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator().to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader)    
+    optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+    optimizer_D = torch.optim.AdamW(Dbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+
+    # Load checkpoint if available
+    checkpoint_path = cfg.training.checkpoint_path
+    start_epoch = load_checkpoint(checkpoint_path, Gbase, Dbase, optimizer_G, optimizer_D)
+
+
+    train_base(cfg, Gbase, Dbase, dataloader, start_epoch)
     torch.save(Gbase.state_dict(), 'Gbase.pth')
     torch.save(Dbase.state_dict(), 'Dbase.pth')
 

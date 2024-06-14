@@ -28,6 +28,7 @@ from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
+from lpips import LPIPS
 
 
 from mysixdrepnet import SixDRepNet_Detector
@@ -171,6 +172,8 @@ class CustomResNet50(nn.Module):
         
         return x
 
+
+
 '''
 Eapp Class:
 
@@ -199,7 +202,6 @@ The Eapp network returns both vs and es as output.
 
 In summary, the Eapp class in the code aligns well with the appearance encoder (Eapp) shown in the diagram. The network architecture follows the same structure, with the corresponding layers and blocks mapped accurately. The conv, resblock_128, resblock_256, resblock_512, conv_1, resblock3D_96, and resblock3D_96_2 layers in the code correspond to the respective blocks in the diagram for producing volumetric features. The resnet50 layer in the code corresponds to the ResNet50 block in the diagram for producing the global descriptor.
 '''
-
 
 class Eapp(nn.Module):
     def __init__(self):
@@ -293,8 +295,7 @@ class Eapp(nn.Module):
         ### TODO 2
         # print(f"🍌 es:{es_resnet.shape}") # [1, 512, 2, 2]
         es_flatten = torch.flatten(es_resnet, start_dim=1)
-        es = self.fc(es_flatten) # torch.Size([bs, 2048]) -> torch.Size([bs, COMPRESS_DIM])        
-       
+        es = self.fc(es_flatten) # torch.Size([bs, 2048]) -> torch.Size([bs, 2])        
         return vs, es
 
 
@@ -637,6 +638,57 @@ class ResBlock2D(nn.Module):
         out = nn.ReLU(inplace=True)(out)
         
         return out
+    
+'''
+This class, AntiAliasInterpolation2d, is a PyTorch module designed for band-limited downsampling of images, which helps preserve the input signal quality by applying a Gaussian filter before resizing. Here's an intuition breakdown of the code:
+This approach ensures that the downsampled image retains more of the original signal's details by reducing high-frequency components that could cause aliasing.
+'''
+class AntiAliasInterpolation2d(nn.Module):
+    """
+    Band-limited downsampling, for better preservation of the input signal.
+    """
+    def __init__(self, channels, scale):
+        super(AntiAliasInterpolation2d, self).__init__()
+        sigma = (1 / scale - 1) / 2
+        kernel_size = 2 * round(sigma * 4) + 1
+        self.ka = kernel_size // 2
+        self.kb = self.ka - 1 if kernel_size % 2 == 0 else self.ka
+
+
+        kernel_size = [kernel_size, kernel_size]
+        sigma = [sigma, sigma]
+        # The gaussian kernel is the product of the
+        # gaussian function of each dimension.
+        kernel = 1
+        meshgrids = torch.meshgrid(
+            [
+                torch.arange(size, dtype=torch.float32)
+                for size in kernel_size
+                ]
+        )
+        for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
+            mean = (size - 1) / 2
+            kernel *= torch.exp(-(mgrid - mean) ** 2 / (2 * std ** 2))
+
+        # Make sure sum of values in gaussian kernel equals 1.
+        kernel = kernel / torch.sum(kernel)
+        # Reshape to depthwise convolutional weight
+        kernel = kernel.view(1, 1, *kernel.size())
+        kernel = kernel.repeat(channels, *[1] * (kernel.dim() - 1))
+
+        self.register_buffer('weight', kernel)
+        self.groups = channels
+        self.scale = scale
+
+    def forward(self, input):
+        if self.scale == 1.0:
+            return input
+
+        out = F.pad(input, (self.ka, self.kb, self.ka, self.kb))
+        out = F.conv2d(out, weight=self.weight, groups=self.groups)
+        out = F.interpolate(out, scale_factor=(self.scale, self.scale))
+
+        return out
 '''
 The G2d class consists of the following components:
 
@@ -709,6 +761,7 @@ class G2d(nn.Module):
         x = self.upsample3(x)
         x = self.final_conv(x)
         return x
+
 
 
 '''
@@ -1014,6 +1067,27 @@ def apply_warping_field(v, warp_field):
 
 
 
+class ImagePyramide(torch.nn.Module):
+    """
+    Create image pyramide for computing pyramide perceptual loss. See Sec 3.3 - oneshotview
+    """
+    def __init__(self, scales, num_channels):
+        super(ImagePyramide, self).__init__()
+        downs = {}
+        for scale in scales:
+            downs[str(scale).replace('.', '-')] = AntiAliasInterpolation2d(num_channels, scale)
+        self.downs = nn.ModuleDict(downs)
+
+    def forward(self, x):
+        out_dict = {}
+        for scale, down_module in self.downs.items():
+            out_dict['prediction_' + str(scale).replace('-', '.')] = down_module(x)
+        return out_dict
+
+
+
+
+
 '''
 The main changes made to align the code with the training stages are:
 
@@ -1060,6 +1134,8 @@ class Gbase(nn.Module):
         self.G3d = G3d(in_channels=96)
         self.G2d = G2d(in_channels=96)
 
+        self.image_pyramid = ImagePyramide(scales=[0.5, 0.25], num_channels=3)
+
 #    @profile
     def forward(self, xs, xd):
         vs, es = self.appearanceEncoder(xs)
@@ -1095,10 +1171,13 @@ class Gbase(nn.Module):
         vc2d_projected = torch.sum(vc2d_warped, dim=2)
 
         # Pass projected features through G2d to obtain the final output image (xhat)
-        xhat = self.G2d(vc2d_projected)
+        xhat_base = self.G2d(vc2d_projected)
 
         #self.visualize_warp_fields(xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td)
-        return xhat
+       
+        pyramids = self.image_pyramid(xhat_base)
+
+        return xhat_base, pyramids
 
     def visualize_warp_fields(self, xs, xd, w_s2c, w_c2d, Rs, ts, Rd, td):
         """
@@ -1847,7 +1926,7 @@ class Discriminator(nn.Module):
         return self.model(img_input)
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, device, weights={'vgg19': 20.0, 'vggface':5.0, 'gaze': 4.0}):
+    def __init__(self, device, weights={'vgg19': 20.0, 'vggface': 5.0, 'gaze': 4.0, 'lpips': 10.0}):
         super(PerceptualLoss, self).__init__()
         self.device = device
         self.weights = weights
@@ -1864,6 +1943,9 @@ class PerceptualLoss(nn.Module):
         # Gaze loss
         self.gaze_loss = MPGazeLoss(device)
 
+        # LPips   
+        self.lpips = LPIPS(net='vgg').to(device).eval()
+
     def forward(self, predicted, target, use_fm_loss=False):
         # Normalize input images
         predicted = self.normalize_input(predicted)
@@ -1877,11 +1959,15 @@ class PerceptualLoss(nn.Module):
 
         # Compute gaze loss
         # gaze_loss = self.gaze_loss(predicted, target)
+        
+        # Compute LPIPS loss
+        lpips_loss = self.lpips(predicted, target).mean()
 
         # Compute total perceptual loss
         total_loss = (
             self.weights['vgg19'] * vgg19_loss +
             self.weights['vggface'] * vggface_loss +
+            self.weights['lpips'] * lpips_loss +
             self.weights['gaze'] * 1 #gaze_loss
         )
 
@@ -2095,3 +2181,5 @@ def get_foreground_mask(image):
     foreground_mask = (mask == 15).float()  # Assuming class 15 represents the person class
 
     return foreground_mask.to(device)
+
+
