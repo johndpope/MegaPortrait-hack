@@ -107,7 +107,7 @@ def cosine_loss(pos_pairs, neg_pairs, s=5.0, m=0.2):
     assert len(pos_pairs) > 0, "pos_pairs should not be empty"
     return torch.mean(-loss / len(pos_pairs)).requires_grad_()
 
-def train_base(cfg, Gbase, Dbase, dataloader):
+def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
     feature_matching_loss = nn.MSELoss()
@@ -124,7 +124,7 @@ def train_base(cfg, Gbase, Dbase, dataloader):
     scaler = GradScaler()
     writer = SummaryWriter(log_dir='runs/training_logs')
 
-    for epoch in range(cfg.training.base_epochs):
+    for epoch in range(start_epoch, cfg.training.base_epochs):
         print("Epoch:", epoch)
 
         epoch_loss_G = 0
@@ -306,8 +306,13 @@ def train_base(cfg, Gbase, Dbase, dataloader):
                   f"Loss_G: {loss_G_cos.item():.4f}, Loss_D: {loss_D.item():.4f}")
 
         if (epoch + 1) % cfg.training.save_interval == 0:
-            torch.save(Gbase.state_dict(), f"Gbase_epoch{epoch+1}.pth")
-            torch.save(Dbase.state_dict(), f"Dbase_epoch{epoch+1}.pth")
+            torch.save({
+                'epoch': epoch,
+                'model_G_state_dict': Gbase.state_dict(),
+                'model_D_state_dict': Dbase.state_dict(),
+                'optimizer_G_state_dict': optimizer_G.state_dict(),
+                'optimizer_D_state_dict': optimizer_D.state_dict(),
+            }, f"checkpoint_epoch{epoch+1}.pth")
 
 def unnormalize(tensor):
     """
@@ -338,6 +343,20 @@ def unnormalize(tensor):
     
     return tensor
 
+def load_checkpoint(checkpoint_path, model_G, model_D, optimizer_G, optimizer_D):
+    if os.path.isfile(checkpoint_path):
+        print(f"Loading checkpoint '{checkpoint_path}'")
+        checkpoint = torch.load(checkpoint_path)
+        model_G.load_state_dict(checkpoint['model_G_state_dict'])
+        model_D.load_state_dict(checkpoint['model_D_state_dict'])
+        optimizer_G.load_state_dict(checkpoint['optimizer_G_state_dict'])
+        optimizer_D.load_state_dict(checkpoint['optimizer_D_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"Loaded checkpoint '{checkpoint_path}' (epoch {checkpoint['epoch']})")
+    else:
+        print(f"No checkpoint found at '{checkpoint_path}'")
+        start_epoch = 0
+    return start_epoch
 
 def main(cfg: OmegaConf) -> None:
     use_cuda = torch.cuda.is_available()
@@ -372,7 +391,15 @@ def main(cfg: OmegaConf) -> None:
     Gbase = model.Gbase().to(device)
     Dbase = model.Discriminator().to(device)
     
-    train_base(cfg, Gbase, Dbase, dataloader)    
+    optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+    optimizer_D = torch.optim.AdamW(Dbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
+
+    # Load checkpoint if available
+    checkpoint_path = cfg.training.checkpoint_path
+    start_epoch = load_checkpoint(checkpoint_path, Gbase, Dbase, optimizer_G, optimizer_D)
+
+
+    train_base(cfg, Gbase, Dbase, dataloader, start_epoch)
     torch.save(Gbase.state_dict(), 'Gbase.pth')
     torch.save(Dbase.state_dict(), 'Dbase.pth')
 
