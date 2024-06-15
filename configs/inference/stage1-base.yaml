@@ -1,0 +1,5 @@
+inference:
+  checkpoint_path: './checkpoint_epoch100.pth'
+  source_image: "path/to/source_image.png"
+  driving_image: "path/to/driving_image.png"
+  output_image: "output_base.jpg"

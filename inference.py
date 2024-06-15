@@ -4,13 +4,15 @@ from torchvision import transforms
 from PIL import Image
 import cv2
 import numpy as np
+import argparse
+from omegaconf import OmegaConf
 
 def load_image(image_path, transform):
     image = Image.open(image_path).convert("RGB")
     image = transform(image).unsqueeze(0)
     return image
 
-def inference_base(source_image_path, driving_image_path, Gbase):
+def inference_base(source_image_path, driving_image_path, Gbase, device):
     print("fyi - using normalize.")
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -22,7 +24,6 @@ def inference_base(source_image_path, driving_image_path, Gbase):
     driving_image = load_image(driving_image_path, transform)
 
     # Move images to device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     source_image = source_image.to(device)
     driving_image = driving_image.to(device)
 
@@ -44,26 +45,31 @@ def inference_base(source_image_path, driving_image_path, Gbase):
 
     return output_frame
 
-def main():
-      # Load pretrained base model
-    Gbase = model.Gbase()
-    # Load pretrained base model
-    checkpoint = torch.load("Gbase_epoch1.pth")
-    Gbase.load_state_dict(checkpoint, strict=False)
+def main(cfg: OmegaConf):
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
 
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    Gbase.to(device)
+    # Load pretrained base model
+    Gbase = model.Gbase().to(device)
 
     # Specify paths to source and driving images
-    source_image_path = "./output_images/source_frame_0.png"
-    driving_image_path = "./output_images/driving_frame_0.png"
+    # source_image_path = "./output_images/source_frame_0.png"
+    # driving_image_path = "./output_images/driving_frame_0.png"
+    # Load checkpoint
+    checkpoint = torch.load(cfg.inference.checkpoint_path)
+    Gbase.load_state_dict(checkpoint, strict=False)
 
     # Perform inference
-    output_frame = inference_base(source_image_path, driving_image_path, Gbase)
+    # output_frame = inference_base(source_image_path, driving_image_path, Gbase)
+    output_frame = inference_base(cfg.inference.source_image, cfg.inference.driving_image, Gbase, device)
 
     # Save output frame
-    cv2.imwrite("output_base.jpg", output_frame)
+    cv2.imwrite(cfg.inference.output_image, output_frame)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Inference script")
+    parser.add_argument('--config', type=str, required=True, help='Path to the config file')
+    args = parser.parse_args()
+
+    config = OmegaConf.load(args.config)
+    main(config)
