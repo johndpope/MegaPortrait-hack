@@ -46,28 +46,16 @@ class EMODataset(Dataset):
         self.ctx = cpu()
 
         self.video_ids = list(self.celebvhq_info['clips'].keys())
-
-        random_video_id = random.choice(self.video_ids)
-        driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        print("driving:",driving)
-
-        self.driving_vid_pil_image_list = self.load_and_process_video(driving)
         self.video_ids_star = list(self.celebvhq_info['clips'].keys())
-
-        random_video_id = random.choice(self.video_ids_star)
+        self.offset_index = 10 # check 
+    def driving_video(self):
+        video_ids_star = list(self.celebvhq_info['clips'].keys())
+        random_video_id = random.choice(video_ids_star)
         driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
         print("driving_star:",driving_star)
+        return self.load_and_process_video(driving_star)
 
-        self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
-
-        # TODO - make this more dynamic
-        # driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
-        # self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        # self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
-        # self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
-        # driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
-        # self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
-
+        
     def __len__(self) -> int:
         return len(self.video_ids)
 
@@ -214,27 +202,35 @@ class EMODataset(Dataset):
                     video_name = Path(video_path).stem
 
                     # vanilla crop                    
-                    _,sweet_tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
-                    # Save frame as PNG image
-                    # img = to_pil_image(tensor_frame1)
-                    # img.save(output_dir / f"{frame_idx:06d}.png")
-                    # tensor_frames.append(tensor_frame1)
-
-                    img = to_pil_image(sweet_tensor_frame1)
-                    img.save(output_dir / f"s_{frame_idx:06d}.png")
-                    tensor_frames.append(sweet_tensor_frame1)
+                    tensor_frame1,sweet_tensor_frame1 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=False)
+                    
+                    if sweet_tensor_frame1 is not None:
+                        img = to_pil_image(sweet_tensor_frame1)
+                        img.save(output_dir / f"s_{frame_idx:06d}.png")
+                        tensor_frames.append(sweet_tensor_frame1)
+                    elif tensor_frame1 is not None:
+                        # Save frame as PNG image
+                        img = to_pil_image(tensor_frame1)
+                        img.save(output_dir / f"{frame_idx:06d}.png")
+                        tensor_frames.append(tensor_frame1)
+                    else: 
+                        tensor_frames.append(tensor_frame)
+                    
 
                     # vanilla crop + warp                  
-                    _,sweet_tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
+                    tensor_frame2,sweet_tensor_frame2 = self.warp_and_crop_face(tensor_frame, video_name, frame_idx, transform, apply_warp=True)
+                    if sweet_tensor_frame2 is not None:
+                        img = to_pil_image(sweet_tensor_frame2)
+                        img.save(output_dir / f"sw_{frame_idx:06d}.png")
+                        tensor_frames.append(sweet_tensor_frame2)
+                    elif tensor_frame2 is not None:
                     # Save frame as PNG image
-                    # img = to_pil_image(tensor_frame2)
-                    # img.save(output_dir / f"w_{frame_idx:06d}.png")
-                    # tensor_frames.append(tensor_frame2)
-
-                    # Save frame as PNG image
-                    img = to_pil_image(sweet_tensor_frame2)
-                    img.save(output_dir / f"sw_{frame_idx:06d}.png")
-                    tensor_frames.append(sweet_tensor_frame2)
+                        img = to_pil_image(tensor_frame2)
+                        img.save(output_dir / f"w_{frame_idx:06d}.png")
+                        tensor_frames.append(tensor_frame2)
+                    else:
+                        tensor_frames.append(tensor_frame)
+                        
                 else:
                     # Save frame as PNG image
                     image_frame.save(output_dir / f"{frame_idx:06d}.png")
@@ -313,18 +309,37 @@ class EMODataset(Dataset):
         return processed_frames
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
-        video_id = self.video_ids[index]
+        video_id = self.video_ids[self.offset_index + index]
         # Use next item in the list for video_id_star, wrap around if at the end
         video_id_star = self.video_ids_star[(index + 1) % len(self.video_ids_star)]
         vid_pil_image_list = self.load_and_process_video(os.path.join(self.video_dir, f"{video_id}.mp4"))
         vid_pil_image_list_star = self.load_and_process_video(os.path.join(self.video_dir, f"{video_id_star}.mp4"))
 
+        driving_vid_pil_image_list = self.driving_video()
+        driving_vid_pil_image_list_star = self.driving_video()
+
+        # Ensure driving video is not shorter than source video
+        len_source = len(vid_pil_image_list)
+        len_driving = len(driving_vid_pil_image_list)
+
+        if len_driving < len_source:
+            # Loop the driving video to match the source video's length
+            driving_vid_pil_image_list = (driving_vid_pil_image_list * (len_source // len_driving + 1))[:len_source]
+
+        # Ensure driving video star is not shorter than source video star
+        len_source_star = len(vid_pil_image_list_star)
+        len_driving_star = len(driving_vid_pil_image_list_star)
+
+        if len_driving_star < len_source_star:
+            # Loop the driving video star to match the source video star's length
+            driving_vid_pil_image_list_star = (driving_vid_pil_image_list_star * (len_source_star // len_driving_star + 1))[:len_source_star]
+
         sample = {
             "video_id": video_id,
             "source_frames": vid_pil_image_list,
-            "driving_frames": self.driving_vid_pil_image_list,
+            "driving_frames": driving_vid_pil_image_list,
             "video_id_star": video_id_star,
             "source_frames_star": vid_pil_image_list_star,
-            "driving_frames_star": self.driving_vid_pil_image_list_star,
+            "driving_frames_star": driving_vid_pil_image_list_star,
         }
         return sample

@@ -119,7 +119,7 @@ def cosine_loss(positive_pairs, negative_pairs, margin=0.5, scale=5):
     
     return loss.mean().requires_grad_()
 
-def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
+def train_base(cfg, Gbase, Dbase, dataloader, dataset,start_epoch=0):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
     feature_matching_loss = nn.MSELoss()
@@ -323,6 +323,11 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
             }, f"checkpoint_epoch{epoch+1}.pth")
 
+
+        # Progressively load more videos after some epochs
+        # if (epoch + 1) % 5 == 0:
+        #     dataset.add_more_videos()
+            
         # Calculate FID score for the current epoch
         # with torch.no_grad():
         #     real_images = torch.cat(real_images)
@@ -393,7 +398,7 @@ def main(cfg: OmegaConf) -> None:
     start_epoch = load_checkpoint(checkpoint_path, Gbase, Dbase, optimizer_G, optimizer_D)
 
 
-    train_base(cfg, Gbase, Dbase, dataloader, start_epoch)
+    train_base(cfg, Gbase, Dbase, dataloader,dataset, start_epoch)
     torch.save(Gbase.state_dict(), 'Gbase.pth')
     torch.save(Dbase.state_dict(), 'Dbase.pth')
 
