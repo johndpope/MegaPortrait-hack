@@ -16,7 +16,7 @@ from tqdm import tqdm
 import cv2
 from pathlib import Path
 from torchvision.transforms.functional import to_pil_image, to_tensor
-
+import random
 # face warp
 from skimage.transform import PiecewiseAffineTransform, warp
 import face_recognition
@@ -45,13 +45,28 @@ class EMODataset(Dataset):
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
         self.ctx = cpu()
 
-        # TODO - make this more dynamic
-        driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        self.video_ids = list(self.celebvhq_info['clips'].keys())
+
+        random_video_id = random.choice(self.video_ids)
+        driving = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        print("driving:",driving)
+
         self.driving_vid_pil_image_list = self.load_and_process_video(driving)
-        self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
-        self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
-        driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
+        self.video_ids_star = list(self.celebvhq_info['clips'].keys())
+
+        random_video_id = random.choice(self.video_ids_star)
+        driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
+        print("driving_star:",driving_star)
+
         self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
+
+        # TODO - make this more dynamic
+        # driving = os.path.join(self.video_dir, "-2KGPYEFnsU_11.mp4")
+        # self.driving_vid_pil_image_list = self.load_and_process_video(driving)
+        # self.video_ids = ["M2Ohb0FAaJU_1"]  # list(self.celebvhq_info['clips'].keys())
+        # self.video_ids_star = ["-1eKufUP5XQ_4"]  # list(self.celebvhq_info['clips'].keys())
+        # driving_star = os.path.join(self.video_dir, "-2KGPYEFnsU_8.mp4")
+        # self.driving_vid_pil_image_list_star = self.load_and_process_video(driving_star)
 
     def __len__(self) -> int:
         return len(self.video_ids)
