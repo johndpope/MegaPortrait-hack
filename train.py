@@ -79,6 +79,17 @@ def discriminator_loss(real_pred, fake_pred, loss_type='lsgan'):
     
     return ((real_loss + fake_loss) * 0.5).requires_grad_()
 
+def multiscale_discriminator_loss(real_preds, fake_preds, loss_type='lsgan'):
+    if loss_type == 'lsgan':
+        real_loss = sum(torch.mean((real_pred - 1)**2) for real_pred in real_preds)
+        fake_loss = sum(torch.mean(fake_pred**2) for fake_pred in fake_preds)
+    elif loss_type == 'vanilla':
+        real_loss = sum(F.binary_cross_entropy_with_logits(real_pred, torch.ones_like(real_pred)) for real_pred in real_preds)
+        fake_loss = sum(F.binary_cross_entropy_with_logits(fake_pred, torch.zeros_like(fake_pred)) for fake_pred in fake_preds)
+    else:
+        raise NotImplementedError(f'Loss type {loss_type} is not implemented.')
+    
+    return ((real_loss + fake_loss) * 0.5).requires_grad_()
 
 def cosine_loss(positive_pairs, negative_pairs, margin=0.5, scale=5):
     """
@@ -214,24 +225,30 @@ def train_base(cfg, Gbase, Dbase, dataloader, dataset,start_epoch=0):
                             loss_G_per += perceptual_loss_fn(pred_scaled, target_scaled)
 
                         # Adversarial ground truths - from Kevin Fringe
-                        valid = Variable(torch.Tensor(np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
-                        fake = Variable(torch.Tensor(-1 * np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)
-
+                  
                         # real loss
-                        real_pred = Dbase(driving_frame, source_frame)
-                        loss_real = hinge_loss(real_pred, valid)
+                        real_preds = Dbase(driving_frame, source_frame)
+                        fake_preds = Dbase(pred_frame.detach(), source_frame)
 
-                        # fake loss
-                        fake_pred = Dbase(pred_frame.detach(), source_frame)
-                        loss_fake = hinge_loss(fake_pred, fake)
+                        # Create valid and fake variables dynamically
+                        valid_list = [Variable(torch.Tensor(np.ones(pred.shape)).to(device), requires_grad=False) for pred in real_preds]
+                        fake_list = [Variable(torch.Tensor(-1 * np.ones(pred.shape)).to(device), requires_grad=False) for pred in fake_preds]
+
+                        loss_real = sum([hinge_loss(real_pred, valid) for real_pred, valid in zip(real_preds, valid_list)])
+                        loss_fake = sum([hinge_loss(fake_pred, fake) for fake_pred, fake in zip(fake_preds, fake_list)])
+
+   
+                        # # fake loss
+                        # fake_pred = Dbase(pred_frame.detach(), source_frame)
+                        # loss_fake = hinge_loss(fake_pred, fake)
 
                         # Train discriminator
                         optimizer_D.zero_grad()
                         
                         # Calculate adversarial losses
-                        real_pred = Dbase(driving_frame, source_frame)
-                        fake_pred = Dbase(pred_frame.detach(), source_frame)
-                        loss_D = discriminator_loss(real_pred, fake_pred, loss_type='lsgan')
+                        real_preds = Dbase(driving_frame, source_frame)
+                        fake_preds = Dbase(pred_frame.detach(), source_frame)
+                        loss_D = multiscale_discriminator_loss(real_preds, fake_preds, loss_type='lsgan')
 
                         scaler.scale(loss_D).backward()
                         scaler.step(optimizer_D)
@@ -388,7 +405,7 @@ def main(cfg: OmegaConf) -> None:
 
     
     Gbase = model.Gbase().to(device)
-    Dbase = model.Discriminator().to(device)
+    Dbase = model.MultiscaleDiscriminator().to(device)
     
     optimizer_G = torch.optim.AdamW(Gbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)
     optimizer_D = torch.optim.AdamW(Dbase.parameters(), lr=cfg.training.lr, betas=(0.5, 0.999), weight_decay=1e-2)

@@ -45,20 +45,26 @@ class EMODataset(Dataset):
         decord.bridge.set_bridge('torch')  # Optional: This line sets decord to directly output PyTorch tensors.
         self.ctx = cpu()
 
-        self.video_ids = list(self.celebvhq_info['clips'].keys())
+        
+
+        self.video_ids = ["M2Ohb0FAaJU_1"] # list(self.celebvhq_info['clips'].keys())
         self.video_ids_star = list(self.celebvhq_info['clips'].keys())
-        self.offset_index = 10 # check 
-    def driving_video(self):
+        self.offset_index = 0 
+    def driving_video(self,index,is_star=False):
         video_ids_star = list(self.celebvhq_info['clips'].keys())
-        random_video_id = random.choice(video_ids_star)
+        # random_video_id = random.choice(video_ids_star)
+        if is_star:
+            random_video_id = video_ids_star[index+1]
+        else:
+            random_video_id = video_ids_star[index+2]
         driving_star = os.path.join(self.video_dir, f"{random_video_id}.mp4")
-        print("driving_star:",driving_star)
+        print("index:",index)
         return self.load_and_process_video(driving_star)
 
         
     def __len__(self) -> int:
         return len(self.video_ids)
-
+        
     def warp_and_crop_face(self, image_tensor, video_name, frame_idx, transform=None, output_dir="output_images", warp_strength=0.01, apply_warp=False):
         # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -96,27 +102,33 @@ class EMODataset(Dataset):
         if len(face_locations) > 0:
             top, right, bottom, left = face_locations[0]
             
-            # Automatically choose sweet spot to crop.
-            # https://github.com/tencent-ailab/V-Express/blob/main/assets/crop_example.jpeg
-            
+            # Check if the face already has a good ratio and size
             face_width = right - left
             face_height = bottom - top
+            img_width, img_height = bg_removed_image.size
 
-            # Calculate the padding amount based on face size and output dimensions
-            pad_width = int(face_width * 0.5)
-            pad_height = int(face_height * 0.5)
+            # Ratio criteria can be adjusted as needed
+            good_ratio = 0.4 <= face_width / img_width <= 0.6 and 0.4 <= face_height / img_height <= 0.6
+            
+            if good_ratio:
+                face_image_with_pad = bg_removed_image
+                face_image_no_pad = bg_removed_image.crop((left, top, right, bottom))
+            else:
+                # Calculate the padding amount based on face size and output dimensions
+                pad_width = int(face_width * 0.5)
+                pad_height = int(face_height * 0.5)
 
-            # Expand the cropping coordinates with the calculated padding
-            left_with_pad = max(0, left - pad_width)
-            top_with_pad = max(0, top - pad_height)
-            right_with_pad = min(bg_removed_image.width, right + pad_width)
-            bottom_with_pad = min(bg_removed_image.height, bottom + pad_height)
+                # Expand the cropping coordinates with the calculated padding
+                left_with_pad = max(0, left - pad_width)
+                top_with_pad = max(0, top - pad_height)
+                right_with_pad = min(bg_removed_image.width, right + pad_width)
+                bottom_with_pad = min(bg_removed_image.height, bottom + pad_height)
 
-            # Crop the face region from the image with padding
-            face_image_with_pad = bg_removed_image.crop((left_with_pad, top_with_pad, right_with_pad, bottom_with_pad))
+                # Crop the face region from the image with padding
+                face_image_with_pad = bg_removed_image.crop((left_with_pad, top_with_pad, right_with_pad, bottom_with_pad))
 
-            # Crop the face region from the image without padding
-            face_image_no_pad = bg_removed_image.crop((left, top, right, bottom))
+                # Crop the face region from the image without padding
+                face_image_no_pad = bg_removed_image.crop((left, top, right, bottom))
             
             if apply_warp:
                 # Convert the face image to a numpy array
@@ -178,7 +190,7 @@ class EMODataset(Dataset):
 
         # Check if the tensor file exists
         if tensor_file_path.exists():
-            print(f"Loading processed tensors from file: {tensor_file_path}")
+            print(f"🥛 Loading processed tensors from file: {tensor_file_path}")
             with np.load(tensor_file_path) as data:
                 tensor_frames = [torch.tensor(data[key]) for key in data]
         else:
@@ -315,8 +327,8 @@ class EMODataset(Dataset):
         vid_pil_image_list = self.load_and_process_video(os.path.join(self.video_dir, f"{video_id}.mp4"))
         vid_pil_image_list_star = self.load_and_process_video(os.path.join(self.video_dir, f"{video_id_star}.mp4"))
 
-        driving_vid_pil_image_list = self.driving_video()
-        driving_vid_pil_image_list_star = self.driving_video()
+        driving_vid_pil_image_list = self.driving_video(index)
+        driving_vid_pil_image_list_star = self.driving_video(index,True)
 
         # Ensure driving video is not shorter than source video
         len_source = len(vid_pil_image_list)
