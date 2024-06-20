@@ -21,6 +21,7 @@ import torchvision.utils as vutils
 import time
 from torch.cuda.amp import autocast, GradScaler
 from torch.autograd import Variable
+from simswap import SimSwap
 
 from scipy.linalg import sqrtm
 from sklearn.metrics.pairwise import cosine_similarity
@@ -208,10 +209,18 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         # Calculate perceptual losses - use pyramid 
                         # loss_G_per = perceptual_loss_fn(pred_frame, source_frame)
                       
+                        # Generate cheat hint using SimSwap
+                        cheat_hint = simswap.swap(source_frame, driving_frame)
+
                         loss_G_per = 0
                         for scale, pred_scaled in pred_pyramids.items():
                             target_scaled = F.interpolate(driving_frame, size=pred_scaled.shape[2:], mode='bilinear', align_corners=False)
                             loss_G_per += perceptual_loss_fn(pred_scaled, target_scaled)
+
+                        
+                        # Include cheat hint loss
+                        loss_G_cheat = perceptual_loss_fn(pred_frame, cheat_hint)
+                        loss_G_per += cfg.training.w_cheat * loss_G_cheat
 
                         # Adversarial ground truths - from Kevin Fringe
                         valid = Variable(torch.Tensor(np.ones((driving_frame.size(0), *patch))), requires_grad=False).to(device)

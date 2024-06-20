@@ -36,4 +36,5 @@ training:
   w_cos: 2   # cycle consistency loss
 
   w_cyc:  1
+  w_cheat: 1
 
