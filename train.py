@@ -211,7 +211,9 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                       
                         # Generate cheat hint using SimSwap
                         cheat_hint = simswap.swap(source_frame, driving_frame)
+                        vutils.save_image(cheat_hint, f"{output_dir}/cheat_hint_{idx}.png")
 
+                        
                         loss_G_per = 0
                         for scale, pred_scaled in pred_pyramids.items():
                             target_scaled = F.interpolate(driving_frame, size=pred_scaled.shape[2:], mode='bilinear', align_corners=False)
