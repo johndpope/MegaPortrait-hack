@@ -2218,24 +2218,43 @@ class PairwiseTransferLoss(nn.Module):
         
         return loss
     
-
-
 class IdentitySimilarityLoss(nn.Module):
     def __init__(self):
         super(IdentitySimilarityLoss, self).__init__()
         self.face_recognition_model = InceptionResnetV1(pretrained='vggface2').eval()
 
-    def forward(self, model, I1, I2):
-        # Cross-identity transfer
-        I_transfer = model(I1, I2)
+    def forward(self, Gbase, I3, I4):
+        # Generate output with both pose and expression transferred
+        full_transfer_output = Gbase(I3, I4)
         
+        # Assume the first element of the tuple is the main output
+        full_transfer = full_transfer_output[0] if isinstance(full_transfer_output, tuple) else full_transfer_output
+
+        # Ensure inputs are in the correct format (B, C, H, W)
+        def prepare_input(x):
+            if not isinstance(x, torch.Tensor):
+                raise ValueError(f"Expected a tensor, got {type(x)}")
+            if x.dim() == 3:
+                x = x.unsqueeze(0)  # Add batch dimension if missing
+            if x.shape[1] != 3:
+                x = x.permute(0, 3, 1, 2)  # Change from (B, H, W, C) to (B, C, H, W)
+            return x.float()  # Ensure float type
+
+        I3 = prepare_input(I3)
+        full_transfer = prepare_input(full_transfer)
+
         # Extract identity features
         with torch.no_grad():
-            id_features1 = self.face_recognition_model(I1)
-            id_features_transfer = self.face_recognition_model(I_transfer)
-        
+            try:
+                id_features_source = self.face_recognition_model(I3)
+                id_features_transfer = self.face_recognition_model(full_transfer)
+            except RuntimeError as e:
+                print(f"Error in face recognition model: {e}")
+                print(f"I3 shape: {I3.shape}, full_transfer shape: {full_transfer.shape}")
+                raise
+
         # Compute cosine similarity
-        similarity = F.cosine_similarity(id_features1, id_features_transfer)
+        similarity = F.cosine_similarity(id_features_source, id_features_transfer)
         
         # We want to maximize similarity, so we minimize negative similarity
         loss = -similarity.mean()

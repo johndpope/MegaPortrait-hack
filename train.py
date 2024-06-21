@@ -121,6 +121,11 @@ def cosine_loss(positive_pairs, negative_pairs, margin=0.5, scale=5):
     
     return loss.mean().requires_grad_()
 
+
+
+
+
+
 def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
     patch = (1, cfg.data.train_width // 2 ** 4, cfg.data.train_height // 2 ** 4)
     hinge_loss = nn.HingeEmbeddingLoss(reduction='mean')
@@ -134,7 +139,8 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
 
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0,'lpips':10.0})
     pairwise_transfer_loss = PairwiseTransferLoss()
-    identity_similarity_loss = IdentitySimilarityLoss()
+  #  identity_similarity_loss = IdentitySimilarityLoss()
+    identity_similarity_loss = PerceptualLoss(device, weights={'vgg19': 0.0, 'vggface': 1.0, 'gaze': 0.0,'lpips':0.0}) # focus on face
 
     scaler = GradScaler()
     writer = SummaryWriter(log_dir='runs/training_logs')
@@ -243,49 +249,61 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         # Calculate adversarial losses
                         loss_G_adv = 0.5 * (loss_real + loss_fake)
 
-                        
-
                          # Feature matching loss
                         loss_fm = feature_matching_loss(pred_frame, driving_frame)
                         writer.add_scalar('Loss/Feature Matching', loss_fm, epoch)
                         
+
+
+
+                        # New disentangling losses - from VASA paper
+                        # I1 and I2 are from the same video, I3 and I4 are from different videos
+    
+                        # Get the next frame index, wrapping around if necessary
+                        next_idx = (idx + 20) % len_source_frames
+
+                        I1 = source_frame
+                        I2 = source_frames[next_idx].to(device)
+                        I3 = source_frame_star
+                        I4 = source_frames2[next_idx % len_source_frames2].to(device)
+                        loss_pairwise = pairwise_transfer_loss(Gbase,I1, I2)
+                        loss_identity = identity_similarity_loss(I3, I4)
+
+
+                        writer.add_scalar('pairwise_transfer_loss', loss_pairwise, epoch)
+                        writer.add_scalar('identity_similarity_loss', loss_identity, epoch)
+                        
+
                         # The other objective CycleGAN regularizes the training and introduces disentanglement between the motion and canonical space
                         # In order to calculate this loss, we use an additional source-driving  pair x𝑠∗ and x𝑑∗ , 
                         # which is sampled from a different video! and therefore has different appearance from the current x𝑠 , x𝑑 pair.
 
                         # produce the following cross-reenacted image: ˆx𝑠∗→𝑑 = Gbase (x𝑠∗ , x𝑑 )
+                        # 
                         cross_reenacted_image,_ = Gbase(source_frame_star, driving_frame)
                         if save_images:
                             vutils.save_image(cross_reenacted_image, f"{output_dir}/cross_reenacted_image_{idx}.png")
+                
+                        # # Store the motion descriptors z𝑠→𝑑(predicted) and z𝑠∗→𝑑 (star predicted) from the 
+                        # # respective forward passes of the base network.                        
+                        _, _, z_pred = Gbase.motionEncoder(pred_frame) 
+                        _, _, zd = Gbase.motionEncoder(driving_frame) 
+                        
+                        _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
+                        _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
 
-                        # Store the motion descriptors z𝑠→𝑑(predicted) and z𝑠∗→𝑑 (star predicted) from the 
-                        # respective forward passes of the base network.
-                        with torch.no_grad():
-                            _, _, z_pred = Gbase.motionEncoder(pred_frame) 
-                            _, _, zd = Gbase.motionEncoder(driving_frame) 
-                            
-                            _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
-                            _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
-
-              
-                        # Calculate cycle consistency loss 
-                        # We then arrange the motion descriptors into positive pairs P that
-                        # should align with each other: P = (z𝑠→𝑑 , z𝑑 ), (z𝑠∗→𝑑 , z𝑑 ) , and
-                        # the negative pairs: N = (z𝑠→𝑑 , z𝑑∗ ), (z𝑠∗→𝑑 , z𝑑∗ ) . These pairs are
-                        # used to calculate the following cosine distance:
+                
+                        # # Calculate cycle consistency loss 
+                        # # We then arrange the motion descriptors into positive pairs P that
+                        # # should align with each other: P = (z𝑠→𝑑 , z𝑑 ), (z𝑠∗→𝑑 , z𝑑 ) , and
+                        # # the negative pairs: N = (z𝑠→𝑑 , z𝑑∗ ), (z𝑠∗→𝑑 , z𝑑∗ ) . These pairs are
+                        # # used to calculate the following cosine distance:
 
                         P = [(z_pred, zd)     ,(z_star__pred, zd)]
                         N = [(z_pred, zd_star),(z_star__pred, zd_star)]
                         loss_G_cos = cosine_loss(P, N)
                         
-                        
-
-
-                        # New disentanglement losses
-                        loss_pairwise = pairwise_transfer_loss(Gbase, source_frame, driving_frame)
-                        loss_identity = identity_similarity_loss(Gbase, source_frame, driving_frame_star)
-
-
+                    
                         writer.add_scalar('Cycle consistency loss', loss_G_cos, epoch)
                         
                         # Backpropagate and update generator
