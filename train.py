@@ -13,7 +13,7 @@ from EmoDataset import EMODataset
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torchvision import models
-from model import PerceptualLoss, crop_and_warp_face, get_foreground_mask,remove_background_and_convert_to_rgb,apply_warping_field
+from model import PerceptualLoss,IdentitySimilarityLoss, PairwiseTransferLoss,crop_and_warp_face, get_foreground_mask,remove_background_and_convert_to_rgb,apply_warping_field
 import mediapipe as mp
 import torchvision.transforms as transforms
 import os
@@ -35,6 +35,8 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_face
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
+
+
 
 
 # Function to calculate FID
@@ -131,7 +133,8 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
     scheduler_D = CosineAnnealingLR(optimizer_D, T_max=cfg.training.base_epochs, eta_min=1e-6)
 
     perceptual_loss_fn = PerceptualLoss(device, weights={'vgg19': 20.0, 'vggface': 4.0, 'gaze': 5.0,'lpips':10.0})
-
+    pairwise_transfer_loss = PairwiseTransferLoss()
+    identity_similarity_loss = IdentitySimilarityLoss()
 
     scaler = GradScaler()
     writer = SummaryWriter(log_dir='runs/training_logs')
@@ -276,14 +279,24 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         loss_G_cos = cosine_loss(P, N)
                         
                         
+
+
+                        # New disentanglement losses
+                        loss_pairwise = pairwise_transfer_loss(Gbase, source_frame, driving_frame)
+                        loss_identity = identity_similarity_loss(Gbase, source_frame, driving_frame_star)
+
+
                         writer.add_scalar('Cycle consistency loss', loss_G_cos, epoch)
                         
                         # Backpropagate and update generator
                         optimizer_G.zero_grad()
+                          # Total generator loss
                         total_loss = cfg.training.w_per * loss_G_per + \
                             cfg.training.w_adv * loss_G_adv + \
                             cfg.training.w_fm * loss_fm + \
-                            cfg.training.w_cos * loss_G_cos
+                            cfg.training.w_cos * loss_G_cos + \
+                            cfg.training.w_pairwise * loss_pairwise + \
+                            cfg.training.w_identity * loss_identity
                         scaler.scale(total_loss).backward()
                         scaler.step(optimizer_G)
                         scaler.update()

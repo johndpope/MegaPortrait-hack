@@ -2183,3 +2183,61 @@ def get_foreground_mask(image):
     return foreground_mask.to(device)
 
 
+class PairwiseTransferLoss(nn.Module):
+    def __init__(self):
+        super(PairwiseTransferLoss, self).__init__()
+
+    def forward(self, Gbase, I1, I2):
+        # Extract appearance features and motion parameters
+        vs1, es1 = Gbase.appearanceEncoder(I1)
+        vs2, es2 = Gbase.appearanceEncoder(I2)
+        
+        Rs1, ts1, zs1 = Gbase.motionEncoder(I1)
+        Rs2, ts2, zs2 = Gbase.motionEncoder(I2)
+
+        # Transfer pose (keep appearance and expression from I1, take pose from I2)
+        w_s2c_pose = Gbase.warp_generator_s2c(Rs2, ts2, zs1, es1)
+        vc_pose = apply_warping_field(vs1, w_s2c_pose)
+        vc2d_pose = Gbase.G3d(vc_pose)
+        w_c2d_pose = Gbase.warp_generator_c2d(Rs2, ts2, zs1, es1)
+        vc2d_warped_pose = apply_warping_field(vc2d_pose, w_c2d_pose)
+        vc2d_projected_pose = torch.sum(vc2d_warped_pose, dim=2)
+        I_pose = Gbase.G2d(vc2d_projected_pose)
+
+        # Transfer expression (keep appearance and pose from I1, take expression from I2)
+        w_s2c_exp = Gbase.warp_generator_s2c(Rs1, ts1, zs2, es1)
+        vc_exp = apply_warping_field(vs1, w_s2c_exp)
+        vc2d_exp = Gbase.G3d(vc_exp)
+        w_c2d_exp = Gbase.warp_generator_c2d(Rs1, ts1, zs2, es1)
+        vc2d_warped_exp = apply_warping_field(vc2d_exp, w_c2d_exp)
+        vc2d_projected_exp = torch.sum(vc2d_warped_exp, dim=2)
+        I_exp = Gbase.G2d(vc2d_projected_exp)
+
+        # Compute discrepancy loss
+        loss = F.l1_loss(I_pose, I_exp)
+        
+        return loss
+    
+
+
+class IdentitySimilarityLoss(nn.Module):
+    def __init__(self):
+        super(IdentitySimilarityLoss, self).__init__()
+        self.face_recognition_model = InceptionResnetV1(pretrained='vggface2').eval()
+
+    def forward(self, model, I1, I2):
+        # Cross-identity transfer
+        I_transfer = model(I1, I2)
+        
+        # Extract identity features
+        with torch.no_grad():
+            id_features1 = self.face_recognition_model(I1)
+            id_features_transfer = self.face_recognition_model(I_transfer)
+        
+        # Compute cosine similarity
+        similarity = F.cosine_similarity(id_features1, id_features_transfer)
+        
+        # We want to maximize similarity, so we minimize negative similarity
+        loss = -similarity.mean()
+        
+        return loss
