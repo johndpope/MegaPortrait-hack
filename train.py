@@ -257,11 +257,12 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
 
                         # Store the motion descriptors z𝑠→𝑑(predicted) and z𝑠∗→𝑑 (star predicted) from the 
                         # respective forward passes of the base network.
-                        _, _, z_pred = Gbase.motionEncoder(pred_frame) 
-                        _, _, zd = Gbase.motionEncoder(driving_frame) 
-                        
-                        _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
-                        _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
+                        with torch.no_grad():
+                            _, _, z_pred = Gbase.motionEncoder(pred_frame) 
+                            _, _, zd = Gbase.motionEncoder(driving_frame) 
+                            
+                            _, _, z_star__pred = Gbase.motionEncoder(cross_reenacted_image) 
+                            _, _, zd_star = Gbase.motionEncoder(driving_frame_star) 
 
               
                         # Calculate cycle consistency loss 
