@@ -2183,3 +2183,80 @@ def get_foreground_mask(image):
     return foreground_mask.to(device)
 
 
+class PairwiseTransferLoss(nn.Module):
+    def __init__(self):
+        super(PairwiseTransferLoss, self).__init__()
+
+    def forward(self, Gbase, I1, I2):
+        # Extract appearance features and motion parameters
+        vs1, es1 = Gbase.appearanceEncoder(I1)
+        vs2, es2 = Gbase.appearanceEncoder(I2)
+        
+        Rs1, ts1, zs1 = Gbase.motionEncoder(I1)
+        Rs2, ts2, zs2 = Gbase.motionEncoder(I2)
+
+        # Transfer pose (keep appearance and expression from I1, take pose from I2)
+        w_s2c_pose = Gbase.warp_generator_s2c(Rs2, ts2, zs1, es1)
+        vc_pose = apply_warping_field(vs1, w_s2c_pose)
+        vc2d_pose = Gbase.G3d(vc_pose)
+        w_c2d_pose = Gbase.warp_generator_c2d(Rs2, ts2, zs1, es1)
+        vc2d_warped_pose = apply_warping_field(vc2d_pose, w_c2d_pose)
+        vc2d_projected_pose = torch.sum(vc2d_warped_pose, dim=2)
+        I_pose = Gbase.G2d(vc2d_projected_pose)
+
+        # Transfer expression (keep appearance and pose from I1, take expression from I2)
+        w_s2c_exp = Gbase.warp_generator_s2c(Rs1, ts1, zs2, es1)
+        vc_exp = apply_warping_field(vs1, w_s2c_exp)
+        vc2d_exp = Gbase.G3d(vc_exp)
+        w_c2d_exp = Gbase.warp_generator_c2d(Rs1, ts1, zs2, es1)
+        vc2d_warped_exp = apply_warping_field(vc2d_exp, w_c2d_exp)
+        vc2d_projected_exp = torch.sum(vc2d_warped_exp, dim=2)
+        I_exp = Gbase.G2d(vc2d_projected_exp)
+
+        # Compute discrepancy loss
+        loss = F.l1_loss(I_pose, I_exp)
+        
+        return loss
+    
+class IdentitySimilarityLoss(nn.Module):
+    def __init__(self):
+        super(IdentitySimilarityLoss, self).__init__()
+        self.face_recognition_model = InceptionResnetV1(pretrained='vggface2').eval()
+
+    def forward(self, Gbase, I3, I4):
+        # Generate output with both pose and expression transferred
+        full_transfer_output = Gbase(I3, I4)
+        
+        # Assume the first element of the tuple is the main output
+        full_transfer = full_transfer_output[0] if isinstance(full_transfer_output, tuple) else full_transfer_output
+
+        # Ensure inputs are in the correct format (B, C, H, W)
+        def prepare_input(x):
+            if not isinstance(x, torch.Tensor):
+                raise ValueError(f"Expected a tensor, got {type(x)}")
+            if x.dim() == 3:
+                x = x.unsqueeze(0)  # Add batch dimension if missing
+            if x.shape[1] != 3:
+                x = x.permute(0, 3, 1, 2)  # Change from (B, H, W, C) to (B, C, H, W)
+            return x.float()  # Ensure float type
+
+        I3 = prepare_input(I3)
+        full_transfer = prepare_input(full_transfer)
+
+        # Extract identity features
+        with torch.no_grad():
+            try:
+                id_features_source = self.face_recognition_model(I3)
+                id_features_transfer = self.face_recognition_model(full_transfer)
+            except RuntimeError as e:
+                print(f"Error in face recognition model: {e}")
+                print(f"I3 shape: {I3.shape}, full_transfer shape: {full_transfer.shape}")
+                raise
+
+        # Compute cosine similarity
+        similarity = F.cosine_similarity(id_features_source, id_features_transfer)
+        
+        # We want to maximize similarity, so we minimize negative similarity
+        loss = -similarity.mean()
+        
+        return loss

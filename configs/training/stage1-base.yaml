@@ -5,6 +5,7 @@ data:
   n_sample_frames: 1
   n_motion_frames: 2
 training:
+  frame_offset: 20
   checkpoint_path: './checkpoint_epoch100.pth'
   save_interval: 50
   log_interval: 100
@@ -34,6 +35,7 @@ training:
   w_adv: 1   # adversarial loss
   w_fm: 40   # feature matching loss
   w_cos: 2   # cycle consistency loss
-
+  w_pairwise: 1
+  w_identity: 1
   w_cyc:  1
 
