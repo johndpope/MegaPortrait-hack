@@ -18,3 +18,4 @@ facenet_pytorch
 rembg
 lpips
 tensorboard
+torch-fidelity
