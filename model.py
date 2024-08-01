@@ -774,7 +774,7 @@ The resulting grid represents the warping transformations based on the given rot
 https://github.com/Kevinfringe/MegaPortrait/issues/4
 
 '''
-def compute_rt_warp(rotation, translation, invert=False, grid_size=64):
+def compute_rt_warp(rotation, translation, grid_size=64):
     """
     Computes the rotation/translation warpings (w_rt).
     
@@ -786,25 +786,12 @@ def compute_rt_warp(rotation, translation, invert=False, grid_size=64):
     Returns:
         torch.Tensor: The resulting transformation grid.
     """
-    # Compute the rotation matrix from the rotation parameters
+
     rotation_matrix = compute_rotation_matrix(rotation)
-
-    # Create a 4x4 affine transformation matrix
     affine_matrix = torch.eye(4, device=rotation.device).repeat(rotation.shape[0], 1, 1)
-
-    # Set the top-left 3x3 submatrix to the rotation matrix
     affine_matrix[:, :3, :3] = rotation_matrix
-
-    # Set the first three elements of the last column to the translation parameters
     affine_matrix[:, :3, 3] = translation
-
-    # Invert the transformation matrix if needed
-    if invert:
-        affine_matrix = torch.inverse(affine_matrix)
-
-    # # Create a grid of normalized coordinates 
     grid = F.affine_grid(affine_matrix[:, :3], (rotation.shape[0], 1, grid_size, grid_size, grid_size), align_corners=False)
-    # # Transpose the dimensions of the grid to match the expected shape
     grid = grid.permute(0, 4, 1, 2, 3)
     return grid
 
@@ -936,44 +923,23 @@ class WarpGeneratorS2C(nn.Module):
 
 #    @profile
     def forward(self, Rs, ts, zs, es):
-        # Assert shapes of input tensors
-        assert Rs.shape == (zs.shape[0], 3), f"Expected Rs shape (batch_size, 3), got {Rs.shape}"
-        assert ts.shape == (zs.shape[0], 3), f"Expected ts shape (batch_size, 3), got {ts.shape}"
-        assert zs.shape == es.shape, f"Expected zs and es to have the same shape, got {zs.shape} and {es.shape}"
-
-        # Sum es with zs
-        zs_sum = zs + es
-
-        # Generate adaptive parameters
-        # adaptive_gamma = torch.matmul(zs_sum, self.adaptive_matrix_gamma.T)
-        # adaptive_beta = torch.matmul(zs_sum, self.adaptive_matrix_beta.T)
-        '''
-        ### TODO 3: add adaptive_matrix_gamma
-        According to the description of the paper (Page11: To generate adaptive parameters, 
-        we multiply the foregoing sums and additionally learned matrices for each pair of parameters.), 
-        adaptive_matrix_gamma should be retained. It is not used to change the shape, but can generate learning parameters, 
-        which is more reasonable than just using sum.
-        '''
-        zs_sum = torch.matmul(zs_sum, self.adaptive_matrix_gamma) 
-        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1) ### TODO 3: add unsqueeze(-1).unsqueeze(-1) to match the shape of w_em_s2c
-
-        adaptive_gamma = 0
-        adaptive_beta = 0
-        w_em_s2c = self.flowfield(zs_sum,adaptive_gamma,adaptive_beta) ### TODO 3: flowfield do not need them (adaptive_gamma,adaptive_beta)
-        logging.debug(f"w_em_s2c:  :{w_em_s2c.shape}") # 🤷 this is [1, 3, 16, 16, 16] but should it be 16x16 or 64x64?  
-        # Compute rotation/translation warping
-        w_rt_s2c = compute_rt_warp(Rs, ts, invert=True, grid_size=64)
-        logging.debug(f"w_rt_s2c: :{w_rt_s2c.shape}") 
+        # First, apply RT to go from source to canonical
+        w_rt_s2c = compute_rt_warp(torch.inverse(Rs), -ts, grid_size=64)
         
-
-        # 🤷 its the wrong dimensions - idk - 
-        # Resize w_em_s2c to match w_rt_s2c
-        w_em_s2c_resized = F.interpolate(w_em_s2c, size=w_rt_s2c.shape[2:], mode='trilinear', align_corners=False)
-        logging.debug(f"w_em_s2c_resized: {w_em_s2c_resized.shape}")
-        w_s2c = w_rt_s2c + w_em_s2c_resized
-
+        # Then, apply emotion warping in canonical space
+        zs_sum = zs + es
+        zs_sum = torch.matmul(zs_sum, self.adaptive_matrix_gamma)
+        zs_sum = zs_sum.unsqueeze(-1).unsqueeze(-1)
+        w_em_s2c = self.flowfield(zs_sum, 0, 0)
+        
+        # Combine the warps (first RT, then emotion)
+        w_s2c = compose_warps(w_rt_s2c, w_em_s2c)
+        
         return w_s2c
 
+def compose_warps(warp1, warp2):
+    # Assuming warp1 and warp2 are displacement fields
+    return warp1 + warp2 + torch.sum(warp1 * warp2, dim=1, keepdim=True)
 
 class WarpGeneratorC2D(nn.Module):
     def __init__(self, num_channels):
@@ -993,34 +959,18 @@ class WarpGeneratorC2D(nn.Module):
         assert zd.shape == es.shape, f"Expected zd and es to have the same shape, got {zd.shape} and {es.shape}"
 
         # Sum es with zd
+        # First, apply emotion warping in canonical space
         zd_sum = zd + es
+        zd_sum = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
+        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1)
+        w_em_c2d = self.flowfield(zd_sum, 0, 0)
         
-        # Generate adaptive parameters
-        # adaptive_gamma = torch.matmul(zd_sum, self.adaptive_matrix_gamma)
-        # adaptive_beta = torch.matmul(zd_sum, self.adaptive_matrix_beta)
-        '''
-        ### TODO 3: add adaptive_matrix_gamma
-        According to the description of the paper (Page11: To generate adaptive parameters, 
-        we multiply the foregoing sums and additionally learned matrices for each pair of parameters.), 
-        adaptive_matrix_gamma should be retained. It is not used to change the shape, but can generate learning parameters, 
-        which is more reasonable than just using sum.
-        '''
-        zd_sum = torch.matmul(zd_sum, self.adaptive_matrix_gamma) 
-        zd_sum = zd_sum.unsqueeze(-1).unsqueeze(-1) ### TODO 3 add unsqueeze(-1).unsqueeze(-1) to match the shape of w_em_c2d
-
-        adaptive_gamma = 0
-        adaptive_beta = 0
-        w_em_c2d = self.flowfield(zd_sum,adaptive_gamma,adaptive_beta)
-
-        # Compute rotation/translation warping
-        w_rt_c2d = compute_rt_warp(Rd, td, invert=False, grid_size=64)
-
-         # Resize w_em_c2d to match w_rt_c2d
-        w_em_c2d_resized = F.interpolate(w_em_c2d, size=w_rt_c2d.shape[2:], mode='trilinear', align_corners=False)
-        logging.debug(f"w_em_c2d_resized:{w_em_c2d_resized.shape}" )
-
-        w_c2d = w_rt_c2d + w_em_c2d_resized
-
+        # Then, apply RT to go from canonical to driving
+        w_rt_c2d = compute_rt_warp(Rd, td, grid_size=64)
+        
+        # Combine the warps (first emotion, then RT)
+        w_c2d = compose_warps(w_em_c2d, w_rt_c2d)
+        
         return w_c2d
 
 
