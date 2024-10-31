@@ -26,41 +26,31 @@ from scipy.linalg import sqrtm
 from sklearn.metrics.pairwise import cosine_similarity
 from lpips import LPIPS
 
-from torchmetrics.image import (MultiScaleStructuralSimilarityIndexMeasure,
-                                PeakSignalNoiseRatio)
-from torchmetrics.image.fid import FrechetInceptionDistance
-from torchmetrics.image.inception import InceptionScore
-from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-
 from torch.utils.tensorboard import SummaryWriter
 
 output_dir = "output_images"
 os.makedirs(output_dir, exist_ok=True)
+
+face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5)
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
 
 
-# Initialize metrics
-ms_ssim = MultiScaleStructuralSimilarityIndexMeasure(data_range=1.0).to(device)
-psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
-fid = FrechetInceptionDistance(feature=2048).to(device)
-inception = InceptionScore().to(device)
-lpips = LearnedPerceptualImagePatchSimilarity(net_type='vgg').to(device)
 
-
-# Function to calculate metrics
-def calculate_metrics(real_images, fake_images):
-    real_images = real_images.to(device)
-    fake_images = fake_images.to(device)
-    ms_ssim_score = ms_ssim(real_images, fake_images)
-    psnr_score = psnr(real_images, fake_images)
-    fid_score = 0 # fid(real_images, fake_images)
-    inception_score = inception(real_images)
-    lpips_score = lpips(real_images, fake_images)
-    return ms_ssim_score, psnr_score, fid_score, inception_score, lpips_score
-
+# Function to calculate FID
+def calculate_fid(real_images, fake_images):
+    real_images = real_images.detach().cpu().numpy()
+    fake_images = fake_images.detach().cpu().numpy()
+    mu1, sigma1 = real_images.mean(axis=0), np.cov(real_images, rowvar=False)
+    mu2, sigma2 = fake_images.mean(axis=0), np.cov(fake_images, rowvar=False)
+    ssdiff = np.sum((mu1 - mu2) ** 2.0)
+    covmean = sqrtm(sigma1.dot(sigma2))
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+    return fid
 
 # Function to calculate CSIM (Cosine Similarity)
 def calculate_csim(real_features, fake_features):
@@ -161,10 +151,8 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
         epoch_loss_G = 0
         epoch_loss_D = 0
 
-        ms_ssim_score = 0
-        psnr_score = 0
         fid_score = 0
-        inception_score = 0
+        csim_score = 0
         lpips_score = 0
 
 
@@ -336,33 +324,20 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                         epoch_loss_D += loss_D.item()
 
 
-                        # Calculate metrics
-                        ms_ssim_batch, psnr_batch, fid_batch, inception_batch, lpips_batch = calculate_metrics(driving_frame, pred_frame)
-                        ms_ssim_score += ms_ssim_batch.item()
-                        psnr_score += psnr_batch.item()
-                        fid_score += fid_batch.item()
-                        inception_score += inception_batch.item()
-                        lpips_score += lpips_batch.item()
+
 
 
         avg_loss_G = epoch_loss_G / len(dataloader)
         avg_loss_D = epoch_loss_D / len(dataloader)
-        ms_ssim_score /= len(dataloader)
-        psnr_score /= len(dataloader)
-        fid_score /= len(dataloader)
-        inception_score /= len(dataloader)
-        lpips_score /= len(dataloader)
         
         writer.add_scalar('Loss/Generator', avg_loss_G, epoch)
         writer.add_scalar('Loss/Discriminator', avg_loss_D, epoch)
 
 
         writer.add_scalar('FID Score', fid_score, epoch)
-        writer.add_scalar('MS SSIM Score ', ms_ssim_score, epoch)
+        writer.add_scalar('CSIM Score', csim_score, epoch)
         writer.add_scalar('LPIPS Score', lpips_score, epoch)
-        writer.add_scalar('Inception Score', inception_score, epoch)
-        writer.add_scalar('PSNR Score', psnr_score, epoch)
-        
+
 
         scheduler_G.step()
         scheduler_D.step()
@@ -379,6 +354,18 @@ def train_base(cfg, Gbase, Dbase, dataloader, start_epoch=0):
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
             }, f"checkpoint_epoch{epoch+1}.pth")
+
+        # Calculate FID score for the current epoch
+        # with torch.no_grad():
+        #     real_images = torch.cat(real_images)
+        #     fake_images = torch.cat(fake_images)
+        #     fid_score = calculate_fid(real_images, fake_images)
+        #     csim_score = calculate_csim(real_images, fake_images)
+        #     lpips_score = calculate_lpips(real_images, fake_images)
+  
+        #     writer.add_scalar('FID Score', fid_score, epoch)
+        #     writer.add_scalar('CSIM Score', csim_score, epoch)
+        #     writer.add_scalar('LPIPS Score', lpips_score, epoch)
 
 
 
