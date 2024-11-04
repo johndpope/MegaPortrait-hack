@@ -1,14 +1,20 @@
+## IMPORTANT
+My VASA hack project https://github.com/johndpope/vasa-1-hack has running /training code stage 1 (megaportraits) - with hot fixes
+[https://github.com/johndpope/VASA-1-hack/blob/main/train_stage_1.py
+](https://github.com/johndpope/VASA-1-hack/commit/430947d9707777d2ed9d38183e523d31c13054eb)
+
+
+
+
+
 # MegaPortrait - SamsungLabs AI - Russia 
 Implementation of Megaportrait using Claude Opus
 
 
 All models / code is in model.py
 
-(beware when working with claude if you paste copyright ResNet code - it will spit the dummy - especially on .)
 
 ![Image](diagram.jpeg)
-
-
 
 
 memory debug
@@ -28,7 +34,7 @@ or just
 - auto crop video frames to sweet spot 
 - tensorboard losses
 - LPIPS
-- additional imagepyramide from one shot view code for loss
+- additional imagepyramide from one shot view code for loss - (this broke things..)
 
 
 
